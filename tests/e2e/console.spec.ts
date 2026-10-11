@@ -104,6 +104,7 @@ test('imports a game folder into browser storage, and ejects it again', async ({
   await expect(page.locator('.menu li').nth(1)).toContainText('READY');
 
   await page.keyboard.press('2');
+  await expect(page.locator('.menu button').first()).toContainText('Begin simulation');
   await page.keyboard.press('4');
   await expect(page.getByText('EJECT THE FALLOUT 2 HOLODISK?')).toBeVisible();
   await page.keyboard.press('y');

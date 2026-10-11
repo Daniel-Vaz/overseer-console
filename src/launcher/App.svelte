@@ -48,6 +48,10 @@
 
   function go(path: string): void {
     location.hash = path ? `#/${path}` : '#/';
+    // The hashchange event arrives a moment later. Switch screens now, so a
+    // key typed right after this one already belongs to the new screen.
+    route = readRoute();
+    body?.scrollTo(0, 0);
   }
 
   function back(): void {
