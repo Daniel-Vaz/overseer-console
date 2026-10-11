@@ -727,6 +727,61 @@ kbd {
   filter: drop-shadow(0 0 0.35em rgba(77, 255, 124, 0.5));
 }
 
+/* The picture stored with a save, and the character sheet beside it. */
+.thumb {
+  display: block;
+  width: 100%;
+  max-width: 448px;
+  height: auto;
+  margin: 0.2em auto 0.7em;
+  border: 2px solid var(--phosphor-faint);
+  image-rendering: pixelated;
+  filter: drop-shadow(0 0 0.35em rgba(77, 255, 124, 0.35));
+}
+
+/* Label and value run on in one line; long lists wrap under their label. */
+.sheet p {
+  margin-top: 0.1em;
+}
+
+.sheet b {
+  margin-right: 0.6ch;
+  color: var(--phosphor-dim);
+  font-weight: normal;
+  text-transform: uppercase;
+}
+
+.sheet .sep {
+  display: inline-block;
+  width: 1.5ch;
+}
+
+.sheet table {
+  width: 100%;
+  margin: 0.25em 0;
+  border-collapse: collapse;
+  border-top: 2px solid var(--phosphor-faint);
+  border-bottom: 2px solid var(--phosphor-faint);
+  table-layout: fixed;
+  text-align: center;
+}
+
+.sheet th {
+  color: var(--phosphor-dim);
+  font-weight: normal;
+}
+
+.sheet th,
+.sheet td {
+  padding: 0;
+}
+
+/* The archives show a save's picture and character on a wider board. */
+.columns.portrait {
+  grid-template-columns: minmax(0, 1fr) minmax(26ch, 40ch);
+  gap: 0 4ch;
+}
+
 @keyframes spin {
   to {
     transform: rotate(360deg);
@@ -836,8 +891,14 @@ kbd {
     display: none;
   }
 
-  .columns {
+  .columns,
+  .columns.portrait {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .thumb {
+    max-width: 224px;
+    margin-left: 0;
   }
 
   .board {

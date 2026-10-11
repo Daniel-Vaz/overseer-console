@@ -1,11 +1,15 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { gameFacts, paletteFor, type GameFacts } from '../../lib/gamefacts';
   import { GAMES, GAME_IDS, type GameId } from '../../lib/games';
+  import { parseCharacter, parseSaveHeader, type Character } from '../../lib/savefile';
   import { deleteSave, exportSaves, listSaves, markForContinue, readSaveArchive, type SaveImport, type SaveSlot } from '../../lib/saves';
-  import { listVersions, restoreVersion, type SaveVersion } from '../../lib/storage/history';
+  import { listVersions, readVersionSave, restoreVersion, type SaveVersion } from '../../lib/storage/history';
   import { formatBytes } from '../../lib/storage/manifest';
   import Glyph from '../components/Glyph.svelte';
   import Menu from '../components/Menu.svelte';
+  import Sheet from '../components/Sheet.svelte';
+  import Thumbnail from '../components/Thumbnail.svelte';
   import { ago, plural, stamp } from '../format';
   import { launchGame } from '../launch';
   import { sfx } from '../sfx';
@@ -23,6 +27,12 @@
   /** The earlier versions of the open slot, while they are being looked at. */
   let versions = $state<SaveVersion[] | null>(null);
   let rollback = $state<SaveVersion | null>(null);
+  let versionSelected = $state(0);
+  /** Picture and character of the version under the cursor, once read. */
+  let preview = $state<{ id: number; thumbnail?: Uint8Array; sheet: Character | null } | null>(null);
+  /** What the installed game lends for describing saves: its colours and its names. */
+  let palette = $state<Uint8Array | null>(null);
+  let facts = $state<GameFacts | null>(null);
   let pendingImport = $state<SaveImport | null>(null);
   let message = $state<{ text: string; bad?: boolean } | null>(null);
   let running = $state(false);
@@ -67,6 +77,10 @@
   async function load(): Promise<void> {
     if (!game) return;
     slots = null;
+    const current = game;
+    // Not waited for: the list is useful before its pictures are.
+    void paletteFor(current).then((colours) => current === game && (palette = colours));
+    void gameFacts(current).then((known) => current === game && (facts = known));
     try {
       slots = await listSaves(game);
       // Changing saves under a running game would be overwritten by it.
@@ -89,6 +103,28 @@
     message = null;
     void load();
   });
+
+  $effect(() => {
+    const version = versions?.[versionSelected];
+    const current = game;
+    if (!version || !current) {
+      preview = null;
+      return;
+    }
+    let stale = false;
+    void readVersionSave(version)
+      .then((data) => {
+        if (stale || !data) return;
+        preview = { id: version.id, thumbnail: parseSaveHeader(data)?.thumbnail, sheet: parseCharacter(data, current) };
+      })
+      .catch(() => undefined);
+    return () => {
+      stale = true;
+    };
+  });
+
+  /** The slot under the cursor in the list, when the cursor is on a slot. */
+  const pointed = $derived(slots?.[selected] ?? null);
 
   function slotLabel(slot: number): string {
     return `SLOT ${String(slot).padStart(2, '0')}`;
@@ -115,6 +151,7 @@
   async function showVersions(): Promise<void> {
     if (!game || !open) return;
     try {
+      versionSelected = 0;
       versions = await listVersions(game, open.slot);
     } catch (err) {
       message = { text: `Could not read the save history: ${err instanceof Error ? err.message : String(err)}`, bad: true };
@@ -199,7 +236,7 @@
       (save, index): MenuItem => ({
         key: SLOT_KEYS[index] ?? '?',
         label: `${slotLabel(save.slot)}  ${save.valid ? save.description || '(no description)' : 'UNREADABLE'}`,
-        state: save.valid ? `${save.character}  ${save.gameDate}` : '',
+        state: save.valid ? `${save.character}${save.sheet?.level ? `, LEVEL ${save.sheet.level}` : ''}  ${save.gameDate}` : '',
         tone: save.valid ? undefined : 'alert',
         note: save.valid
           ? `${save.map}, ${save.gameClock} hours. ${formatBytes(save.bytes)} in ${save.files} files.` +
@@ -365,13 +402,29 @@
     <p>The save now in the slot is kept as an earlier version, so you can change your mind.</p>
     <Menu items={rollbackItems} label="Confirm roll back" />
   {:else if open && versions}
-    <p class="gap">{slotLabel(open.slot)}: EARLIER VERSIONS</p>
-    <p class="dim prose">
-      The console keeps what a slot held each time it is saved over: the latest three, and a thinning trail of older
-      ones reaching back days. Choose one to put it back in the slot.
-    </p>
-    <Menu items={versionItems} label="Earlier versions" />
+    <div class="columns portrait">
+      <div>
+        <p class="gap">{slotLabel(open.slot)}: EARLIER VERSIONS</p>
+        <p class="dim prose">
+          The console keeps what a slot held each time it is saved over: the latest three, and a thinning trail of
+          older ones reaching back days. Choose one to put it back in the slot.
+        </p>
+        <Menu items={versionItems} label="Earlier versions" bind:selected={versionSelected} />
+      </div>
+      {#if preview && versions[versionSelected]?.id === preview.id}
+        <aside class="board gap" aria-label="This version">
+          {#if preview.thumbnail && palette}
+            <Thumbnail pixels={preview.thumbnail} {palette} label="The screen when this version was saved" />
+          {/if}
+          {#if preview.sheet}
+            <Sheet character={preview.sheet} {game} {facts} />
+          {/if}
+        </aside>
+      {/if}
+    </div>
   {:else if open}
+    <div class="columns portrait">
+    <div>
     <dl class="readout gap">
       <dt>Slot</dt>
       <dd>{String(open.slot).padStart(2, '0')}</dd>
@@ -389,15 +442,45 @@
       <dd>{formatBytes(open.bytes)} in {open.files} files</dd>
     </dl>
     <Menu items={slotItems} label="Save options" />
+    </div>
+    <aside class="board gap" aria-label="Character">
+      {#if open.thumbnail && palette}
+        <Thumbnail pixels={open.thumbnail} {palette} label="The screen when this game was saved" />
+      {:else}
+        <Glyph name="save" />
+      {/if}
+      {#if open.sheet}
+        <Sheet character={open.sheet} {game} {facts} />
+      {:else if open.valid}
+        <p class="dim">THE CHARACTER SHEET OF THIS SAVE COULD NOT BE READ.</p>
+      {/if}
+    </aside>
+    </div>
   {:else}
     {#if !slots.length}
       <p class="gap dim">NO SAVED GAMES YET. Saves made in the game (F4, or F6 for a quick save) appear here.</p>
     {/if}
     <div class="columns">
       <div><Menu items={listItems} label="Saved games" bind:selected /></div>
-      <aside class="board gap" aria-hidden="true">
-        <Glyph name={listItems[selected]?.icon ?? 'save'} />
-      </aside>
+      {#if pointed?.thumbnail && palette}
+        <aside class="board gap" aria-label="Selected save">
+          <Thumbnail pixels={pointed.thumbnail} {palette} label="The screen when this game was saved" />
+          <dl class="readout">
+            <dt>Character</dt>
+            <dd>{pointed.character}{pointed.sheet?.level ? `, level ${pointed.sheet.level}` : ''}</dd>
+            {#if pointed.sheet}
+              <dt>Hit points</dt>
+              <dd>{pointed.sheet.hitPoints}/{pointed.sheet.maxHitPoints}</dd>
+            {/if}
+            <dt>Saved</dt>
+            <dd>{pointed.savedAt ? ago(pointed.savedAt) : 'UNKNOWN'}</dd>
+          </dl>
+        </aside>
+      {:else}
+        <aside class="board gap" aria-hidden="true">
+          <Glyph name={listItems[selected]?.icon ?? 'save'} />
+        </aside>
+      {/if}
     </div>
   {/if}
 {/if}

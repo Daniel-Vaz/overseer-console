@@ -1,4 +1,6 @@
+import { readFileSync } from 'node:fs';
 import type { Page } from '@playwright/test';
+import { unzipSync } from 'fflate';
 import { expect, test } from './fixtures';
 import { openConsole } from './helpers';
 
@@ -150,6 +152,33 @@ for (const game of GAMES) {
     await expect(slot).toContainText('SLOT 01');
     await expect(slot).toContainText('e2e');
     await expect(page.locator('.menu-note')).toContainText('1 earlier version kept.');
+
+    // The console read the save: its picture, drawn with the game's own palette, and the character.
+    await expect(page.locator('canvas.thumb')).toBeVisible();
+    await page.keyboard.press('1');
+    const sheet = page.locator('.sheet');
+    await expect(sheet).toContainText(/Level\s*1/);
+    await expect(sheet).toContainText('Tagged');
+    await expect(sheet).toContainText('Traits');
+    await expect(sheet).toContainText(game.id === 'fo1' ? 'Heavy Handed, Bruiser' : 'Heavy Handed, Gifted');
+    const lit = await page.locator('canvas.thumb').evaluate((canvas: HTMLCanvasElement) => {
+      const pixels = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
+      let bright = 0;
+      for (let i = 1; i < pixels.length; i += 4) if (pixels[i]! > 40) bright++;
+      return bright / (pixels.length / 4);
+    });
+    expect(lit).toBeGreaterThan(0.1);
+
+    // Exported, the save is a sound archive holding every file the game wrote.
+    const download = page.waitForEvent('download');
+    await page.keyboard.press('e');
+    const archive = unzipSync(new Uint8Array(readFileSync(await (await download).path())));
+    const names = Object.keys(archive).map((name) => name.toUpperCase());
+    expect(names).toContain('SAVEGAME/SLOT01/SAVE.DAT');
+    expect(names).toContain('SAVEGAME/SLOT01/AUTOMAP.SAV');
+    expect(names.some((name) => /SLOT01\/[A-Z0-9_]+\.SAV$/.test(name) && !name.endsWith('AUTOMAP.SAV'))).toBe(true);
+    for (const [name, data] of Object.entries(archive)) expect(data.length, name).toBeGreaterThan(0);
+    expect(Buffer.from(archive['SAVEGAME/SLOT01/SAVE.DAT']!.subarray(0, 17)).toString('latin1')).toBe('FALLOUT SAVE FILE');
 
     // Continue: from the main directory straight back to where the save was made.
     await page.goto('#/');

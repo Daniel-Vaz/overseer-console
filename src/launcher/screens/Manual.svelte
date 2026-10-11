@@ -76,6 +76,10 @@
     them to a zip file as a backup, or to move them to another browser or a desktop install.
   </p>
   <p>
+    Save archives shows each save with the picture the game stored with it and a summary of the character: level, hit
+    points, statistics, tagged skills, traits and perks. The names come from your own game files.
+  </p>
+  <p>
     <span class="hot">Continue</span> on the main directory starts the game you saved last and takes you straight
     into that save, skipping the game's menus. Any other save can be started the same way: open its slot in Save
     archives and choose <span class="hot">Load this save</span>.

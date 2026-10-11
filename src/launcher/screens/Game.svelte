@@ -103,7 +103,7 @@
             key: 'c',
             label: 'Continue',
             state: `SLOT ${String(resume.slot).padStart(2, '0')}, ${ago(resume.savedAt)}`,
-            note: `Straight into your latest save: "${resume.description || 'no description'}", ${resume.character}, ${resume.map}, ${resume.gameDate}.`,
+            note: `Straight into your latest save: "${resume.description || 'no description'}", ${resume.character}${resume.level ? ` (level ${resume.level})` : ''}, ${resume.map}, ${resume.gameDate}.`,
             action: () => void launchGame(game, resume.slot),
           } satisfies MenuItem,
         ]

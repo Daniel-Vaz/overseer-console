@@ -41,7 +41,7 @@
             key: 'c',
             label: `Continue: ${GAMES[resume.game].title}`,
             state: `SLOT ${String(resume.save.slot).padStart(2, '0')}, ${ago(resume.save.savedAt)}`,
-            note: `Straight into your latest save: "${resume.save.description || 'no description'}", ${resume.save.character}, ${resume.save.map}, ${resume.save.gameDate}.`,
+            note: `Straight into your latest save: "${resume.save.description || 'no description'}", ${resume.save.character}${resume.save.level ? ` (level ${resume.save.level})` : ''}, ${resume.save.map}, ${resume.save.gameDate}.`,
             icon: 'play',
             action: () => void launchGame(resume.game, resume.save.slot),
           } satisfies MenuItem,

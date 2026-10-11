@@ -7,7 +7,7 @@
  */
 import { strToU8, unzipSync, zipSync, type Zippable } from 'fflate';
 import type { GameId } from './games';
-import { SAVE_PREFIX, isSaveData, parseSaveHeader, slotOf, slotPrefix } from './savefile';
+import { SAVE_PREFIX, isSaveData, parseCharacter, parseSaveHeader, slotOf, slotPrefix, type Character } from './savefile';
 import { countVersions, deleteVersions, replaceSlot } from './storage/history';
 import { pathKey } from './storage/manifest';
 import { clearOverlay, listOverlay, listOverlayKeys, readOverlay, type OverlayChanges, type OverlayEntry } from './storage/overlay';
@@ -34,6 +34,8 @@ export interface SaveSlot {
   versions: number;
   /** 224x133 palette indices, when present. */
   thumbnail?: Uint8Array;
+  /** The character sheet, as far as the save could be read. */
+  sheet: Character | null;
 }
 
 async function saveEntries(game: GameId, slot?: number): Promise<OverlayEntry[]> {
@@ -65,6 +67,7 @@ export async function listSaves(game: GameId): Promise<SaveSlot[]> {
       gameClock: header?.gameClock ?? '',
       map: header?.map ?? '',
       thumbnail: header?.thumbnail,
+      sheet: header && main?.data ? parseCharacter(main.data, game) : null,
       savedAt: main?.mtime,
       bytes: entries.reduce((sum, entry) => sum + (entry.data?.length ?? 0), 0),
       files: entries.length,
@@ -83,6 +86,8 @@ export interface SaveBrief {
   gameClock: string;
   map: string;
   savedAt: number;
+  /** The character's level, when the save could be read that far. */
+  level?: number;
 }
 
 /**
@@ -96,7 +101,7 @@ export async function briefSaves(game: GameId): Promise<SaveBrief[]> {
     const header = entry ? parseSaveHeader(entry.data!) : null;
     if (!entry || !header) continue;
     const { thumbnail: _thumbnail, ...summary } = header;
-    briefs.push({ slot: slotOf(entry.key)!, savedAt: entry.mtime, ...summary });
+    briefs.push({ slot: slotOf(entry.key)!, savedAt: entry.mtime, level: parseCharacter(entry.data!, game)?.level, ...summary });
   }
   return briefs.sort((a, b) => a.slot - b.slot);
 }
