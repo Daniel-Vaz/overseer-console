@@ -5,6 +5,8 @@
   import Emblem from '../components/Emblem.svelte';
   import Glyph from '../components/Glyph.svelte';
   import Menu from '../components/Menu.svelte';
+  import { ago } from '../format';
+  import { launchGame } from '../launch';
   import { consoleState as sys } from '../state.svelte';
   import type { MenuItem } from '../types';
 
@@ -21,7 +23,30 @@
   const totalSaves = $derived(sys.saves.fo1 + sys.saves.fo2);
   let selected = $state(0);
 
+  // The latest save of either game. Listed first, so ENTER alone continues.
+  const resume = $derived(sys.continueFrom());
+  let listed = false;
+  $effect(() => {
+    // The entry appears once storage has been read; keep the selection on
+    // whatever the player had already moved it to.
+    const has = resume !== null;
+    if (has !== listed && selected > 0) selected += has ? 1 : -1;
+    listed = has;
+  });
+
   const items = $derived<MenuItem[]>([
+    ...(resume
+      ? [
+          {
+            key: 'c',
+            label: `Continue: ${GAMES[resume.game].title}`,
+            state: `SLOT ${String(resume.save.slot).padStart(2, '0')}, ${ago(resume.save.savedAt)}`,
+            note: `Straight into your latest save: "${resume.save.description || 'no description'}", ${resume.save.character}, ${resume.save.map}, ${resume.save.gameDate}.`,
+            icon: 'play',
+            action: () => void launchGame(resume.game, resume.save.slot),
+          } satisfies MenuItem,
+        ]
+      : []),
     ...GAME_IDS.map((game, index): MenuItem => {
       const def = GAMES[game];
       const install = sys.installs[game];

@@ -15,6 +15,7 @@ into the browser's private storage on your device and plays from there.
 - Nothing is uploaded. There is no server, no account and no tracking.
 - Saved games work as in the originals and can be exported to and imported from zip files.
 - Saving over a slot keeps what was in it: every slot has a history of earlier versions to roll back to.
+- Continue takes you from the console straight into your latest save.
 
 This is an unofficial fan project. It is not affiliated with or endorsed by Bethesda Softworks,
 ZeniMax Media, Microsoft or Interplay. Fallout is a trademark of Bethesda Softworks LLC.

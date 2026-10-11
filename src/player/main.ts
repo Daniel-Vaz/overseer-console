@@ -28,7 +28,10 @@ const toastEl = $('toast');
 
 const settings = loadSettings();
 if (settings.audio === 'buffered') installAudioBridge();
-const requested = new URLSearchParams(location.search).get('game');
+const query = new URLSearchParams(location.search);
+const requested = query.get('game');
+/** "Continue": the save slot to load as soon as the game is up. */
+const loadSlot = /^[1-9]\d{0,3}$/.test(query.get('slot') ?? '') ? Number(query.get('slot')) : undefined;
 const consoleUrl = (game?: GameId) => `${import.meta.env.BASE_URL}${game ? `#/${game}` : ''}`;
 
 let phase: Phase = 'boot';
@@ -461,6 +464,7 @@ async function main(): Promise<void> {
         exit: () => leave(),
         fatal,
       },
+      { loadSlot },
     );
   } catch (err) {
     // Nothing to play here; the console explains why and what to do.
@@ -483,6 +487,7 @@ async function main(): Promise<void> {
   body.replaceChildren(
     el('p', 'big', `${def.label} ready`),
     el('p', 'dim', `${def.title} - ${def.engine.name}`),
+    ...(loadSlot === undefined ? [] : [el('p', 'gap', `CONTINUING FROM SAVE SLOT ${String(loadSlot).padStart(2, '0')}`)]),
     prompt,
   );
   setHints([

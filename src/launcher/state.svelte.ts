@@ -1,6 +1,6 @@
 /** Everything the console's screens share. */
 import { GAME_IDS, type GameId } from '../lib/games';
-import { countSaves } from '../lib/saves';
+import { briefSaves, latestOf, type LatestSave } from '../lib/saves';
 import { loadSettings, saveSettings, type Settings } from '../lib/settings';
 import { ImportError, planImport, runImport, type ImportPlan, type SourceFile } from '../lib/storage/importer';
 import { loadInstall, probeStorage, requestPersistence, storageStatus, storageSupported, type StorageStatus } from '../lib/storage/opfs';
@@ -30,6 +30,8 @@ class ConsoleState {
   /** undefined: not looked at yet. null: not installed. */
   installs = $state<Record<GameId, InstallInfo | null | undefined>>({ fo1: undefined, fo2: undefined });
   saves = $state<Record<GameId, number>>({ fo1: 0, fo2: 0 });
+  /** The save "continue" would load, per game. */
+  latest = $state<Record<GameId, LatestSave | null>>({ fo1: null, fo2: null });
   storage = $state<StorageStatus | null>(null);
   job = $state<ImportJob>({ ...IDLE });
   hints = $state<Hint[]>([]);
@@ -69,7 +71,9 @@ class ConsoleState {
                 files: install.manifest.files.length,
               }
             : null;
-          this.saves[game] = await countSaves(game);
+          const saves = await briefSaves(game);
+          this.saves[game] = saves.length;
+          this.latest[game] = latestOf(game, saves);
         } catch (err) {
           console.error(err);
           this.installs[game] = null;
@@ -112,6 +116,17 @@ class ConsoleState {
       this.job = { ...this.job, phase: 'failed', error: message };
       return null;
     }
+  }
+
+  /** The save to continue from: the latest one of a game that can be played. */
+  continueFrom(only?: GameId): { game: GameId; save: LatestSave } | null {
+    let best: { game: GameId; save: LatestSave } | null = null;
+    for (const game of only ? [only] : GAME_IDS) {
+      const save = this.latest[game];
+      if (!save || !this.installs[game]) continue;
+      if (!best || save.touchedAt > best.save.touchedAt) best = { game, save };
+    }
+    return best;
   }
 
   clearJob(): void {

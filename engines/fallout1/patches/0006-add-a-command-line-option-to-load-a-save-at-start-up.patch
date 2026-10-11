@@ -1,0 +1,154 @@
+Add a command line option to load a save at start-up
+
+`--dev-load-game=N` loads the save in slot N (1-10) as soon as the engine
+is up, instead of stopping at the main menu. Fallout 2 CE has the same
+option under the same name. If the slot cannot be loaded the game says so
+and goes to the main menu as usual.
+
+The slot is loaded the way a quick load loads it once its slot is known,
+so no part of the load screen is shown.
+---
+diff --git a/src/game/loadsave.cc b/src/game/loadsave.cc
+index 119487e..711d442 100644
+--- a/src/game/loadsave.cc
++++ b/src/game/loadsave.cc
+@@ -1245,6 +1245,26 @@ int LoadGame(int mode)
+     return rc;
+ }
+ 
++// CE: Loads the save in the given slot (zero-based) without asking, the way a
++// quick load does once its slot has been picked.
++int LoadGameInSlot(int slot)
++{
++    if (slot < 0 || slot > 9) {
++        return -1;
++    }
++
++    slot_cursor = slot;
++    quick_done = true;
++
++    int rc = LoadGame(LOAD_SAVE_MODE_QUICK);
++
++    // As after loading from the main menu: the first quick save asks for
++    // its slot instead of silently reusing this one.
++    quick_done = false;
++
++    return rc;
++}
++
+ // 0x46F3D0
+ static int LSGameStart(int windowType)
+ {
+diff --git a/src/game/loadsave.h b/src/game/loadsave.h
+index b69311a..b326ba6 100644
+--- a/src/game/loadsave.h
++++ b/src/game/loadsave.h
+@@ -23,6 +23,7 @@ void InitLoadSave();
+ void ResetLoadSave();
+ int SaveGame(int mode);
+ int LoadGame(int mode);
++int LoadGameInSlot(int slot);
+ int isLoadingGame();
+ void KillOldMaps();
+ int MapDirErase(const char* path, const char* a2);
+diff --git a/src/game/main.cc b/src/game/main.cc
+index 211380d..91c7a87 100644
+--- a/src/game/main.cc
++++ b/src/game/main.cc
+@@ -12,6 +12,8 @@
+ 
+ #include <limits.h>
+ #include <stddef.h>
++#include <stdlib.h>
++#include <string.h>
+ 
+ #include "game/amutex.h"
+ #include "game/art.h"
+@@ -50,6 +52,7 @@ namespace fallout {
+ #define DEATH_WINDOW_WIDTH 640
+ #define DEATH_WINDOW_HEIGHT 480
+ 
++static int main_parse_load_game_slot(int argc, char** argv);
+ static bool main_init_system(int argc, char** argv);
+ static int main_reset_system();
+ static void main_exit_system();
+@@ -105,6 +108,10 @@ int gnw_main(int argc, char** argv)
+         gmovie_play(MOVIE_INTRO, 0);
+     }
+ 
++    // CE: `--dev-load-game=N` loads the save in slot N straight away, instead
++    // of stopping at the main menu (same option as Fallout 2 CE).
++    int loadGameSlot = main_parse_load_game_slot(argc, argv);
++
+     if (main_menu_create() == 0) {
+         int language_filter = 1;
+         bool done = false;
+@@ -113,12 +120,19 @@ int gnw_main(int argc, char** argv)
+ 
+         while (!done) {
+             kb_clear();
+-            gsound_background_play_level_music("07desert", 11);
+-            main_menu_show(1);
+ 
+-            mouse_show();
+-            int mainMenuRc = main_menu_loop();
+-            mouse_hide();
++            int mainMenuRc;
++            if (loadGameSlot != -1) {
++                // The menu stays hidden; the cases below cope with that.
++                mainMenuRc = MAIN_MENU_LOAD_GAME;
++            } else {
++                gsound_background_play_level_music("07desert", 11);
++                main_menu_show(1);
++
++                mouse_show();
++                mainMenuRc = main_menu_loop();
++                mouse_hide();
++            }
+ 
+             switch (mainMenuRc) {
+             case MAIN_MENU_INTRO:
+@@ -162,7 +176,13 @@ int gnw_main(int argc, char** argv)
+ 
+                     loadColorTable("color.pal");
+                     palette_fade_to(cmap);
+-                    int loadGameRc = LoadGame(LOAD_SAVE_MODE_FROM_MAIN_MENU);
++                    int loadGameRc;
++                    if (loadGameSlot != -1) {
++                        loadGameRc = LoadGameInSlot(loadGameSlot);
++                        loadGameSlot = -1;
++                    } else {
++                        loadGameRc = LoadGame(LOAD_SAVE_MODE_FROM_MAIN_MENU);
++                    }
+                     if (loadGameRc == -1) {
+                         debug_printf("\n ** Error running LoadGame()! **\n");
+                     } else if (loadGameRc != 0) {
+@@ -226,6 +246,28 @@ int gnw_main(int argc, char** argv)
+     return 0;
+ }
+ 
++// Returns the zero-based slot named by `--dev-load-game=N`, or -1.
++static int main_parse_load_game_slot(int argc, char** argv)
++{
++    const char* prefix = "--dev-load-game=";
++    size_t prefixLength = strlen(prefix);
++
++    for (int index = 1; index < argc; index++) {
++        if (strncmp(argv[index], prefix, prefixLength) == 0) {
++            const char* value = argv[index] + prefixLength;
++            char* end = NULL;
++            long slot = strtol(value, &end, 10);
++            if (end != value && *end == '\0' && slot >= 1 && slot <= 10) {
++                return (int)slot - 1;
++            }
++
++            debug_printf("MAIN: invalid --dev-load-game value '%s'\n", value);
++        }
++    }
++
++    return -1;
++}
++
+ // 0x4728CC
+ static bool main_init_system(int argc, char** argv)
+ {

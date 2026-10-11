@@ -41,6 +41,11 @@ export interface BootHooks {
   fatal(message: string): void;
 }
 
+export interface BootOptions {
+  /** Load the save in this slot (1-based) instead of stopping at the game's main menu. */
+  loadSlot?: number;
+}
+
 export interface Engine {
   game: GameId;
   module: EngineModule;
@@ -170,6 +175,7 @@ export async function bootEngine(
   settings: Settings,
   viewport: { width: number; height: number },
   hooks: BootHooks,
+  options: BootOptions = {},
 ): Promise<Engine> {
   const def = GAMES[game];
 
@@ -226,7 +232,8 @@ export async function bootEngine(
     manifest: install.manifest,
     savedConfig: savedConfig ? new TextDecoder().decode(savedConfig.data) : undefined,
     screen,
-    skipIntro: settings.skipIntro,
+    // Someone who asked for their save does not want the opening movies first.
+    skipIntro: settings.skipIntro || options.loadSlot !== undefined,
   });
   await populate(module, install, overlay, configFiles);
   module.FS.chdir(GAME_ROOT);
@@ -239,7 +246,8 @@ export async function bootEngine(
     screen,
     start() {
       ov.start();
-      module.callMain([]);
+      // Both engines take the slot under this name (see engines/fallout1/patches).
+      module.callMain(options.loadSlot === undefined ? [] : [`--dev-load-game=${options.loadSlot}`]);
     },
     pause: () => ov.pause(),
     resume: () => ov.resume(),

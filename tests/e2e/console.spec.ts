@@ -164,7 +164,7 @@ test('keeps what a slot held before it was replaced, and rolls back to it', asyn
 
   // Open the slot, look at its history, go back to the first save.
   await page.keyboard.press('1');
-  await expect(page.locator('.menu li').first()).toContainText('1 KEPT');
+  await expect(page.locator('.menu li').filter({ hasText: 'Earlier versions' })).toContainText('1 KEPT');
   await page.keyboard.press('v');
   await expect(page.getByText('SLOT 03: EARLIER VERSIONS')).toBeVisible();
   await expect(page.locator('.menu li').first()).toContainText('before the temple');
@@ -233,6 +233,64 @@ test('the player boots an engine against stored data, and a second tab is refuse
   // Esc at the gate goes back without starting anything.
   await page.keyboard.press('Escape');
   await expect(page.getByRole('heading', { name: 'SIMULATION 02: Fallout 2' })).toBeVisible();
+});
+
+test('continue goes from the main directory straight into the latest save', async ({ page }) => {
+  // Saves alone are not enough: without the game data there is nothing to continue.
+  await openConsole(page, 'saves/fo2');
+  const restore = async (slot: string, description: string) => {
+    const archive = zipSync({ [`SAVEGAME/SLOT${slot}/SAVE.DAT`]: new Uint8Array(fakeSaveDat('Narg', description)) });
+    await page.locator('input[accept*="zip"]').setInputFiles({ name: 'saves.zip', mimeType: 'application/zip', buffer: Buffer.from(archive) });
+    await expect(page.getByText('1 save restored from the archive.')).toBeVisible();
+  };
+  await restore('02', 'older');
+  await page.keyboard.press('1');
+  await expect(page.locator('.menu li').first()).toContainText('Load this save');
+  await expect(page.locator('.menu li').first().locator('button')).toBeDisabled();
+  await page.goto('#/');
+  await expect(page.locator('.menu button')).toHaveCount(6);
+  await expect(page.getByText('Continue:')).toHaveCount(0);
+
+  await page.goto('#/fo2');
+  await page.locator('input[webkitdirectory]').setInputFiles(fakeFallout2Folder());
+  await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 60_000 });
+  await page.goto('#/saves/fo2');
+  await page.waitForTimeout(20); // a later save
+  await restore('07', 'newest');
+
+  // The game's own screen offers it...
+  await page.goto('#/fo2');
+  const first = page.locator('.menu li').first();
+  await expect(first).toContainText('Continue');
+  await expect(first).toContainText('SLOT 07');
+  await expect(page.locator('.menu li').nth(1)).toContainText('Begin simulation');
+
+  // ...and the main directory lists it first, already selected.
+  await page.goto('#/');
+  await expect(first).toContainText('Continue: Fallout 2');
+  await expect(first).toContainText('SLOT 07');
+  await expect(first).toHaveClass(/selected/);
+  await expect(page.locator('.menu-note')).toContainText('"newest", Narg, ARTEMPLE');
+  await page.waitForTimeout(1500);
+  await page.keyboard.press('Enter');
+  await page.waitForURL(/play\.html\?game=fo2&slot=7$/);
+  await expect(page.getByText('CONTINUING FROM SAVE SLOT 07')).toBeVisible({ timeout: 60_000 });
+  // The opening movies are skipped on the way to a save.
+  const config = await page.evaluate(() => {
+    const engine = (window as unknown as { overseerEngine: { module: { FS: { readFile(path: string): Uint8Array } } } }).overseerEngine;
+    return new TextDecoder().decode(engine.module.FS.readFile('/game/fallout2.cfg'));
+  });
+  expect(config).toContain('skip_opening_movies=1');
+  await page.keyboard.press('Escape');
+
+  // Any save can be loaded directly from the archives.
+  await page.goto('#/saves/fo2');
+  await page.keyboard.press('1');
+  await expect(page.locator('.readout')).toContainText('older');
+  await page.waitForTimeout(1500);
+  await page.keyboard.press('l');
+  await page.waitForURL(/play\.html\?game=fo2&slot=2$/);
+  await expect(page.getByText('CONTINUING FROM SAVE SLOT 02')).toBeVisible({ timeout: 60_000 });
 });
 
 test('credits name the engines, their licence and that the builds are modified', async ({ page }) => {

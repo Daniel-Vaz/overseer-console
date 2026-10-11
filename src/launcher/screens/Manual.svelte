@@ -76,6 +76,11 @@
     them to a zip file as a backup, or to move them to another browser or a desktop install.
   </p>
   <p>
+    <span class="hot">Continue</span> on the main directory starts the game you saved last and takes you straight
+    into that save, skipping the game's menus. Any other save can be started the same way: open its slot in Save
+    archives and choose <span class="hot">Load this save</span>.
+  </p>
+  <p>
     Saving over a slot does not destroy what was in it. The console keeps earlier versions of every slot (the latest
     three, and a thinning trail of older ones reaching back days) and can put any of them back: open the slot in Save
     archives and choose <span class="hot">Earlier versions</span>. Use it when a save turns out to be a dead end.

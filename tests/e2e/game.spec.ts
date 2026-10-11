@@ -32,19 +32,47 @@ async function waitForPicture(page: Page, settleMs: number): Promise<number> {
   return took;
 }
 
-async function launch(page: Page): Promise<void> {
-  await expect(page.locator('.menu button').first()).toContainText('Begin simulation');
+/** Starts the game from a console menu entry and passes the start gate. */
+async function launch(page: Page, entry: string, key: string): Promise<void> {
+  await expect(page.locator('.menu button').filter({ hasText: entry })).toBeVisible();
   // A person does not launch within milliseconds of the page appearing.
   await pause(page, 1500);
-  await page.keyboard.press('1');
+  await page.keyboard.press(key);
   await page.waitForURL(/play\.html/);
   await expect(page.getByText('PRESS ANY KEY')).toBeVisible({ timeout: 60_000 });
   await page.keyboard.press('Enter');
   await expect(page.locator('#terminal')).toBeHidden();
 }
 
+/**
+ * A coarse fingerprint of the game's picture: brightness on a 32x24 grid.
+ * Two pictures of the same scene are close; a different screen is far away.
+ */
+async function fingerprint(page: Page): Promise<number[]> {
+  const box = (await page.locator('#canvas').boundingBox())!;
+  const png = await page.screenshot({ clip: box });
+  return page.evaluate(async (base64) => {
+    const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+    const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+    const canvas = document.createElement('canvas');
+    canvas.width = 32;
+    canvas.height = 24;
+    const context = canvas.getContext('2d')!;
+    context.drawImage(bitmap, 0, 0, 32, 24);
+    const pixels = context.getImageData(0, 0, 32, 24).data;
+    const cells: number[] = [];
+    for (let i = 0; i < pixels.length; i += 4) cells.push((pixels[i]! + pixels[i + 1]! + pixels[i + 2]!) / 3);
+    return cells;
+  }, png.toString('base64'));
+}
+
+/** Mean difference in brightness between two fingerprints, 0 to 255. */
+function distance(a: number[], b: number[]): number {
+  return a.reduce((sum, value, index) => sum + Math.abs(value - b[index]!), 0) / a.length;
+}
+
 for (const game of GAMES) {
-  test(`${game.title}: import, play, save, leave, come back and load`, async ({ page }) => {
+  test(`${game.title}: import, play, save, leave, and continue from the save`, async ({ page }) => {
     test.skip(!game.dir, `set ${game.id.toUpperCase()}_DIR to your ${game.title} folder to run this`);
     const faults: string[] = [];
     page.on('pageerror', (error) => faults.push(error.message));
@@ -54,8 +82,9 @@ for (const game of GAMES) {
     await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 300_000 });
 
     // Main menu.
-    await launch(page);
+    await launch(page, 'Begin simulation', '1');
     const firstPicture = await waitForPicture(page, 4000);
+    const mainMenu = await fingerprint(page);
     const afterStart = await engineStats(page);
     console.log(`${game.title}: first picture ${firstPicture} ms after starting, ${afterStart.blockReads} block reads taking ${Math.round(afterStart.blockMs)} ms`);
 
@@ -76,7 +105,16 @@ for (const game of GAMES) {
     await page.keyboard.type('e2e', { delay: 80 });
     await page.keyboard.press('Enter');
     await expect(page.locator('#toast')).toHaveText('SAVED TO BROWSER STORAGE', { timeout: 30_000 });
-    expect((await engineStats(page)).syncs).toBeGreaterThan(0);
+    const firstSave = (await engineStats(page)).syncs;
+    expect(firstSave).toBeGreaterThan(0);
+
+    // Quick save again: same slot, no questions. The first save becomes history.
+    await pause(page, 1500);
+    await page.keyboard.press('F6');
+    await expect.poll(async () => (await engineStats(page)).syncs, { timeout: 30_000 }).toBeGreaterThan(firstSave);
+    await pause(page, 1500);
+    const inGame = await fingerprint(page);
+    expect(distance(inGame, mainMenu)).toBeGreaterThan(12);
 
     const audio = await page.evaluate(() => (window as unknown as { overseerEngine: { audioContext(): AudioContext | undefined } }).overseerEngine.audioContext()?.state);
     expect(audio).toBe('running');
@@ -106,21 +144,23 @@ for (const game of GAMES) {
     await page.keyboard.press('y');
     await expect(page.getByRole('heading', { name: new RegExp(`${game.title}$`) })).toBeVisible();
 
-    // The save is in the archives.
+    // The save is in the archives, with the one it replaced kept as an earlier version.
     await page.goto(`#/saves/${game.id}`);
     const slot = page.locator('.menu li').first();
     await expect(slot).toContainText('SLOT 01');
     await expect(slot).toContainText('e2e');
+    await expect(page.locator('.menu-note')).toContainText('1 earlier version kept.');
 
-    // Back in, straight from storage: load it.
-    await page.goto(`#/${game.id}`);
-    await launch(page);
-    await waitForPicture(page, 4000);
-    await page.keyboard.press('l');
-    await pause(page, 2500);
-    await page.keyboard.press('Enter');
-    await pause(page, 7500);
-    expect(await showsPicture(page)).toBe(true);
+    // Continue: from the main directory straight back to where the save was made.
+    await page.goto('#/');
+    await expect(page.locator('.menu li').first()).toContainText(`Continue: ${game.title}`);
+    await launch(page, 'Continue', 'c');
+    expect(page.url()).toContain('slot=1');
+    let closest = 255;
+    await expect
+      .poll(async () => (closest = Math.min(closest, distance(await fingerprint(page), inGame))), { timeout: 120_000, intervals: [1000] })
+      .toBeLessThan(6);
+    console.log(`${game.title}: after continuing the picture is ${closest.toFixed(1)} away from the one saved (${distance(inGame, mainMenu).toFixed(1)} from the main menu)`);
     const before = (await engineStats(page)).sleeps;
     await pause(page, 1000);
     expect((await engineStats(page)).sleeps).toBeGreaterThan(before);

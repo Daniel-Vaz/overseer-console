@@ -1,12 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { GAMES, GAME_IDS, type GameId } from '../../lib/games';
-  import { deleteSave, exportSaves, listSaves, readSaveArchive, type SaveImport, type SaveSlot } from '../../lib/saves';
+  import { deleteSave, exportSaves, listSaves, markForContinue, readSaveArchive, type SaveImport, type SaveSlot } from '../../lib/saves';
   import { listVersions, restoreVersion, type SaveVersion } from '../../lib/storage/history';
   import { formatBytes } from '../../lib/storage/manifest';
   import Glyph from '../components/Glyph.svelte';
   import Menu from '../components/Menu.svelte';
   import { ago, plural, stamp } from '../format';
+  import { launchGame } from '../launch';
   import { sfx } from '../sfx';
   import { consoleState as sys } from '../state.svelte';
   import type { MenuItem } from '../types';
@@ -126,6 +127,8 @@
     const version = rollback;
     try {
       await restoreVersion(game, slot, version.id);
+      // The save the player just chose is the one to continue from.
+      markForContinue(game, slot, version.id);
       message = { text: `${slotLabel(slot)} rolled back to the save of ${stamp(version.id)}.` };
       sfx.done();
     } catch (err) {
@@ -231,6 +234,18 @@
   ]);
 
   const slotItems = $derived<MenuItem[]>([
+    {
+      key: 'l',
+      label: 'Load this save',
+      icon: 'play',
+      disabled: !open?.valid || !game || !sys.installs[game] || running,
+      note: running
+        ? 'The simulation is already running in another tab or window.'
+        : game && !sys.installs[game]
+          ? 'Load the holodisk first: the game data is not in this browser.'
+          : 'Starts the game and goes straight into this save.',
+      action: () => game && open && void launchGame(game, open.slot),
+    },
     {
       key: 'v',
       label: 'Earlier versions',

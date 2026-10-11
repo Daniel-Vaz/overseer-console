@@ -81,6 +81,20 @@ export async function listOverlay(game: GameId, prefix = ''): Promise<OverlayEnt
   return result(db.transaction(STORE).objectStore(STORE).getAll(rangeFor(game, prefix)) as IDBRequest<OverlayEntry[]>);
 }
 
+/** The paths of everything a game has written, without loading any contents. */
+export async function listOverlayKeys(game: GameId, prefix = ''): Promise<string[]> {
+  const db = await openDb();
+  const keys = await result(db.transaction(STORE).objectStore(STORE).getAllKeys(rangeFor(game, prefix)));
+  return keys.map((key) => (key as [GameId, string])[1]);
+}
+
+/** One file a game has written, or undefined. A tombstone counts as absent. */
+export async function readOverlay(game: GameId, key: string): Promise<OverlayEntry | undefined> {
+  const db = await openDb();
+  const entry = await result(db.transaction(STORE).objectStore(STORE).get([game, key]) as IDBRequest<OverlayEntry | undefined>);
+  return entry && !entry.deleted && entry.data ? entry : undefined;
+}
+
 /** Applies a batch of changes atomically and waits until it is on disk. */
 export async function commitOverlay(game: GameId, changes: OverlayChanges): Promise<void> {
   const db = await openDb();

@@ -10,7 +10,7 @@ import type { GameId } from './games';
 import { SAVE_PREFIX, isSaveData, parseSaveHeader, slotOf, slotPrefix } from './savefile';
 import { countVersions, deleteVersions, replaceSlot } from './storage/history';
 import { pathKey } from './storage/manifest';
-import { clearOverlay, listOverlay, type OverlayChanges, type OverlayEntry } from './storage/overlay';
+import { clearOverlay, listOverlay, listOverlayKeys, readOverlay, type OverlayChanges, type OverlayEntry } from './storage/overlay';
 
 export { THUMBNAIL_HEIGHT, THUMBNAIL_WIDTH, parseSaveHeader } from './savefile';
 
@@ -74,12 +74,77 @@ export async function listSaves(game: GameId): Promise<SaveSlot[]> {
   return slots.sort((a, b) => a.slot - b.slot);
 }
 
-export async function countSaves(game: GameId): Promise<number> {
-  const slots = new Set<number>();
-  for (const entry of await saveEntries(game)) {
-    if (isSaveData(entry.key)) slots.add(slotOf(entry.key)!);
+/** What the console needs to know about a save without opening its slot. */
+export interface SaveBrief {
+  slot: number;
+  character: string;
+  description: string;
+  gameDate: string;
+  gameClock: string;
+  map: string;
+  savedAt: number;
+}
+
+/**
+ * Describes every readable save from its SAVE.DAT alone. Unlike listSaves
+ * this leaves the map files, most of a save's bulk, on disk.
+ */
+export async function briefSaves(game: GameId): Promise<SaveBrief[]> {
+  const keys = (await listOverlayKeys(game, SAVE_PREFIX)).filter(isSaveData);
+  const briefs: SaveBrief[] = [];
+  for (const entry of await Promise.all(keys.map((key) => readOverlay(game, key)))) {
+    const header = entry ? parseSaveHeader(entry.data!) : null;
+    if (!entry || !header) continue;
+    const { thumbnail: _thumbnail, ...summary } = header;
+    briefs.push({ slot: slotOf(entry.key)!, savedAt: entry.mtime, ...summary });
   }
-  return slots.size;
+  return briefs.sort((a, b) => a.slot - b.slot);
+}
+
+const RESUME_KEY = 'overseer-console:resume';
+
+interface ResumeMark {
+  slot: number;
+  savedAt: number;
+  at: number;
+}
+
+/**
+ * Remembers that the player just put this save in place by hand (a roll
+ * back). It then counts as the latest one until the slot is saved again.
+ */
+export function markForContinue(game: GameId, slot: number, savedAt: number): void {
+  try {
+    localStorage.setItem(`${RESUME_KEY}:${game}`, JSON.stringify({ slot, savedAt, at: Date.now() } satisfies ResumeMark));
+  } catch {
+    // Without storage the plain "most recently saved" rule applies.
+  }
+}
+
+function resumeMark(game: GameId): ResumeMark | null {
+  try {
+    const mark = JSON.parse(localStorage.getItem(`${RESUME_KEY}:${game}`) ?? 'null') as ResumeMark | null;
+    return mark && Number.isFinite(mark.slot) && Number.isFinite(mark.savedAt) && Number.isFinite(mark.at) ? mark : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A save together with the moment it became the one to continue from. */
+export interface LatestSave extends SaveBrief {
+  touchedAt: number;
+}
+
+/** The save "continue" picks up: the one most recently saved or put back. */
+export function latestOf(game: GameId, saves: SaveBrief[]): LatestSave | null {
+  const mark = resumeMark(game);
+  let latest: LatestSave | null = null;
+  for (const save of saves) {
+    const marked = mark && mark.slot === save.slot && mark.savedAt === save.savedAt;
+    const touchedAt = marked ? Math.max(save.savedAt, mark.at) : save.savedAt;
+    if (!latest || touchedAt > latest.touchedAt) latest = { ...save, touchedAt };
+  }
+  return latest;
 }
 
 /** Erases a slot together with its earlier versions. */

@@ -7,7 +7,9 @@
   import { removeInstall } from '../../lib/storage/opfs';
   import Deck from '../components/Deck.svelte';
   import Menu from '../components/Menu.svelte';
-  import { closeAudio, sfx } from '../sfx';
+  import { ago } from '../format';
+  import { launchGame } from '../launch';
+  import { sfx } from '../sfx';
   import { consoleState as sys } from '../state.svelte';
   import type { MenuItem } from '../types';
 
@@ -60,11 +62,6 @@
     await sys.importFrom(sources, game);
   }
 
-  async function launch(): Promise<void> {
-    await closeAudio();
-    location.href = `${import.meta.env.BASE_URL}play.html?game=${game}`;
-  }
-
   async function eject(): Promise<void> {
     view = 'main';
     await removeInstall(game);
@@ -96,8 +93,27 @@
     { key: '0', label: 'Back', action: () => go('') },
   ]);
 
+  // This game's latest save, when there is one.
+  const resume = $derived(sys.continueFrom(game)?.save ?? null);
+
   const readyItems = $derived<MenuItem[]>([
-    { key: '1', label: 'Begin simulation', note: def.blurb, action: () => void launch() },
+    ...(resume
+      ? [
+          {
+            key: 'c',
+            label: 'Continue',
+            state: `SLOT ${String(resume.slot).padStart(2, '0')}, ${ago(resume.savedAt)}`,
+            note: `Straight into your latest save: "${resume.description || 'no description'}", ${resume.character}, ${resume.map}, ${resume.gameDate}.`,
+            action: () => void launchGame(game, resume.slot),
+          } satisfies MenuItem,
+        ]
+      : []),
+    {
+      key: '1',
+      label: 'Begin simulation',
+      note: resume ? `Starts at the main menu of ${def.title}: new game, load game, options.` : def.blurb,
+      action: () => void launchGame(game),
+    },
     {
       key: '2',
       label: 'Save archives',
