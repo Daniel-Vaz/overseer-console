@@ -142,6 +142,53 @@ test('restores, exports and erases saved games', async ({ page }) => {
   await expect(page.getByText('NO SAVED GAMES YET')).toBeVisible();
 });
 
+test('keeps what a slot held before it was replaced, and rolls back to it', async ({ page }) => {
+  await openConsole(page, 'saves/fo2');
+  const restore = async (description: string) => {
+    const archive = zipSync({
+      'SAVEGAME/SLOT03/SAVE.DAT': new Uint8Array(fakeSaveDat('Narg', description)),
+      'SAVEGAME/SLOT03/ARTEMPLE.SAV': new Uint8Array([1, 2, 3]),
+    });
+    await page.locator('input[accept*="zip"]').setInputFiles({ name: 'saves.zip', mimeType: 'application/zip', buffer: Buffer.from(archive) });
+  };
+
+  await restore('before the temple');
+  await expect(page.getByText('1 save restored from the archive.')).toBeVisible();
+  await restore('stuck in the temple');
+  await expect(page.getByText('SLOT 03 ALREADY HOLDS A SAVE')).toBeVisible();
+  await page.keyboard.press('y');
+
+  const slot = page.locator('.menu li').first();
+  await expect(slot).toContainText('stuck in the temple');
+  await expect(page.locator('.menu-note')).toContainText('1 earlier version kept.');
+
+  // Open the slot, look at its history, go back to the first save.
+  await page.keyboard.press('1');
+  await expect(page.locator('.menu li').first()).toContainText('1 KEPT');
+  await page.keyboard.press('v');
+  await expect(page.getByText('SLOT 03: EARLIER VERSIONS')).toBeVisible();
+  await expect(page.locator('.menu li').first()).toContainText('before the temple');
+  await expect(page.locator('.menu-note')).toContainText('Replaced when an archive was restored over the slot');
+  await page.keyboard.press('1');
+  await expect(page.getByText(/^ROLL SLOT 03 BACK TO THE SAVE OF /)).toBeVisible();
+  await page.keyboard.press('y');
+  await expect(page.getByText(/^SLOT 03 rolled back to the save of /)).toBeVisible();
+  await expect(page.locator('.readout')).toContainText('before the temple');
+
+  // Rolling back is itself undoable: the replaced save is now the history.
+  await page.keyboard.press('v');
+  await expect(page.locator('.menu li').first()).toContainText('stuck in the temple');
+  await expect(page.locator('.menu-note')).toContainText('Replaced when the slot was rolled back');
+
+  // ESC closes one view at a time.
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.readout')).toContainText('before the temple');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.menu li').first()).toContainText('SLOT 03');
+  await page.keyboard.press('Escape');
+  await expect(page.getByText('Saved games are kept in this browser.')).toBeVisible();
+});
+
 test('refuses an archive without saved games', async ({ page }) => {
   await openConsole(page, 'saves/fo1');
   const archive = zipSync({ 'notes.txt': new Uint8Array([104, 105]) });

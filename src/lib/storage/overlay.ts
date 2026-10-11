@@ -95,6 +95,21 @@ export async function commitOverlay(game: GameId, changes: OverlayChanges): Prom
   await done(tx);
 }
 
+/**
+ * Replaces everything below a path prefix with the given files, atomically:
+ * the folder holds either all of the old files or all of the new ones.
+ */
+export async function replaceOverlay(game: GameId, prefix: string, puts: OverlayChanges['puts']): Promise<void> {
+  const db = await openDb();
+  const tx = db.transaction(STORE, 'readwrite', { durability: 'strict' });
+  const store = tx.objectStore(STORE);
+  store.delete(rangeFor(game, prefix));
+  for (const put of puts) {
+    store.put({ game, key: put.key, path: put.path, mtime: put.mtime, deleted: false, data: put.data } satisfies OverlayEntry);
+  }
+  await done(tx);
+}
+
 /** Forgets overlay entries: all of a game's, or those below a path prefix. */
 export async function clearOverlay(game: GameId, prefix = ''): Promise<void> {
   const db = await openDb();

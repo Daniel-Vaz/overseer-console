@@ -2,20 +2,17 @@
  * Saved games, as the console sees them: slots read out of the overlay.
  *
  * A slot is a folder (data/SAVEGAME/SLOTnn) holding SAVE.DAT plus one file per
- * visited map. Both games write the same big-endian header at the start of
- * SAVE.DAT, which is all the console needs to describe a slot.
+ * visited map. What SAVE.DAT says is read by savefile.ts; earlier versions of
+ * a slot are kept by storage/history.ts.
  */
 import { strToU8, unzipSync, zipSync, type Zippable } from 'fflate';
 import type { GameId } from './games';
+import { SAVE_PREFIX, isSaveData, parseSaveHeader, slotOf, slotPrefix } from './savefile';
+import { countVersions, deleteVersions, replaceSlot } from './storage/history';
 import { pathKey } from './storage/manifest';
-import { clearOverlay, commitOverlay, listOverlay, type OverlayEntry } from './storage/overlay';
+import { clearOverlay, listOverlay, type OverlayChanges, type OverlayEntry } from './storage/overlay';
 
-const SAVE_PREFIX = 'data/savegame/';
-const SIGNATURE = 'FALLOUT SAVE FILE';
-
-export const THUMBNAIL_WIDTH = 224;
-export const THUMBNAIL_HEIGHT = 133;
-const THUMBNAIL_OFFSET = 0x83;
+export { THUMBNAIL_HEIGHT, THUMBNAIL_WIDTH, parseSaveHeader } from './savefile';
 
 export interface SaveSlot {
   /** 1-based slot number. */
@@ -33,51 +30,10 @@ export interface SaveSlot {
   savedAt?: number;
   bytes: number;
   files: number;
+  /** Earlier versions of this slot kept in the save history. */
+  versions: number;
   /** 224x133 palette indices, when present. */
   thumbnail?: Uint8Array;
-}
-
-const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
-
-function text(bytes: Uint8Array, offset: number, length: number): string {
-  let out = '';
-  for (let i = 0; i < length; i++) {
-    const code = bytes[offset + i] ?? 0;
-    if (code === 0) break;
-    out += String.fromCharCode(code);
-  }
-  return out.trim();
-}
-
-/** Reads the header of a SAVE.DAT. Returns null when it is not one. */
-export function parseSaveHeader(data: Uint8Array): Omit<SaveSlot, 'slot' | 'bytes' | 'files' | 'savedAt'> | null {
-  if (data.length < THUMBNAIL_OFFSET || text(data, 0, 24) !== SIGNATURE) return null;
-  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-  const month = view.getInt16(0x65, false);
-  const day = view.getInt16(0x67, false);
-  const year = view.getInt16(0x69, false);
-  const ticks = view.getUint32(0x6b, false);
-  const minutes = Math.floor(ticks / 600);
-  const clock = 100 * (Math.floor(minutes / 60) % 24) + (minutes % 60);
-  const thumbnailEnd = THUMBNAIL_OFFSET + THUMBNAIL_WIDTH * THUMBNAIL_HEIGHT;
-  return {
-    valid: true,
-    character: text(data, 0x1d, 32),
-    description: text(data, 0x3d, 30),
-    gameDate: `${String(day).padStart(2, '0')} ${MONTHS[month - 1] ?? '???'} ${year}`,
-    gameClock: String(clock).padStart(4, '0'),
-    map: text(data, 0x73, 16).replace(/\.sav$/i, ''),
-    thumbnail: data.length >= thumbnailEnd ? data.subarray(THUMBNAIL_OFFSET, thumbnailEnd) : undefined,
-  };
-}
-
-function slotOf(key: string): number | null {
-  const match = /^data\/savegame\/slot(\d+)\//.exec(key);
-  return match ? Number(match[1]) : null;
-}
-
-function slotPrefix(slot: number): string {
-  return `${SAVE_PREFIX}slot${String(slot).padStart(2, '0')}/`;
 }
 
 async function saveEntries(game: GameId, slot?: number): Promise<OverlayEntry[]> {
@@ -88,7 +44,8 @@ async function saveEntries(game: GameId, slot?: number): Promise<OverlayEntry[]>
 /** Every slot that holds something, in slot order. */
 export async function listSaves(game: GameId): Promise<SaveSlot[]> {
   const bySlot = new Map<number, OverlayEntry[]>();
-  for (const entry of await saveEntries(game)) {
+  const [entries, versions] = await Promise.all([saveEntries(game), countVersions(game).catch(() => new Map<number, number>())]);
+  for (const entry of entries) {
     const slot = slotOf(entry.key)!;
     let list = bySlot.get(slot);
     if (!list) bySlot.set(slot, (list = []));
@@ -97,7 +54,7 @@ export async function listSaves(game: GameId): Promise<SaveSlot[]> {
 
   const slots: SaveSlot[] = [];
   for (const [slot, entries] of bySlot) {
-    const main = entries.find((entry) => entry.key.endsWith('/save.dat'));
+    const main = entries.find((entry) => isSaveData(entry.key));
     const header = main?.data ? parseSaveHeader(main.data) : null;
     slots.push({
       slot,
@@ -111,6 +68,7 @@ export async function listSaves(game: GameId): Promise<SaveSlot[]> {
       savedAt: main?.mtime,
       bytes: entries.reduce((sum, entry) => sum + (entry.data?.length ?? 0), 0),
       files: entries.length,
+      versions: versions.get(slot) ?? 0,
     });
   }
   return slots.sort((a, b) => a.slot - b.slot);
@@ -119,13 +77,15 @@ export async function listSaves(game: GameId): Promise<SaveSlot[]> {
 export async function countSaves(game: GameId): Promise<number> {
   const slots = new Set<number>();
   for (const entry of await saveEntries(game)) {
-    if (entry.key.endsWith('/save.dat')) slots.add(slotOf(entry.key)!);
+    if (isSaveData(entry.key)) slots.add(slotOf(entry.key)!);
   }
   return slots.size;
 }
 
+/** Erases a slot together with its earlier versions. */
 export async function deleteSave(game: GameId, slot: number): Promise<void> {
   await clearOverlay(game, slotPrefix(slot));
+  await deleteVersions(game, slot);
 }
 
 /**
@@ -167,7 +127,7 @@ export async function readSaveArchive(game: GameId, archive: Blob): Promise<Save
     throw new Error('That file is not a zip archive.');
   }
 
-  const puts: { key: string; path: string; mtime: number; data: Uint8Array }[] = [];
+  const puts: OverlayChanges['puts'] = [];
   const slots = new Set<number>();
   for (const [name, data] of Object.entries(unzipped)) {
     if (name.endsWith('/')) continue;
@@ -196,8 +156,11 @@ export async function readSaveArchive(game: GameId, archive: Blob): Promise<Save
     slots: found,
     conflicts: found.filter((slot) => existing.has(slot)),
     async commit() {
-      for (const slot of found) await clearOverlay(game, slotPrefix(slot));
-      await commitOverlay(game, { puts, deletes: [] });
+      // What a slot held before goes into its history, not into the void.
+      for (const slot of found) {
+        const prefix = slotPrefix(slot);
+        await replaceSlot(game, slot, puts.filter((put) => put.key.startsWith(prefix)), 'import');
+      }
     },
   };
 }

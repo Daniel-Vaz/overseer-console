@@ -14,6 +14,7 @@ into the browser's private storage on your device and plays from there.
   ([GOG](https://www.gog.com/game/fallout), [Steam](https://store.steampowered.com/app/38400), Epic).
 - Nothing is uploaded. There is no server, no account and no tracking.
 - Saved games work as in the originals and can be exported to and imported from zip files.
+- Saving over a slot keeps what was in it: every slot has a history of earlier versions to roll back to.
 
 This is an unofficial fan project. It is not affiliated with or endorsed by Bethesda Softworks,
 ZeniMax Media, Microsoft or Interplay. Fallout is a trademark of Bethesda Softworks LLC.
@@ -24,7 +25,7 @@ ZeniMax Media, Microsoft or Interplay. Fallout is a trademark of Bethesda Softwo
 | --- | --- | --- |
 | Engines | `engines/` | Pins an upstream commit of each engine, applies patches (Fallout 1 only), and compiles to WebAssembly inside the official Emscripten container. |
 | Engine glue | `engines/lib/overseer.js` | Linked into both engines. Gives them a clock that can pause, hands the thread back to the browser during long loops, reads game archives from disk on demand, and reports file changes in batches. |
-| Game data store | `src/lib/storage/` | Imported game files live in the origin private file system (OPFS). Files the engines write (saves, settings) live in IndexedDB and are committed atomically per save. |
+| Game data store | `src/lib/storage/` | Imported game files live in the origin private file system (OPFS). Files the engines write (saves, settings) live in IndexedDB and are committed atomically per save. Before a save slot is overwritten its contents go into a history (`history.ts`), with unchanged files stored once. |
 | Console | `index.html`, `src/launcher/` | The terminal: import, save archives, settings, manual, credits. Svelte. |
 | Player | `play.html`, `src/player/` | Boots an engine against the stored data. A separate page, so that leaving a game frees its memory. |
 

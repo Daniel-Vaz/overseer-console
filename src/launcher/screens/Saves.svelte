@@ -2,9 +2,11 @@
   import { onMount } from 'svelte';
   import { GAMES, GAME_IDS, type GameId } from '../../lib/games';
   import { deleteSave, exportSaves, listSaves, readSaveArchive, type SaveImport, type SaveSlot } from '../../lib/saves';
+  import { listVersions, restoreVersion, type SaveVersion } from '../../lib/storage/history';
   import { formatBytes } from '../../lib/storage/manifest';
   import Glyph from '../components/Glyph.svelte';
   import Menu from '../components/Menu.svelte';
+  import { ago, plural, stamp } from '../format';
   import { sfx } from '../sfx';
   import { consoleState as sys } from '../state.svelte';
   import type { MenuItem } from '../types';
@@ -16,7 +18,10 @@
 
   let slots = $state<SaveSlot[] | null>(null);
   let open = $state<SaveSlot | null>(null);
-  let confirm = $state<'delete' | 'import' | null>(null);
+  let confirm = $state<'delete' | 'import' | 'rollback' | null>(null);
+  /** The earlier versions of the open slot, while they are being looked at. */
+  let versions = $state<SaveVersion[] | null>(null);
+  let rollback = $state<SaveVersion | null>(null);
   let pendingImport = $state<SaveImport | null>(null);
   let message = $state<{ text: string; bad?: boolean } | null>(null);
   let running = $state(false);
@@ -31,7 +36,32 @@
       ['ENTER', 'OPEN'],
       ['ESC', 'BACK'],
     ];
+    // ESC leaves the innermost view first; only then the console goes back a screen.
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.key === 'Escape' || event.key === 'Backspace') && stepBack()) {
+        event.preventDefault();
+        sfx.back();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
   });
+
+  /** Closes the innermost open view. False when there is none. */
+  function stepBack(): boolean {
+    if (confirm) {
+      confirm = null;
+      rollback = null;
+      pendingImport = null;
+    } else if (versions) {
+      versions = null;
+    } else if (open) {
+      open = null;
+    } else {
+      return false;
+    }
+    return true;
+  }
 
   async function load(): Promise<void> {
     if (!game) return;
@@ -53,6 +83,8 @@
     void game;
     open = null;
     confirm = null;
+    versions = null;
+    rollback = null;
     message = null;
     void load();
   });
@@ -77,6 +109,35 @@
     download(await exportSaves(game, slot), `overseer-${game}-${suffix}-${stamp}.zip`);
     message = { text: slot === undefined ? 'All saves written to a zip file.' : `${slotLabel(slot)} written to a zip file.` };
     sfx.done();
+  }
+
+  async function showVersions(): Promise<void> {
+    if (!game || !open) return;
+    try {
+      versions = await listVersions(game, open.slot);
+    } catch (err) {
+      message = { text: `Could not read the save history: ${err instanceof Error ? err.message : String(err)}`, bad: true };
+    }
+  }
+
+  async function rollBack(): Promise<void> {
+    if (!game || !open || !rollback) return;
+    const slot = open.slot;
+    const version = rollback;
+    try {
+      await restoreVersion(game, slot, version.id);
+      message = { text: `${slotLabel(slot)} rolled back to the save of ${stamp(version.id)}.` };
+      sfx.done();
+    } catch (err) {
+      message = { text: `The slot was not changed: ${err instanceof Error ? err.message : String(err)}`, bad: true };
+      sfx.deny();
+    }
+    confirm = null;
+    rollback = null;
+    versions = null;
+    await load();
+    // Stay on the slot, now showing what was put back.
+    open = slots?.find((save) => save.slot === slot) ?? null;
   }
 
   async function remove(): Promise<void> {
@@ -137,9 +198,15 @@
         label: `${slotLabel(save.slot)}  ${save.valid ? save.description || '(no description)' : 'UNREADABLE'}`,
         state: save.valid ? `${save.character}  ${save.gameDate}` : '',
         tone: save.valid ? undefined : 'alert',
-        note: save.valid ? `${save.map}, ${save.gameClock} hours. ${formatBytes(save.bytes)} in ${save.files} files.` : undefined,
+        note: save.valid
+          ? `${save.map}, ${save.gameClock} hours. ${formatBytes(save.bytes)} in ${save.files} files.` +
+            (save.versions ? ` ${plural(save.versions, 'earlier version')} kept.` : '')
+          : undefined,
         icon: 'save',
-        action: () => (open = save),
+        action: () => {
+          message = null;
+          open = save;
+        },
       }),
     ),
     {
@@ -164,6 +231,16 @@
   ]);
 
   const slotItems = $derived<MenuItem[]>([
+    {
+      key: 'v',
+      label: 'Earlier versions',
+      state: open?.versions ? `${open.versions} KEPT` : 'NONE YET',
+      disabled: !open?.versions,
+      note: open?.versions
+        ? 'What this slot held before it was saved over. Any of them can be put back.'
+        : 'Each time this slot is saved over, what it held before is kept here.',
+      action: () => void showVersions(),
+    },
     { key: 'e', label: 'Export this save to a zip file', action: () => void exportNow(open?.slot) },
     {
       key: 'd',
@@ -175,6 +252,45 @@
     },
     { key: '0', label: 'Back', action: () => (open = null) },
   ]);
+
+  const CAUSES = {
+    save: 'Replaced by a later save',
+    import: 'Replaced when an archive was restored over the slot',
+    restore: 'Replaced when the slot was rolled back',
+  } as const;
+
+  const versionItems = $derived<MenuItem[]>([
+    ...(versions ?? []).map(
+      (version, index): MenuItem => ({
+        key: SLOT_KEYS[index] ?? '?',
+        label: `${stamp(version.id)}  ${version.header.description || '(no description)'}`,
+        state: ago(version.id),
+        icon: 'save',
+        disabled: running,
+        note: running
+          ? 'Close the running simulation first.'
+          : `${version.header.character}, ${version.header.map}, ${version.header.gameDate}, ${version.header.gameClock} hours. ` +
+            `${formatBytes(version.bytes)}. ${CAUSES[version.cause]}, ${stamp(version.replacedAt)}.`,
+        action: () => {
+          rollback = version;
+          confirm = 'rollback';
+        },
+      }),
+    ),
+    { key: '0', label: 'Back', icon: 'back', action: () => (versions = null) },
+  ]);
+
+  const rollbackItems: MenuItem[] = [
+    { key: 'y', label: 'Yes, roll back', tone: 'amber', action: () => void rollBack() },
+    {
+      key: 'n',
+      label: 'No, leave the slot as it is',
+      action: () => {
+        rollback = null;
+        confirm = null;
+      },
+    },
+  ];
 
   const deleteItems: MenuItem[] = [
     { key: 'y', label: 'Yes, erase it', tone: 'alert', action: () => void remove() },
@@ -216,12 +332,30 @@
       {pendingImport.conflicts.map(slotLabel).join(', ')}
       {pendingImport.conflicts.length === 1 ? 'ALREADY HOLDS A SAVE' : 'ALREADY HOLD SAVES'}.
     </p>
-    <p>Restoring the archive replaces them.</p>
+    <p>Restoring the archive replaces them. What they hold now is kept as an earlier version.</p>
     <Menu items={importItems} label="Confirm import" />
   {:else if open && confirm === 'delete'}
     <p class="gap amber">ERASE {slotLabel(open.slot)} "{open.description}"?</p>
-    <p>This cannot be undone. Export it first if you may want it back.</p>
+    <p>
+      This cannot be undone. Export it first if you may want it back.
+      {#if open.versions}Its {plural(open.versions, 'earlier version')} {open.versions === 1 ? 'is' : 'are'} erased with it.{/if}
+    </p>
     <Menu items={deleteItems} label="Confirm erase" />
+  {:else if open && rollback && confirm === 'rollback'}
+    <p class="gap amber">ROLL {slotLabel(open.slot)} BACK TO THE SAVE OF {stamp(rollback.id)}?</p>
+    <p>
+      "{rollback.header.description || 'no description'}": {rollback.header.character}, {rollback.header.map},
+      {rollback.header.gameDate}, {rollback.header.gameClock} hours.
+    </p>
+    <p>The save now in the slot is kept as an earlier version, so you can change your mind.</p>
+    <Menu items={rollbackItems} label="Confirm roll back" />
+  {:else if open && versions}
+    <p class="gap">{slotLabel(open.slot)}: EARLIER VERSIONS</p>
+    <p class="dim prose">
+      The console keeps what a slot held each time it is saved over: the latest three, and a thinning trail of older
+      ones reaching back days. Choose one to put it back in the slot.
+    </p>
+    <Menu items={versionItems} label="Earlier versions" />
   {:else if open}
     <dl class="readout gap">
       <dt>Slot</dt>
@@ -235,7 +369,7 @@
       <dt>Location</dt>
       <dd>{open.map}</dd>
       <dt>Saved</dt>
-      <dd>{open.savedAt ? new Date(open.savedAt).toLocaleString().toUpperCase() : 'UNKNOWN'}</dd>
+      <dd>{open.savedAt ? `${stamp(open.savedAt)} (${ago(open.savedAt)})` : 'UNKNOWN'}</dd>
       <dt>Size</dt>
       <dd>{formatBytes(open.bytes)} in {open.files} files</dd>
     </dl>

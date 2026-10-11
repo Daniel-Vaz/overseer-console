@@ -19,6 +19,7 @@
     "@sveltejs/vite-plugin-svelte": "^7.3.1",
     "@tsconfig/svelte": "^5.0.4",
     "@types/node": "^22.0.0",
+    "fake-indexeddb": "^6.2.5",
     "svelte": "^5.57.2",
     "svelte-check": "^4.7.6",
     "typescript": "^6.0.3",

@@ -76,6 +76,11 @@
     them to a zip file as a backup, or to move them to another browser or a desktop install.
   </p>
   <p>
+    Saving over a slot does not destroy what was in it. The console keeps earlier versions of every slot (the latest
+    three, and a thinning trail of older ones reaching back days) and can put any of them back: open the slot in Save
+    archives and choose <span class="hot">Earlier versions</span>. Use it when a save turns out to be a dead end.
+  </p>
+  <p>
     Clearing this site's data in your browser deletes the game data and the saves. Safari may also clear data of
     sites you have not opened for a week; exporting your saves is the safe habit there.
   </p>

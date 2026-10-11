@@ -12,7 +12,8 @@ import { pathKey } from '../storage/manifest';
 import { StorageUnavailableError, loadInstall, openBlob, type Install } from '../storage/opfs';
 
 export { StorageUnavailableError };
-import { commitOverlay, listOverlay, type OverlayEntry } from '../storage/overlay';
+import { commitWithHistory } from '../storage/history';
+import { listOverlay, type OverlayEntry } from '../storage/overlay';
 import { CLASSIC_SCREEN, buildConfigFiles, wideScreen, type ScreenSize } from './config';
 import type { EngineFactory, EngineInfo, EngineModule, PersistBatch } from './types';
 
@@ -205,7 +206,8 @@ export async function bootEngine(
   ov.onError((what, err) => hooks.log(`[storage] ${what}: ${err instanceof Error ? err.message : String(err)}`));
   ov.mount(GAME_ROOT, async (batch: PersistBatch) => {
     try {
-      await commitOverlay(game, batch);
+      // A save over a slot first moves the slot's old contents into its history.
+      await commitWithHistory(game, batch);
     } catch (err) {
       // The game believes it saved. Nothing reached the disk; say so loudly.
       const quota = err instanceof DOMException && err.name === 'QuotaExceededError';
