@@ -65,8 +65,8 @@
   <div class="panel bad">
     <p class="alert">PRIVATE STORAGE UNAVAILABLE</p>
     <p>
-      This browser will not let the console store game data. That happens in some private windows and in old
-      browsers. Try a normal window in a current version of Chrome, Edge, Firefox or Safari.
+      This browser window will not let the console store game data. That happens in private windows and in old
+      browsers. Open the console in a normal window of a current Chrome, Edge, Firefox or Safari.
     </p>
   </div>
 {/if}

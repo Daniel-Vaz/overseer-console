@@ -57,13 +57,41 @@ function call(op: WorkerOp, onProgress?: (p: ImportProgress) => void): Promise<M
   });
 }
 
-/** Whether this browser can hold game data at all. */
+/** Whether this browser has the storage interfaces at all. */
 export function storageSupported(): boolean {
   return typeof navigator !== 'undefined' && !!navigator.storage?.getDirectory && typeof indexedDB !== 'undefined';
 }
 
+/** The browser has the interfaces but refuses to open the file system. */
+export class StorageUnavailableError extends Error {
+  override name = 'StorageUnavailableError';
+}
+
+/**
+ * Private windows are the usual case: Safari and Firefox keep the interface
+ * there but reject every attempt to use it.
+ */
+async function storeRoot(): Promise<FileSystemDirectoryHandle> {
+  try {
+    return await navigator.storage.getDirectory();
+  } catch (err) {
+    throw new StorageUnavailableError(`this browser window cannot store game data (${err instanceof Error ? err.name : 'refused'})`);
+  }
+}
+
+/** Whether game data can really be stored here, found out by trying. */
+export async function probeStorage(): Promise<boolean> {
+  if (!storageSupported()) return false;
+  try {
+    await storeRoot();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function gameDir(game: GameId, create = false): Promise<FileSystemDirectoryHandle> {
-  const root = await navigator.storage.getDirectory();
+  const root = await storeRoot();
   const store = await root.getDirectoryHandle(STORE_ROOT, { create });
   const games = await store.getDirectoryHandle('games', { create });
   return games.getDirectoryHandle(game, { create });

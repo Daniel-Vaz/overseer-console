@@ -9,7 +9,9 @@
 import { GAMES, type GameId } from '../games';
 import type { Settings } from '../settings';
 import { pathKey } from '../storage/manifest';
-import { loadInstall, openBlob, type Install } from '../storage/opfs';
+import { StorageUnavailableError, loadInstall, openBlob, type Install } from '../storage/opfs';
+
+export { StorageUnavailableError };
 import { commitOverlay, listOverlay, type OverlayEntry } from '../storage/overlay';
 import { CLASSIC_SCREEN, buildConfigFiles, wideScreen, type ScreenSize } from './config';
 import type { EngineFactory, EngineInfo, EngineModule, PersistBatch } from './types';

@@ -57,6 +57,14 @@ copies are:
 FO1_DIR="/path/to/Fallout" FO2_DIR="/path/to/Fallout 2" npm run test:e2e
 ```
 
+`PW_BROWSERS=chromium,firefox,webkit` picks the browsers (default: Chromium). WebKit needs system
+libraries that many machines lack; the official Playwright container has them:
+
+```sh
+podman run --rm --userns=keep-id --ipc=host -e HOME=/tmp -e PW_BROWSERS=webkit -v "$PWD":/work -w /work \
+  mcr.microsoft.com/playwright:v1.64.0-noble npx playwright test
+```
+
 ### Changing an engine
 
 `engines/<name>/source.env` names the upstream repository and commit. `engines/<name>/patches/`

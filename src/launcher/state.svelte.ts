@@ -3,7 +3,7 @@ import { GAME_IDS, type GameId } from '../lib/games';
 import { countSaves } from '../lib/saves';
 import { loadSettings, saveSettings, type Settings } from '../lib/settings';
 import { ImportError, planImport, runImport, type ImportPlan, type SourceFile } from '../lib/storage/importer';
-import { loadInstall, requestPersistence, storageStatus, storageSupported, type StorageStatus } from '../lib/storage/opfs';
+import { loadInstall, probeStorage, requestPersistence, storageStatus, storageSupported, type StorageStatus } from '../lib/storage/opfs';
 import { setSoundEnabled } from './sfx';
 import type { Hint } from './types';
 
@@ -34,7 +34,8 @@ class ConsoleState {
   job = $state<ImportJob>({ ...IDLE });
   hints = $state<Hint[]>([]);
 
-  readonly supported = storageSupported();
+  /** False when the browser cannot keep game data (old browser, private window). */
+  supported = $state(storageSupported());
 
   constructor() {
     setSoundEnabled(this.settings.sound);
@@ -52,6 +53,7 @@ class ConsoleState {
 
   /** Looks at what is installed and saved in this browser. */
   async refresh(): Promise<void> {
+    this.supported = await probeStorage();
     if (!this.supported) {
       this.installs = { fo1: null, fo2: null };
       return;

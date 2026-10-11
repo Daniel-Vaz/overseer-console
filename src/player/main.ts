@@ -9,7 +9,7 @@ import '@fontsource/vt323/latin-400.css';
 import '../styles/terminal.css';
 import '../styles/player.css';
 
-import { bootEngine, NoInstallError, type Engine } from '../lib/engine/host';
+import { bootEngine, NoInstallError, StorageUnavailableError, type Engine } from '../lib/engine/host';
 import { GAMES, isGameId, type GameId } from '../lib/games';
 import { loadSettings, recordLaunch } from '../lib/settings';
 import { audioBridgeStats, installAudioBridge } from './audio-bridge';
@@ -463,7 +463,8 @@ async function main(): Promise<void> {
       },
     );
   } catch (err) {
-    if (err instanceof NoInstallError) {
+    // Nothing to play here; the console explains why and what to do.
+    if (err instanceof NoInstallError || err instanceof StorageUnavailableError) {
       location.replace(consoleUrl(game));
       return;
     }

@@ -54,20 +54,11 @@ jobs:
         run: npx playwright install --with-deps chromium firefox webkit
 
       # The tests that play the games need game data and are skipped here.
-      - name: Browser tests (Chromium, Firefox)
+      - name: Browser tests (Chromium, Firefox, WebKit)
         run: npm run test:e2e
         env:
           BASE_PATH: /${{ github.event.repository.name }}/
-          PW_BROWSERS: chromium,firefox
-
-      # Informational for now: WebKit has not been verified on a developer
-      # machine yet, so a failure here is reported without blocking a deploy.
-      - name: Browser tests (WebKit)
-        continue-on-error: true
-        run: npm run test:e2e
-        env:
-          BASE_PATH: /${{ github.event.repository.name }}/
-          PW_BROWSERS: webkit
+          PW_BROWSERS: chromium,firefox,webkit
 
       - name: Keep the test report
         if: failure()

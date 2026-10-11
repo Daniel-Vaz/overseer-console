@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 import { zipSync } from 'fflate';
 import { fakeFallout2Folder, fakeSaveDat, junkFolder, openConsole } from './helpers';
 
@@ -223,4 +223,19 @@ test('keeps working without a network connection once visited', async ({ page, c
   // The player page is available offline as well (and finds no game to run).
   await page.goto('play.html?game=fo2');
   await expect(page.getByRole('heading', { name: 'SIMULATION 02: Fallout 2' })).toBeVisible();
+});
+
+test('says so when the browser refuses to store data, as private windows do', async ({ page }) => {
+  await page.addInitScript(() => {
+    navigator.storage.getDirectory = () => Promise.reject(new DOMException('refused', 'SecurityError'));
+  });
+  await openConsole(page);
+  await expect(page.getByText('PRIVATE STORAGE UNAVAILABLE')).toBeVisible();
+  await page.keyboard.press('2');
+  await expect(page.getByText('THIS BROWSER CANNOT STORE GAME DATA')).toBeVisible();
+
+  // The player has nothing to run and hands back to the console instead of failing.
+  await page.goto('play.html?game=fo2');
+  await expect(page.getByRole('heading', { name: 'SIMULATION 02: Fallout 2' })).toBeVisible();
+  await expect(page.getByText('System fault')).toHaveCount(0);
 });
