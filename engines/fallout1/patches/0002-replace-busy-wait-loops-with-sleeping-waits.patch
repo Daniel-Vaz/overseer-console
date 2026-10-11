@@ -1,0 +1,515 @@
+Replace busy-wait loops with sleeping waits
+
+The interface code paces itself with `while (elapsed_time(t) < n) {}` loops and
+the movie player spins on the clock between frames. A browser tab runs the
+engine on the same thread as rendering, input and audio, so a spinning loop
+freezes all three. Every such loop now sleeps (SDL_Delay) until its deadline.
+Timing is unchanged; CPU use while waiting drops to zero on every platform.
+Fallout 2 CE made the same change in 2023.
+---
+diff --git a/src/game/bmpdlog.cc b/src/game/bmpdlog.cc
+index 0b7f3c2..a64a98c 100644
+--- a/src/game/bmpdlog.cc
++++ b/src/game/bmpdlog.cc
+@@ -843,8 +843,7 @@ int file_dialog(char* title, char** fileList, char* dest, int fileListLength, in
+                 }
+ 
+                 unsigned int delay = (scrollCounter > 14.4) ? 1000 / scrollDelay : 1000 / 24;
+-                while (elapsed_time(scrollTick) < delay) {
+-                }
++                wait_until_elapsed(scrollTick, delay);
+ 
+                 if (game_user_wants_to_quit != 0) {
+                     rc = 1;
+@@ -867,8 +866,7 @@ int file_dialog(char* title, char** fileList, char* dest, int fileListLength, in
+                 doubleClickSelectedFileIndex = -2;
+             }
+ 
+-            while (elapsed_time(tick) < (1000 / 24)) {
+-            }
++            wait_until_elapsed(tick, 1000 / 24);
+         }
+ 
+         if (game_user_wants_to_quit) {
+@@ -1316,8 +1314,7 @@ int save_file_dialog(char* title, char** fileList, char* dest, int fileListLengt
+                 // FIXME: Missing windowRefresh makes blinking useless.
+ 
+                 unsigned int delay = (scrollCounter > 14.4) ? 1000 / scrollDelay : 1000 / 24;
+-                while (elapsed_time(scrollTick) < delay) {
+-                }
++                wait_until_elapsed(scrollTick, delay);
+ 
+                 if (game_user_wants_to_quit != 0) {
+                     rc = 1;
+@@ -1350,8 +1347,7 @@ int save_file_dialog(char* title, char** fileList, char* dest, int fileListLengt
+                 doubleClickSelectedFileIndex = -2;
+             }
+ 
+-            while (elapsed_time(tick) < (1000 / 24)) {
+-            }
++            wait_until_elapsed(tick, 1000 / 24);
+         }
+ 
+         if (game_user_wants_to_quit != 0) {
+diff --git a/src/game/credits.cc b/src/game/credits.cc
+index 9e3e003..15a7d3f 100644
+--- a/src/game/credits.cc
++++ b/src/game/credits.cc
+@@ -219,8 +219,7 @@ void credits(const char* filePath, int backgroundFid, bool useReversedStyle)
+                                             }
+                                         }
+ 
+-                                        while (elapsed_time(tick) < CREDITS_WINDOW_SCROLLING_DELAY) {
+-                                        }
++                                        wait_until_elapsed(tick, CREDITS_WINDOW_SCROLLING_DELAY);
+ 
+                                         tick = get_time();
+ 
+@@ -262,8 +261,7 @@ void credits(const char* filePath, int backgroundFid, bool useReversedStyle)
+                                             windowBuffer,
+                                             windowWidth);
+ 
+-                                        while (elapsed_time(tick) < CREDITS_WINDOW_SCROLLING_DELAY) {
+-                                        }
++                                        wait_until_elapsed(tick, CREDITS_WINDOW_SCROLLING_DELAY);
+ 
+                                         tick = get_time();
+ 
+diff --git a/src/game/editor.cc b/src/game/editor.cc
+index 32c2058..82c8230 100644
+--- a/src/game/editor.cc
++++ b/src/game/editor.cc
+@@ -1531,7 +1531,7 @@ int get_input_str(int win, int cancelKeyCode, char* text, int maxLength, int x,
+ 
+         win_draw(win);
+ 
+-        while (elapsed_time(frame_time) < 1000 / 24) { }
++        wait_until_elapsed(frame_time, 1000 / 24);
+ 
+         renderPresent();
+         sharedFpsLimiter.throttle();
+@@ -1862,8 +1862,7 @@ static void PrintBigNum(int x, int y, int flags, int value, int previousValue, i
+                     windowWidth);
+                 win_draw_rect(windowHandle, &rect);
+                 renderPresent();
+-                while (elapsed_time(frame_time) < BIG_NUM_ANIMATION_DELAY)
+-                    ;
++                wait_until_elapsed(frame_time, BIG_NUM_ANIMATION_DELAY);
+             }
+ 
+             buf_to_buf(numbersGraphicBufferPtr + BIG_NUM_WIDTH * ones,
+@@ -1884,8 +1883,7 @@ static void PrintBigNum(int x, int y, int flags, int value, int previousValue, i
+                     tensBufferPtr,
+                     windowWidth);
+                 win_draw_rect(windowHandle, &rect);
+-                while (elapsed_time(frame_time) < BIG_NUM_ANIMATION_DELAY)
+-                    ;
++                wait_until_elapsed(frame_time, BIG_NUM_ANIMATION_DELAY);
+             }
+ 
+             buf_to_buf(numbersGraphicBufferPtr + BIG_NUM_WIDTH * tens,
+@@ -3149,11 +3147,9 @@ static int AgeWindow()
+                 }
+ 
+                 if (v33 > 14.4) {
+-                    while (elapsed_time(frame_time) < 1000 / repFtime) {
+-                    }
++                    wait_until_elapsed(frame_time, 1000 / repFtime);
+                 } else {
+-                    while (elapsed_time(frame_time) < 1000 / 24) {
+-                    }
++                    wait_until_elapsed(frame_time, 1000 / 24);
+                 }
+ 
+                 keyCode = get_input();
+@@ -3167,8 +3163,7 @@ static int AgeWindow()
+         } else {
+             win_draw(win);
+ 
+-            while (elapsed_time(frame_time) < 1000 / 24) {
+-            }
++            wait_until_elapsed(frame_time, 1000 / 24);
+ 
+             renderPresent();
+             sharedFpsLimiter.throttle();
+@@ -3308,8 +3303,7 @@ static void SexWindow()
+ 
+         win_draw(win);
+ 
+-        while (elapsed_time(frame_time) < 41) {
+-        }
++        wait_until_elapsed(frame_time, 41);
+ 
+         renderPresent();
+         sharedFpsLimiter.throttle();
+@@ -3388,11 +3382,9 @@ static void StatButton(int eventCode)
+ 
+         if (v11 >= 19.2) {
+             unsigned int delay = 1000 / repFtime;
+-            while (elapsed_time(frame_time) < delay) {
+-            }
++            wait_until_elapsed(frame_time, delay);
+         } else {
+-            while (elapsed_time(frame_time) < 1000 / 24) {
+-            }
++            wait_until_elapsed(frame_time, 1000 / 24);
+         }
+ 
+         renderPresent();
+@@ -4873,11 +4865,9 @@ static void SliderBtn(int keyCode)
+         if (!isUsingKeyboard) {
+             unspentSp = stat_pc_get(PC_STAT_UNSPENT_SKILL_POINTS);
+             if (repeatDelay >= 19.2) {
+-                while (elapsed_time(frame_time) < 1000 / repFtime) {
+-                }
++                wait_until_elapsed(frame_time, 1000 / repFtime);
+             } else {
+-                while (elapsed_time(frame_time) < 1000 / 24) {
+-                }
++                wait_until_elapsed(frame_time, 1000 / 24);
+             }
+ 
+             int keyCode = get_input();
+@@ -5606,11 +5596,9 @@ static int InputPDLoop(int count, void (*refreshProc)())
+                     }
+ 
+                     if (v19 < 14.4) {
+-                        while (elapsed_time(frame_time) < 1000 / 24) {
+-                        }
++                        wait_until_elapsed(frame_time, 1000 / 24);
+                     } else {
+-                        while (elapsed_time(frame_time) < 1000 / repFtime) {
+-                        }
++                        wait_until_elapsed(frame_time, 1000 / repFtime);
+                     }
+ 
+                     renderPresent();
+@@ -5653,11 +5641,9 @@ static int InputPDLoop(int count, void (*refreshProc)())
+                         }
+ 
+                         if (v19 < 14.4) {
+-                            while (elapsed_time(frame_time) < 1000 / 24) {
+-                            }
++                            wait_until_elapsed(frame_time, 1000 / 24);
+                         } else {
+-                            while (elapsed_time(frame_time) < 1000 / repFtime) {
+-                            }
++                            wait_until_elapsed(frame_time, 1000 / repFtime);
+                         }
+ 
+                         renderPresent();
+@@ -5689,11 +5675,9 @@ static int InputPDLoop(int count, void (*refreshProc)())
+                         }
+ 
+                         if (v19 < 14.4) {
+-                            while (elapsed_time(frame_time) < 1000 / 24) {
+-                            }
++                            wait_until_elapsed(frame_time, 1000 / 24);
+                         } else {
+-                            while (elapsed_time(frame_time) < 1000 / repFtime) {
+-                            }
++                            wait_until_elapsed(frame_time, 1000 / repFtime);
+                         }
+ 
+                         renderPresent();
+diff --git a/src/game/elevator.cc b/src/game/elevator.cc
+index 97c34fb..d249e22 100644
+--- a/src/game/elevator.cc
++++ b/src/game/elevator.cc
+@@ -342,8 +342,7 @@ int elevator_select(int elevator, int* mapPtr, int* elevationPtr, int* tilePtr)
+ 
+                 win_draw(elev_win);
+ 
+-                while (elapsed_time(tick) < delay) {
+-                }
++                wait_until_elapsed(tick, delay);
+ 
+                 renderPresent();
+                 sharedFpsLimiter.throttle();
+diff --git a/src/game/gdialog.cc b/src/game/gdialog.cc
+index 9d94f05..4d5419b 100644
+--- a/src/game/gdialog.cc
++++ b/src/game/gdialog.cc
+@@ -2190,8 +2190,7 @@ static void talk_to_scroll_subwin(int win, int a2, unsigned char* a3, unsigned c
+             v9 -= 10 * (GAME_DIALOG_WINDOW_WIDTH);
+ 
+             tick = get_time();
+-            while (elapsed_time(tick) < 33) {
+-            }
++            wait_until_elapsed(tick, 33);
+ 
+             renderPresent();
+             sharedFpsLimiter.throttle();
+@@ -2230,8 +2229,7 @@ static void talk_to_scroll_subwin(int win, int a2, unsigned char* a3, unsigned c
+             rect.uly += 10;
+ 
+             tick = get_time();
+-            while (elapsed_time(tick) < 33) {
+-            }
++            wait_until_elapsed(tick, 33);
+ 
+             renderPresent();
+             sharedFpsLimiter.throttle();
+diff --git a/src/game/loadsave.cc b/src/game/loadsave.cc
+index 62b03b2..49e2ffe 100644
+--- a/src/game/loadsave.cc
++++ b/src/game/loadsave.cc
+@@ -641,9 +641,9 @@ int SaveGame(int mode)
+                 }
+ 
+                 if (scrollCounter > 14.4) {
+-                    while (elapsed_time(start) < 1000 / scrollVelocity) { }
++                    wait_until_elapsed(start, 1000 / scrollVelocity);
+                 } else {
+-                    while (elapsed_time(start) < 1000 / 24) { }
++                    wait_until_elapsed(start, 1000 / 24);
+                 }
+ 
+                 keyCode = get_input();
+@@ -687,8 +687,7 @@ int SaveGame(int mode)
+                 doubleClickSlot = -1;
+             }
+ 
+-            while (elapsed_time(tick) < 1000 / 24) {
+-            }
++            wait_until_elapsed(tick, 1000 / 24);
+         }
+ 
+         if (rc == 1) {
+@@ -1142,9 +1141,9 @@ int LoadGame(int mode)
+                 }
+ 
+                 if (scrollCounter > 14.4) {
+-                    while (elapsed_time(start) < 1000 / scrollVelocity) { }
++                    wait_until_elapsed(start, 1000 / scrollVelocity);
+                 } else {
+-                    while (elapsed_time(start) < 1000 / 24) { }
++                    wait_until_elapsed(start, 1000 / 24);
+                 }
+ 
+                 keyCode = get_input();
+@@ -1194,7 +1193,7 @@ int LoadGame(int mode)
+                 doubleClickSlot = -1;
+             }
+ 
+-            while (elapsed_time(time) < 1000 / 24) { }
++            wait_until_elapsed(time, 1000 / 24);
+         }
+ 
+         if (rc == 1) {
+@@ -2266,8 +2265,7 @@ static int get_input_str2(int win, int doneKeyCode, int cancelKeyCode, char* des
+             win_draw(win);
+         }
+ 
+-        while (elapsed_time(tick) < 1000 / 24) {
+-        }
++        wait_until_elapsed(tick, 1000 / 24);
+ 
+         renderPresent();
+         sharedFpsLimiter.throttle();
+diff --git a/src/game/options.cc b/src/game/options.cc
+index f9a6a7b..867340c 100644
+--- a/src/game/options.cc
++++ b/src/game/options.cc
+@@ -1409,8 +1409,7 @@ static void DoThing(int eventCode)
+             trans_buf_to_buf(prfbmp[PREFERENCES_WINDOW_FRM_KNOB_ON], 21, 12, 21, prefbuf + PREFERENCES_WINDOW_WIDTH * meta->knobY + v31, PREFERENCES_WINDOW_WIDTH);
+             win_draw(prfwin);
+ 
+-            while (elapsed_time(tick) < 35) {
+-            }
++            wait_until_elapsed(tick, 35);
+ 
+             renderPresent();
+             sharedFpsLimiter.throttle();
+diff --git a/src/game/pipboy.cc b/src/game/pipboy.cc
+index 0c203f9..86be9bf 100644
+--- a/src/game/pipboy.cc
++++ b/src/game/pipboy.cc
+@@ -2086,8 +2086,7 @@ static bool TimedRest(int hours, int minutes, int duration)
+                     pip_note();
+                     win_draw(pip_win);
+ 
+-                    while (elapsed_time(start) < 50) {
+-                    }
++                    wait_until_elapsed(start, 50);
+                 }
+ 
+                 renderPresent();
+@@ -2159,8 +2158,7 @@ static bool TimedRest(int hours, int minutes, int duration)
+                     DrawAlrmHitPnts();
+                     win_draw(pip_win);
+ 
+-                    while (elapsed_time(start) < 50) {
+-                    }
++                    wait_until_elapsed(start, 50);
+                 }
+ 
+                 renderPresent();
+@@ -2444,8 +2442,7 @@ static int ScreenSaver()
+             v31 -= 1;
+         } else {
+             win_draw_rect(pip_win, &pip_rect);
+-            while (elapsed_time(time) < 50) {
+-            }
++            wait_until_elapsed(time, 50);
+         }
+ 
+         renderPresent();
+diff --git a/src/game/worldmap.cc b/src/game/worldmap.cc
+index 701f1ea..b479e3b 100644
+--- a/src/game/worldmap.cc
++++ b/src/game/worldmap.cc
+@@ -1810,8 +1810,7 @@ int world_map(WorldMapContext ctx)
+ 
+                 should_redraw = 0;
+ 
+-                while (elapsed_time(time) < 1000 / 24) {
+-                }
++                wait_until_elapsed(time, 1000 / 24);
+             } else {
+                 if (!done) {
+                     DrawMapTime(0);
+diff --git a/src/movie_lib.cc b/src/movie_lib.cc
+index 02e8934..d242918 100644
+--- a/src/movie_lib.cc
++++ b/src/movie_lib.cc
+@@ -9,6 +9,8 @@
+ #include <stdio.h>
+ #include <string.h>
+ 
++#include <SDL.h>
++
+ #include "audio_engine.h"
+ #include "platform_compat.h"
+ 
+@@ -790,6 +792,14 @@ static int _MVE_rmHoldMovie()
+     return 0;
+ }
+ 
++// CE: Sleeps for (most of) the given number of microseconds instead of
++// spinning, so hosts with a cooperative event loop (browsers) keep running.
++static void _syncDelay(int microseconds)
++{
++    int ms = microseconds / 1000 - 3;
++    SDL_Delay(ms > 0 ? ms : 1);
++}
++
+ // 0x4F4E40
+ static int _syncWait()
+ {
+@@ -799,8 +809,9 @@ static int _syncWait()
+     if (_sync_active) {
+         if (((_sync_time + 1000 * compat_timeGetTime()) & 0x80000000) != 0) {
+             result = 1;
+-            while (((_sync_time + 1000 * compat_timeGetTime()) & 0x80000000) != 0)
+-                ;
++            while (((_sync_time + 1000 * compat_timeGetTime()) & 0x80000000) != 0) {
++                _syncDelay(-(_sync_time + 1000 * compat_timeGetTime()));
++            }
+         }
+         _sync_time += _sync_wait_quanta;
+     }
+@@ -1157,6 +1168,7 @@ static void _MVE_syncSync()
+ {
+     if (_sync_active) {
+         while (((_sync_time + 1000 * compat_timeGetTime()) & 0x80000000) != 0) {
++            _syncDelay(-(_sync_time + 1000 * compat_timeGetTime()));
+         }
+     }
+ }
+@@ -1299,6 +1311,9 @@ static void _MVE_sndSync()
+             break;
+         }
+         v0 = true;
++
++        // CE: Let the audio device advance the play cursor.
++        SDL_Delay(1);
+     }
+ 
+     if (dword_6B3660 != dword_6B3AE4) {
+@@ -1323,6 +1338,10 @@ static int _syncWaitLevel(int a1)
+     v2 = _sync_time + a1;
+     do {
+         result = v2 + 1000 * compat_timeGetTime();
++        if (result < 0) {
++            _syncDelay(-result);
++        }
++        result = v2 + 1000 * compat_timeGetTime();
+     } while (result < 0);
+ 
+     _sync_time += _sync_wait_quanta;
+diff --git a/src/plib/gnw/input.cc b/src/plib/gnw/input.cc
+index 5ad4d95..ba13666 100644
+--- a/src/plib/gnw/input.cc
++++ b/src/plib/gnw/input.cc
+@@ -646,6 +646,10 @@ void pause_for_tocks(unsigned int delay)
+     while (diff < delay) {
+         process_bk();
+ 
++        // CE: Yield instead of spinning, so that hosts with a cooperative
++        // event loop (browsers) keep presenting frames and mixing audio.
++        SDL_Delay(1);
++
+         end = get_time();
+ 
+         // NOTE: Uninline.
+@@ -656,12 +660,8 @@ void pause_for_tocks(unsigned int delay)
+ // 0x4B3C00
+ void block_for_tocks(unsigned int ms)
+ {
+-    unsigned int start = SDL_GetTicks();
+-    unsigned int diff;
+-    do {
+-        // NOTE: Uninline
+-        diff = elapsed_time(start);
+-    } while (diff < ms);
++    // CE: Original code is a busy-wait loop.
++    wait_until_elapsed(SDL_GetTicks(), ms);
+ }
+ 
+ // 0x4B3C28
+@@ -673,6 +673,18 @@ unsigned int elapsed_time(unsigned int start)
+     return elapsed_tocks(end, start);
+ }
+ 
++// CE: Sleeps until `ms` milliseconds have passed since `start` (as returned by
++// `get_time`). Replaces the original `while (elapsed_time(start) < ms) {}`
++// busy-wait loops, which starve hosts with a cooperative event loop.
++void wait_until_elapsed(unsigned int start, unsigned int ms)
++{
++    unsigned int elapsed = elapsed_time(start);
++    while (elapsed < ms) {
++        SDL_Delay(ms - elapsed);
++        elapsed = elapsed_time(start);
++    }
++}
++
+ // 0x4B3C48
+ unsigned int elapsed_tocks(unsigned int end, unsigned int start)
+ {
+diff --git a/src/plib/gnw/input.h b/src/plib/gnw/input.h
+index 82e68ae..fa489ff 100644
+--- a/src/plib/gnw/input.h
++++ b/src/plib/gnw/input.h
+@@ -34,6 +34,7 @@ unsigned int get_time();
+ void pause_for_tocks(unsigned int ms);
+ void block_for_tocks(unsigned int ms);
+ unsigned int elapsed_time(unsigned int a1);
++void wait_until_elapsed(unsigned int start, unsigned int ms);
+ unsigned int elapsed_tocks(unsigned int a1, unsigned int a2);
+ unsigned int get_bk_time();
+ void set_repeat_rate(unsigned int rate);
+diff --git a/src/plib/gnw/vcr.cc b/src/plib/gnw/vcr.cc
+index 7171812..7f5dc34 100644
+--- a/src/plib/gnw/vcr.cc
++++ b/src/plib/gnw/vcr.cc
+@@ -225,8 +225,7 @@ int vcr_update()
+                         * (vcrEntry->time - vcr_last_play_event.time)
+                         / (vcrEntry->counter - vcr_last_play_event.counter);
+ 
+-                    while (elapsed_time(vcr_start_time) < delay) {
+-                    }
++                    wait_until_elapsed(vcr_start_time, delay);
+                 }
+             }
+ 

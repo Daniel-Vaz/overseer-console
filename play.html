@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="robots" content="noindex" />
+    <meta name="theme-color" content="#050605" />
+    <title>Simulation - Overseer Console</title>
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="icon-192.png" />
+  </head>
+  <body class="player">
+    <!-- The game draws here. SDL looks the element up by this id. -->
+    <div id="stage"><canvas id="canvas" width="640" height="480" tabindex="-1"></canvas></div>
+
+    <button id="handle" type="button" hidden aria-label="Open the console menu (F9)">F9 &#9776;</button>
+    <div id="toast" role="status" aria-live="polite"></div>
+
+    <!-- Boot log, the start gate, the pause menu and error reports. -->
+    <div id="terminal" class="tube crt-on">
+      <div class="refresh"></div>
+      <main class="screen">
+        <div class="bar"><span id="bar-title">OVERSEER CONSOLE</span><span id="bar-state">STANDBY</span></div>
+        <div class="body" id="terminal-body" tabindex="-1"></div>
+        <div class="hints" id="terminal-hints"></div>
+      </main>
+    </div>
+
+    <script type="module" src="/src/player/main.ts"></script>
+  </body>
+</html>

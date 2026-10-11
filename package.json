@@ -1,0 +1,31 @@
+{
+  "name": "overseer-console",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Play Fallout 1 and Fallout 2 in the browser with your own game files. Unofficial fan project.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "engines": "bash engines/build.sh all",
+    "test": "vitest run",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@fontsource/vt323": "^5.3.0",
+    "@playwright/test": "^1.64.0",
+    "@sveltejs/vite-plugin-svelte": "^7.3.1",
+    "@tsconfig/svelte": "^5.0.4",
+    "@types/node": "^22.0.0",
+    "svelte": "^5.57.2",
+    "svelte-check": "^4.7.6",
+    "typescript": "^6.0.3",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.3"
+  },
+  "dependencies": {
+    "fflate": "^0.8.3"
+  }
+}

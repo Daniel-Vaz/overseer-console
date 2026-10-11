@@ -1,0 +1,22 @@
+# Dependencies and build output
+node_modules/
+dist/
+
+# Engine sources, build trees and the Emscripten cache (see engines/build.sh)
+.cache/
+
+# Compiled engines are build artifacts: CI rebuilds them from the pinned commits
+public/engines/
+
+# Local test output
+test-results/
+playwright-report/
+
+# Local settings (game data paths etc.)
+.env.local
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+*.log

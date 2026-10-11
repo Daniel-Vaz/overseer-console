@@ -1,0 +1,29 @@
+Add a setting to skip the opening movies
+
+`skip_opening_movies=1` in the [system] section of fallout.cfg goes straight to
+the main menu instead of playing the publisher logo and the intro first.
+Fallout 2 CE has the same setting. In a browser the game is started far more
+often than a desktop install, which makes the two unskippable-by-default
+movies wear thin quickly.
+---
+diff --git a/src/game/main.cc b/src/game/main.cc
+index 4f8efc1..211380d 100644
+--- a/src/game/main.cc
++++ b/src/game/main.cc
+@@ -96,8 +96,14 @@ int gnw_main(int argc, char** argv)
+         return 1;
+     }
+ 
+-    gmovie_play(MOVIE_IPLOGO, GAME_MOVIE_FADE_IN);
+-    gmovie_play(MOVIE_INTRO, 0);
++    // CE: Allow to skip the opening movies (same setting as Fallout 2 CE).
++    int skipOpeningMovies = 0;
++    config_get_value(&game_config, GAME_CONFIG_SYSTEM_KEY, "skip_opening_movies", &skipOpeningMovies);
++
++    if (skipOpeningMovies == 0) {
++        gmovie_play(MOVIE_IPLOGO, GAME_MOVIE_FADE_IN);
++        gmovie_play(MOVIE_INTRO, 0);
++    }
+ 
+     if (main_menu_create() == 0) {
+         int language_filter = 1;

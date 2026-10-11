@@ -1,0 +1,202 @@
+Add absolute pointer mode
+
+The engine drives its own cursor from relative mouse deltas, which needs pointer
+lock in a browser. In the Emscripten build the pointer position is read directly
+and mapped from canvas pixels to game pixels, then converted to a delta from the
+current hot spot so the rest of the input pipeline stays as it was. Touch taps
+and drags follow the finger in this mode. Native builds are unchanged.
+---
+diff --git a/src/plib/gnw/dxinput.cc b/src/plib/gnw/dxinput.cc
+index c7d8976..48e1858 100644
+--- a/src/plib/gnw/dxinput.cc
++++ b/src/plib/gnw/dxinput.cc
+@@ -1,5 +1,7 @@
+ #include "plib/gnw/dxinput.h"
+ 
++#include "plib/gnw/svga.h"
++
+ namespace fallout {
+ 
+ static bool dxinput_mouse_init();
+@@ -10,6 +12,9 @@ static void dxinput_keyboard_exit();
+ static int gMouseWheelDeltaX = 0;
+ static int gMouseWheelDeltaY = 0;
+ 
++// CE: Whether the host has reported where its pointer is (absolute mode).
++static bool gMouseHasPosition = false;
++
+ // 0x4E0400
+ bool dxinput_init()
+ {
+@@ -52,6 +57,27 @@ bool dxinput_unacquire_mouse()
+     return true;
+ }
+ 
++// CE: In relative mode the application owns the cursor and moves it by mouse
++// deltas. In absolute mode the host owns the pointer and its position is read
++// directly, which is the only sensible behaviour inside a browser page (no
++// pointer lock, cursor leaves and re-enters the canvas at arbitrary points).
++bool dxinput_mouse_is_relative()
++{
++#if defined(__EMSCRIPTEN__)
++    return false;
++#else
++    return true;
++#endif
++}
++
++// CE: In absolute mode the pointer position is unknown until the first mouse
++// event arrives. Until then SDL reports (0, 0), which must not be mistaken for
++// the user parking the pointer in the top left corner.
++bool dxinput_mouse_has_position()
++{
++    return gMouseHasPosition;
++}
++
+ // 0x4E053C
+ bool dxinput_get_mouse_state(MouseData* mouseState)
+ {
+@@ -63,7 +89,25 @@ bool dxinput_get_mouse_state(MouseData* mouseState)
+     // update mouse position manually.
+     SDL_PumpEvents();
+ 
+-    Uint32 buttons = SDL_GetRelativeMouseState(&(mouseState->x), &(mouseState->y));
++    Uint32 buttons;
++    if (dxinput_mouse_is_relative()) {
++        buttons = SDL_GetRelativeMouseState(&(mouseState->x), &(mouseState->y));
++    } else {
++        int windowX;
++        int windowY;
++        buttons = SDL_GetMouseState(&windowX, &windowY);
++
++        // Window (canvas) pixels -> game pixels, accounting for scaling and
++        // letterboxing done by the renderer.
++        float logicalX = static_cast<float>(windowX);
++        float logicalY = static_cast<float>(windowY);
++        if (gSdlRenderer != NULL) {
++            SDL_RenderWindowToLogical(gSdlRenderer, windowX, windowY, &logicalX, &logicalY);
++        }
++
++        mouseState->x = static_cast<int>(logicalX);
++        mouseState->y = static_cast<int>(logicalY);
++    }
+     mouseState->buttons[0] = (buttons & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
+     mouseState->buttons[1] = (buttons & SDL_BUTTON(SDL_BUTTON_RIGHT)) != 0;
+     mouseState->wheelX = gMouseWheelDeltaX;
+@@ -103,6 +147,11 @@ bool dxinput_read_keyboard_buffer(KeyboardData* keyboardData)
+ // 0x4E070C
+ bool dxinput_mouse_init()
+ {
++    if (!dxinput_mouse_is_relative()) {
++        SDL_SetRelativeMouseMode(SDL_FALSE);
++        return true;
++    }
++
+     return SDL_SetRelativeMouseMode(SDL_TRUE) == 0;
+ }
+ 
+@@ -130,6 +179,8 @@ void handleMouseEvent(SDL_Event* event)
+     if (event->type == SDL_MOUSEWHEEL) {
+         gMouseWheelDeltaX += event->wheel.x;
+         gMouseWheelDeltaY += event->wheel.y;
++    } else {
++        gMouseHasPosition = true;
+     }
+ }
+ 
+diff --git a/src/plib/gnw/dxinput.h b/src/plib/gnw/dxinput.h
+index 96ed9b1..c2b1401 100644
+--- a/src/plib/gnw/dxinput.h
++++ b/src/plib/gnw/dxinput.h
+@@ -23,6 +23,8 @@ void dxinput_exit();
+ bool dxinput_acquire_mouse();
+ bool dxinput_unacquire_mouse();
+ bool dxinput_get_mouse_state(MouseData* mouseData);
++bool dxinput_mouse_is_relative();
++bool dxinput_mouse_has_position();
+ bool dxinput_acquire_keyboard();
+ bool dxinput_unacquire_keyboard();
+ bool dxinput_flush_keyboard_buffer();
+diff --git a/src/plib/gnw/mouse.cc b/src/plib/gnw/mouse.cc
+index 3f3fdc5..4b5d4d6 100644
+--- a/src/plib/gnw/mouse.cc
++++ b/src/plib/gnw/mouse.cc
+@@ -414,6 +414,18 @@ void mouse_hide()
+ }
+ 
+ // 0x4B4DD8
++// CE: Converts an absolute pointer position into a delta from the current
++// cursor hot spot, so that the rest of the (delta based) pipeline is unchanged.
++static void mouse_absolute_to_delta(int* x, int* y)
++{
++    int currentX;
++    int currentY;
++    mouse_get_position(&currentX, &currentY);
++
++    *x -= currentX;
++    *y -= currentY;
++}
++
+ void mouse_info()
+ {
+     if (!have_mouse) {
+@@ -435,6 +447,11 @@ void mouse_info()
+ 
+         switch (gesture.type) {
+         case kTap:
++            if (!dxinput_mouse_is_relative()) {
++                // Tap where you want to click.
++                mouse_set_position(gesture.x, gesture.y);
++            }
++
+             if (gesture.numberOfTouches == 1) {
+                 mouse_simulate_input(0, 0, MOUSE_STATE_LEFT_BUTTON_DOWN);
+             } else if (gesture.numberOfTouches == 2) {
+@@ -448,6 +465,11 @@ void mouse_info()
+                 prevy = gesture.y;
+             }
+ 
++            if (!dxinput_mouse_is_relative() && gesture.numberOfTouches == 1) {
++                // The cursor follows the finger.
++                mouse_get_position(&prevx, &prevy);
++            }
++
+             if (gesture.type == kLongPress) {
+                 if (gesture.numberOfTouches == 1) {
+                     mouse_simulate_input(gesture.x - prevx, gesture.y - prevy, MOUSE_STATE_LEFT_BUTTON_DOWN);
+@@ -497,9 +519,16 @@ void mouse_info()
+         y = 0;
+     }
+ 
+-    // Adjust for mouse senstivity.
+-    x = (int)(x * mouse_sensitivity);
+-    y = (int)(y * mouse_sensitivity);
++    if (dxinput_mouse_is_relative()) {
++        // Adjust for mouse senstivity.
++        x = (int)(x * mouse_sensitivity);
++        y = (int)(y * mouse_sensitivity);
++    } else if (dxinput_mouse_has_position()) {
++        mouse_absolute_to_delta(&x, &y);
++    } else {
++        x = 0;
++        y = 0;
++    }
+ 
+     if (vcr_state == VCR_STATE_PLAYING) {
+         if (((vcr_terminate_flags & VCR_TERMINATE_ON_MOUSE_PRESS) != 0 && buttons != 0)
+@@ -760,8 +789,13 @@ void mouse_get_raw_state(int* x, int* y, int* buttons)
+     }
+ 
+     raw_buttons = 0;
+-    raw_x += mouseData.x;
+-    raw_y += mouseData.y;
++    if (dxinput_mouse_is_relative()) {
++        raw_x += mouseData.x;
++        raw_y += mouseData.y;
++    } else if (dxinput_mouse_has_position()) {
++        raw_x = mouseData.x;
++        raw_y = mouseData.y;
++    }
+ 
+     if (mouseData.buttons[0] != 0) {
+         raw_buttons |= MOUSE_EVENT_LEFT_BUTTON_DOWN;

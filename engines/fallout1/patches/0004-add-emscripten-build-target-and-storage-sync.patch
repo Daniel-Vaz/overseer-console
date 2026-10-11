@@ -1,0 +1,123 @@
+Add Emscripten build target and storage sync
+
+Adds a CMake branch for Emscripten (SDL2 from the ports collection, Asyncify for
+the blocking main loop) and compat_fs_sync(), which asks the host to persist
+in-memory file changes. It is called after a saved game is written and after the
+settings file is saved, and does nothing outside the browser.
+---
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index f341df7..30ff960 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -345,7 +345,27 @@ if(APPLE)
+     set(MACOSX_BUNDLE_BUNDLE_VERSION "1.0.0")
+ endif()
+ 
+-if((NOT ${CMAKE_SYSTEM_NAME} MATCHES "Linux") AND (NOT ${CMAKE_SYSTEM_NAME} MATCHES "FreeBSD") AND (NOT ${CMAKE_SYSTEM_NAME} MATCHES "OpenBSD"))
++if(${CMAKE_SYSTEM_NAME} MATCHES "Emscripten")
++    # Browser (WebAssembly) build. SDL2 comes from the Emscripten ports
++    # collection, the engine's blocking loops are handled by Asyncify.
++    # USE_SDL=2 (rather than --use-port=sdl2) also keeps Emscripten's legacy
++    # JavaScript SDL 1.2 emulation out of the link, which would otherwise
++    # silently stand in for any SDL symbol missing from the binary.
++    target_compile_options(${EXECUTABLE_NAME} PUBLIC "-sUSE_SDL=2")
++    target_link_options(${EXECUTABLE_NAME} PRIVATE
++        "-sUSE_SDL=2"
++        "-sASYNCIFY"
++        "-sASYNCIFY_STACK_SIZE=65536"
++        "-sENVIRONMENT=web"
++        "-sALLOW_MEMORY_GROWTH"
++        "-sCASE_INSENSITIVE_FS"
++        "-lidbfs.js"
++        "-sMODULARIZE"
++        "-sEXPORT_NAME=falloutce"
++        "-sEXPORTED_RUNTIME_METHODS=callMain,FS"
++        "-sEXIT_RUNTIME"
++    )
++elseif((NOT ${CMAKE_SYSTEM_NAME} MATCHES "Linux") AND (NOT ${CMAKE_SYSTEM_NAME} MATCHES "FreeBSD") AND (NOT ${CMAKE_SYSTEM_NAME} MATCHES "OpenBSD"))
+     add_subdirectory("third_party/sdl2")
+ else()
+     find_package(SDL2)
+diff --git a/src/game/gconfig.cc b/src/game/gconfig.cc
+index 98226b5..31b152c 100644
+--- a/src/game/gconfig.cc
++++ b/src/game/gconfig.cc
+@@ -155,6 +155,8 @@ bool gconfig_save()
+         return false;
+     }
+ 
++    compat_fs_sync();
++
+     return true;
+ }
+ 
+diff --git a/src/game/loadsave.cc b/src/game/loadsave.cc
+index 49e2ffe..119487e 100644
+--- a/src/game/loadsave.cc
++++ b/src/game/loadsave.cc
+@@ -1572,6 +1572,8 @@ static int SaveSlot()
+     snprintf(gmpath, sizeof(gmpath), "%s\\%s%.2d\\", "SAVEGAME", "SLOT", slot_cursor + 1);
+     MapDirErase(gmpath, "BAK");
+ 
++    compat_fs_sync();
++
+     lsgmesg.num = 140;
+     if (message_search(&lsgame_msgfl, &lsgmesg)) {
+         display_print(lsgmesg.text);
+diff --git a/src/platform_compat.cc b/src/platform_compat.cc
+index 972593b..c629ee8 100644
+--- a/src/platform_compat.cc
++++ b/src/platform_compat.cc
+@@ -25,8 +25,25 @@
+ 
+ #include <SDL.h>
+ 
++#if defined(__EMSCRIPTEN__)
++#include <emscripten.h>
++#endif
++
+ namespace fallout {
+ 
++#if defined(__EMSCRIPTEN__)
++// clang-format off
++EM_ASYNC_JS(void, compat_fs_sync_impl, (), {
++    await new Promise((resolve) => FS.syncfs(false, (err) => {
++        if (err) {
++            console.warn('FS.syncfs failed', err);
++        }
++        resolve();
++    }));
++});
++// clang-format on
++#endif
++
+ int compat_stricmp(const char* string1, const char* string2)
+ {
+     return SDL_strcasecmp(string1, string2);
+@@ -356,4 +373,14 @@ long getFileSize(FILE* stream)
+     return filesize;
+ }
+ 
++// CE: Flushes in-memory file changes (saved games, settings) to the host's
++// persistent storage. Only browsers need this, where the file system lives in
++// memory until explicitly synced.
++void compat_fs_sync()
++{
++#if defined(__EMSCRIPTEN__)
++    compat_fs_sync_impl();
++#endif
++}
++
+ } // namespace fallout
+diff --git a/src/platform_compat.h b/src/platform_compat.h
+index 8281726..159c6d8 100644
+--- a/src/platform_compat.h
++++ b/src/platform_compat.h
+@@ -41,6 +41,7 @@ void compat_windows_path_to_native(char* path);
+ void compat_resolve_path(char* path);
+ char* compat_strdup(const char* string);
+ long getFileSize(FILE* stream);
++void compat_fs_sync();
+ 
+ } // namespace fallout
+ 

@@ -1,0 +1,172 @@
+/* The player page: the game owns the whole window. */
+
+body.player {
+  background: #000;
+}
+
+#stage {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: #000;
+}
+
+#canvas {
+  display: block;
+  background: #000;
+  image-rendering: pixelated;
+  /* The game reads raw touches; the browser must not pan or zoom the page. */
+  touch-action: none;
+  outline: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#canvas.smooth {
+  image-rendering: auto;
+}
+
+/* The terminal covers the game while it boots, is paused or has failed. */
+#terminal {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  border-radius: 0;
+}
+
+#terminal[hidden] {
+  display: none;
+}
+
+#terminal.veil {
+  background: rgba(2, 10, 4, 0.9);
+}
+
+#terminal .screen {
+  padding: clamp(14px, 4vmin, 56px) clamp(16px, 6vmin, 90px);
+}
+
+#terminal .body {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+#terminal.centered .body {
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+
+.log {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.log li::before {
+  content: '> ';
+  color: var(--phosphor-dim);
+}
+
+.log li.ok::after {
+  content: ' .. OK';
+  color: var(--phosphor-dim);
+}
+
+.big {
+  font-size: 1.9em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5em 2ch;
+  margin-top: 1.1em;
+}
+
+.actions button {
+  padding: 0.1em 1.5ch;
+  border: 2px solid var(--phosphor);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-shadow: inherit;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.actions button:hover,
+.actions button:focus-visible {
+  background: var(--phosphor);
+  color: var(--tube);
+  text-shadow: none;
+  outline: none;
+}
+
+/* A small tab in the corner that opens the console menu. */
+#handle {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 10;
+  padding: 0.05em 1ch 0.1em;
+  border: 0;
+  border-bottom-left-radius: 6px;
+  background: rgba(2, 10, 4, 0.72);
+  color: var(--phosphor);
+  font: inherit;
+  font-size: clamp(13px, 1.7vmin, 18px);
+  opacity: 0.28;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+#handle:hover,
+#handle:focus-visible {
+  opacity: 1;
+  outline: none;
+}
+
+#toast {
+  position: fixed;
+  left: 50%;
+  bottom: clamp(10px, 3vmin, 34px);
+  z-index: 15;
+  transform: translateX(-50%);
+  padding: 0.1em 1.5ch;
+  background: rgba(2, 10, 4, 0.82);
+  border: 1px solid var(--phosphor-dim);
+  color: var(--phosphor);
+  text-shadow: var(--glow);
+  text-transform: uppercase;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s;
+}
+
+#toast.show {
+  opacity: 1;
+}
+
+#toast.bad {
+  max-width: 92vw;
+  border-color: var(--alert);
+  color: var(--alert);
+  text-shadow: 0 0 0.4em rgba(255, 106, 85, 0.5);
+  white-space: normal;
+  text-align: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #toast,
+  #handle {
+    transition: none;
+  }
+}

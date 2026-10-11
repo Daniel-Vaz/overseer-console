@@ -1,0 +1,99 @@
+name: Build, test and deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # The engines only need rebuilding when their pins, patches or glue change;
+      # with the previous output restored, the build script has nothing to do.
+      - name: Restore engine builds
+        uses: actions/cache@v6
+        with:
+          path: public/engines
+          key: engines-${{ hashFiles('engines/**') }}
+
+      - name: Build the engines
+        run: bash engines/build.sh all
+
+      - name: Type check
+        run: npm run check
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build the site
+        run: npm run build
+        env:
+          # Project sites are served from /<repository>/.
+          BASE_PATH: /${{ github.event.repository.name }}/
+
+      - name: Install the test browsers
+        run: npx playwright install --with-deps chromium firefox webkit
+
+      # The tests that play the games need game data and are skipped here.
+      - name: Browser tests (Chromium, Firefox)
+        run: npm run test:e2e
+        env:
+          BASE_PATH: /${{ github.event.repository.name }}/
+          PW_BROWSERS: chromium,firefox
+
+      # Informational for now: WebKit has not been verified on a developer
+      # machine yet, so a failure here is reported without blocking a deploy.
+      - name: Browser tests (WebKit)
+        continue-on-error: true
+        run: npm run test:e2e
+        env:
+          BASE_PATH: /${{ github.event.repository.name }}/
+          PW_BROWSERS: webkit
+
+      - name: Keep the test report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results
+          path: test-results
+          retention-days: 7
+
+      - name: Upload the site
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

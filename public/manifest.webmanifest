@@ -1,0 +1,17 @@
+{
+  "name": "Overseer Console",
+  "short_name": "Overseer",
+  "description": "Play Fallout and Fallout 2 in your browser from your own copy of the games. Unofficial fan project.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#050605",
+  "theme_color": "#050605",
+  "categories": ["games"],
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}
