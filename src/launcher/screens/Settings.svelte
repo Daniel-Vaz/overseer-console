@@ -133,13 +133,20 @@
 <div class="columns">
   <div>
     <Menu {items} label="Settings" bind:selected />
-    {#if sys.storage}
-      <p class="gap dim">
-        PRIVATE STORAGE: {formatBytes(sys.storage.usage)} IN USE{sys.storage.quota ? ` OF ${formatBytes(sys.storage.quota)} AVAILABLE` : ''}.
-      </p>
-    {/if}
   </div>
-  <aside class="board gap" aria-hidden="true">
+  <aside class="board gap" aria-label="Private storage">
     <Glyph name={items[selected]?.icon ?? 'settings'} />
+    {#if sys.storage}
+      <dl class="readout">
+        <dt>In use</dt>
+        <dd>{formatBytes(sys.storage.usage)}</dd>
+        {#if sys.storage.quota}
+          <dt>Available</dt>
+          <dd>{formatBytes(sys.storage.quota)}</dd>
+        {/if}
+        <dt>Seal</dt>
+        <dd class:amber={!sys.storage.persisted}>{sys.storage.persisted ? 'SEALED' : 'OPEN'}</dd>
+      </dl>
+    {/if}
   </aside>
 </div>
