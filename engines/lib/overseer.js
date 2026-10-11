@@ -338,8 +338,10 @@ addToLibrary({
             path,
             mode: node.mode,
             mtime: node.mtime,
-            // A copy: the engine keeps running while the host writes.
-            data: MEMFS.getFileDataAsTypedArray(node).slice(),
+            // A copy: the engine keeps running while the host writes. MEMFS
+            // holds small files as signed bytes (a slice of HEAP8); the host
+            // gets plain bytes whatever the file was stored as.
+            data: new Uint8Array(MEMFS.getFileDataAsTypedArray(node)),
           });
         });
         var deletes = [];

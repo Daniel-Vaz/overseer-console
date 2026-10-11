@@ -218,3 +218,41 @@ describe('save history', () => {
     expect(await slotDescription(1)).toBe('real');
   });
 });
+
+describe('file contents', () => {
+  beforeEach(async () => {
+    await clearOverlay('fo2');
+    await deleteVersions('fo2');
+  });
+
+  it('come back as plain bytes even when the engine handed over signed ones', async () => {
+    // The engines' file system holds small files as an Int8Array.
+    const signed = new Int8Array([-1, -128, 0, 127, 31, -117]) as unknown as Uint8Array;
+    const changes = save(4, 'signed', 1000);
+    changes.puts.push({ key: 'data/savegame/slot04/automap.sav', path: 'data/SAVEGAME/SLOT04/AUTOMAP.SAV', mtime: 1000, data: signed });
+    await commitWithHistory('fo2', changes);
+
+    const stored = (await listOverlay('fo2', slotPrefix(4))).find((entry) => entry.key.endsWith('automap.sav'))!;
+    expect(stored.data).toBeInstanceOf(Uint8Array);
+    expect([...stored.data!]).toEqual([255, 128, 0, 127, 31, 139]);
+  });
+
+  it('survive an export to a zip archive and back', async () => {
+    const { unzipSync } = await import('fflate');
+    const { exportSaves } = await import('../../src/lib/saves');
+    const bytes = Uint8Array.from({ length: 2217 }, (_, i) => (i * 7919 + 13) & 255);
+    const changes = save(4, 'export me', 1000);
+    changes.puts.push({
+      key: 'data/savegame/slot04/automap.sav',
+      path: 'data/SAVEGAME/SLOT04/AUTOMAP.SAV',
+      mtime: Date.now(),
+      data: new Int8Array(bytes.buffer) as unknown as Uint8Array,
+    });
+    changes.puts[0]!.mtime = Date.now();
+    await commitWithHistory('fo2', changes);
+
+    const archive = unzipSync(new Uint8Array(await (await exportSaves('fo2', 4)).arrayBuffer()));
+    expect(Object.keys(archive).sort()).toEqual(['README.txt', 'SAVEGAME/SLOT04/AUTOMAP.SAV', 'SAVEGAME/SLOT04/SAVE.DAT']);
+    expect(archive['SAVEGAME/SLOT04/AUTOMAP.SAV']).toEqual(bytes);
+  });
+});

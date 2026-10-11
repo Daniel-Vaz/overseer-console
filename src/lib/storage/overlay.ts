@@ -71,6 +71,22 @@ function result<T>(request: IDBRequest<T>): Promise<T> {
   });
 }
 
+/**
+ * File contents as plain bytes. The engines' file system keeps small files as
+ * signed bytes, and early versions of the console stored them that way; a
+ * signed view of the same memory confuses everything that does arithmetic on
+ * bytes (compression, checksums, parsers).
+ */
+function plainBytes(data: Uint8Array): Uint8Array {
+  const view = data as ArrayBufferView;
+  return view instanceof Uint8Array ? view : new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+}
+
+function normalised<T extends OverlayEntry | undefined>(entry: T): T {
+  if (entry?.data) entry.data = plainBytes(entry.data);
+  return entry;
+}
+
 function rangeFor(game: GameId, prefix = ''): IDBKeyRange {
   return IDBKeyRange.bound([game, prefix], [game, `${prefix}￿`]);
 }
@@ -78,7 +94,8 @@ function rangeFor(game: GameId, prefix = ''): IDBKeyRange {
 /** Everything the given game has written, optionally below a path prefix. */
 export async function listOverlay(game: GameId, prefix = ''): Promise<OverlayEntry[]> {
   const db = await openDb();
-  return result(db.transaction(STORE).objectStore(STORE).getAll(rangeFor(game, prefix)) as IDBRequest<OverlayEntry[]>);
+  const entries = await result(db.transaction(STORE).objectStore(STORE).getAll(rangeFor(game, prefix)) as IDBRequest<OverlayEntry[]>);
+  return entries.map(normalised);
 }
 
 /** The paths of everything a game has written, without loading any contents. */
@@ -91,7 +108,7 @@ export async function listOverlayKeys(game: GameId, prefix = ''): Promise<string
 /** One file a game has written, or undefined. A tombstone counts as absent. */
 export async function readOverlay(game: GameId, key: string): Promise<OverlayEntry | undefined> {
   const db = await openDb();
-  const entry = await result(db.transaction(STORE).objectStore(STORE).get([game, key]) as IDBRequest<OverlayEntry | undefined>);
+  const entry = normalised(await result(db.transaction(STORE).objectStore(STORE).get([game, key]) as IDBRequest<OverlayEntry | undefined>));
   return entry && !entry.deleted && entry.data ? entry : undefined;
 }
 
@@ -101,7 +118,7 @@ export async function commitOverlay(game: GameId, changes: OverlayChanges): Prom
   const tx = db.transaction(STORE, 'readwrite', { durability: 'strict' });
   const store = tx.objectStore(STORE);
   for (const put of changes.puts) {
-    store.put({ game, key: put.key, path: put.path, mtime: put.mtime, deleted: false, data: put.data } satisfies OverlayEntry);
+    store.put({ game, key: put.key, path: put.path, mtime: put.mtime, deleted: false, data: plainBytes(put.data) } satisfies OverlayEntry);
   }
   for (const del of changes.deletes) {
     store.put({ game, key: del.key, path: del.path, mtime: Date.now(), deleted: true } satisfies OverlayEntry);
@@ -119,7 +136,7 @@ export async function replaceOverlay(game: GameId, prefix: string, puts: Overlay
   const store = tx.objectStore(STORE);
   store.delete(rangeFor(game, prefix));
   for (const put of puts) {
-    store.put({ game, key: put.key, path: put.path, mtime: put.mtime, deleted: false, data: put.data } satisfies OverlayEntry);
+    store.put({ game, key: put.key, path: put.path, mtime: put.mtime, deleted: false, data: plainBytes(put.data) } satisfies OverlayEntry);
   }
   await done(tx);
 }
