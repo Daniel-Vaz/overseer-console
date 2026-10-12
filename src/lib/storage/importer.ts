@@ -8,14 +8,13 @@
 import { GAMES, gameForDatFormat, type DatFormat, type GameId } from '../games';
 import { Ini } from '../ini';
 import { MANIFEST_VERSION, basename, dirname, pathKey, type Manifest } from './manifest';
-import { writeInstall, type ImportProgress } from './opfs';
-import type { ImportEntry } from './opfs.worker';
+import { writeInstall, type ImportProgress, type SourceBlob } from './opfs';
 import { commitOverlay, countOverlay } from './overlay';
 
 export interface SourceFile {
-  /** Path as the browser reported it, forward slashes. */
+  /** Path as the browser (or the player's Dropbox) reported it, forward slashes. */
   path: string;
-  file: File;
+  file: SourceBlob;
 }
 
 export class ImportError extends Error {
@@ -27,7 +26,7 @@ export interface ImportPlan {
   datFormat: DatFormat;
   /** Folder (inside the selection) the game was found in. */
   root: string;
-  entries: ImportEntry[];
+  entries: SourceFile[];
   dirs: string[];
   totalBytes: number;
   skipped: number;
@@ -82,7 +81,7 @@ export async function sourcesFromDrop(transfer: DataTransfer): Promise<SourceFil
   return out;
 }
 
-async function readBytes(file: File, start: number, length: number): Promise<DataView> {
+async function readBytes(file: SourceBlob, start: number, length: number): Promise<DataView> {
   return new DataView(await file.slice(start, start + length).arrayBuffer());
 }
 
@@ -91,7 +90,7 @@ async function readBytes(file: File, start: number, length: number): Promise<Dat
  * DAT2 (Fallout 2) ends with its own size; DAT1 (Fallout 1) starts with a
  * small big-endian directory count followed by fixed header words.
  */
-export async function detectDatFormat(file: File): Promise<DatFormat | null> {
+export async function detectDatFormat(file: SourceBlob): Promise<DatFormat | null> {
   if (file.size < 16) return null;
   const tail = await readBytes(file, file.size - 8, 8);
   if (tail.getUint32(4, true) === file.size) {
@@ -158,7 +157,7 @@ export async function planImport(sources: SourceFile[], preferred?: GameId): Pro
   const def = GAMES[game];
   const rootPrefix = chosen.root ? `${chosen.root}/` : '';
 
-  const entries: ImportEntry[] = [];
+  const entries: SourceFile[] = [];
   const saves: SourceFile[] = [];
   const dirs = new Set<string>();
   const seen = new Set<string>();

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isTyping } from '../keys';
   import { sfx } from '../sfx';
   import type { MenuItem } from '../types';
 
@@ -29,7 +30,7 @@
   }
 
   function onKeydown(event: KeyboardEvent): void {
-    if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || isTyping(event)) return;
     switch (event.key) {
       case 'ArrowDown':
         step(1);

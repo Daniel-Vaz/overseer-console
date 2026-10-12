@@ -23,7 +23,8 @@
   <p>
     Overseer Console runs Fallout and Fallout 2 inside your browser, using the open source Community Edition
     engines. It does not include the games. You bring your own copy; the console copies its data files into this
-    browser's private storage on this device and plays from there. Nothing is uploaded anywhere.
+    browser's private storage on this device and plays from there. Nothing is uploaded anywhere, unless you link
+    your own Dropbox and upload saves to it yourself.
   </p>
 
   <h2>Where the game files are</h2>
@@ -100,14 +101,16 @@
     The game files have to be where the device's file picker can reach them: copied onto it, or in a cloud folder.
     Where the browser cannot pick a whole folder, select <span class="hot">MASTER.DAT</span>,
     <span class="hot">CRITTER.DAT</span> and, for Fallout 2, <span class="hot">PATCH000.DAT</span> together; the game
-    then plays without its music.
+    then plays without its music. To get the whole game onto such a device, music included, load it from your
+    Dropbox (see below).
   </p>
 
   <h2>Saved games</h2>
   <p>
     Saving works as in the original games. Each save is written to this browser's storage the moment the game
     finishes it. Saves live in this browser on this device only: use Save archives on the main directory to export
-    them to a zip file as a backup, or to move them to another browser or a desktop install.
+    them to a zip file as a backup, or to move them to another browser or a desktop install. Linking your Dropbox
+    (see below) does the moving for you.
   </p>
   <p>
     Save archives shows each save with the picture the game stored with it and a summary of the character: level, hit
@@ -128,6 +131,49 @@
     sites you have not opened for a week; exporting your saves is the safe habit there.
   </p>
 
+  <h2>Your Dropbox</h2>
+  <p>
+    Optional. The console can keep saves in your own Dropbox, to carry them between devices, and load a game from
+    a folder there. It has no accounts and no server of its own: you make a small private app in your Dropbox
+    account, and the console is let into that app's folder and nowhere else.
+  </p>
+  <dl class="readout gap">
+    <dt>Make the app</dt>
+    <dd>
+      At <span class="hot">dropbox.com/developers/apps</span> choose Create app, Scoped access,
+      <span class="hot">App folder</span>, and any name. On its Permissions tab tick
+      <span class="hot">files.metadata.read</span>, <span class="hot">files.content.read</span> and
+      <span class="hot">files.content.write</span>, and press Submit.
+    </dd>
+    <dt>Link</dt>
+    <dd>
+      Terminal settings, Dropbox link. Enter the App key from the app's Settings tab, open Dropbox from there,
+      allow the app, and paste the code it shows. Once in every browser you play in.
+    </dd>
+    <dt>Saves</dt>
+    <dd>
+      Save archives, then a game. <span class="hot">Upload to Dropbox</span> sends the saves that are newer here;
+      <span class="hot">Fetch from Dropbox</span> brings in the ones that are newer there. A save only ever
+      replaces an older one, and what a fetch replaces is kept as an earlier version.
+    </dd>
+    <dt>Games</dt>
+    <dd>
+      With Dropbox's own app or website, put the folder the game is installed in into Apps, then the folder named
+      after your app. On the game's deck here choose <span class="hot">Load holodisk from Dropbox</span>. A game
+      is roughly 600 MB; a free Dropbox holds 2 GB.
+    </dd>
+    <dt>Unlink</dt>
+    <dd>
+      Dropbox link, Unlink. The link stays in this browser until then, so unlink on a computer that is not yours.
+      Removing the app under Connected apps in your Dropbox account ends it as well.
+    </dd>
+  </dl>
+  <p>
+    Nothing moves by itself: saves go to Dropbox when you upload them and come back when you fetch them. Erasing a
+    save that was uploaded erases its copy in Dropbox too; Dropbox keeps deleted files for a while, should you want
+    one back.
+  </p>
+
   <h2>If something fails</h2>
   <dl class="readout gap">
     <dt>No sound</dt>
@@ -140,6 +186,11 @@
     <dd>Close heavy tabs. In Terminal settings, CLASSIC picture is the lightest.</dd>
     <dt>System fault</dt>
     <dd>Restart the simulation. Games you saved earlier are not affected.</dd>
+    <dt>Dropbox link refused</dt>
+    <dd>
+      The message names what is missing. Usually it is a permission that was ticked but not submitted, or a code
+      used twice: tick, press Submit, and open Dropbox again for a new code.
+    </dd>
   </dl>
 </div>
 

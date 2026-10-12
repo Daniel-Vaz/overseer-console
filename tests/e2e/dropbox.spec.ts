@@ -1,0 +1,328 @@
+import type { BrowserContext, Page } from '@playwright/test';
+import { zipSync } from 'fflate';
+import { FakeDropbox } from '../fake-dropbox';
+import { expect, test as base } from './fixtures';
+import { fakeSaveDat, openConsole } from './helpers';
+
+/**
+ * WebKit sends the requests of a page that a service worker controls straight
+ * to the network, past the stand-in below: to the real Dropbox. There the
+ * tests run without the worker. Chromium and Firefox keep it, which also
+ * shows that the worker lets requests to Dropbox through untouched.
+ */
+const test = base.extend({
+  serviceWorkers: async ({ browserName }, use) => {
+    await use(browserName === 'webkit' ? 'block' : 'allow');
+  },
+});
+
+/**
+ * The console linked to a Dropbox that is not there: every request to the
+ * three Dropbox hosts is answered by tests/fake-dropbox.ts.
+ */
+async function standIn(context: BrowserContext, dropbox: FakeDropbox): Promise<void> {
+  await context.route(/^https:\/\/(www\.dropbox\.com|api\.dropboxapi\.com|content\.dropboxapi\.com)\//, async (route) => {
+    const request = route.request();
+    const answer = dropbox.handle({ method: request.method(), url: request.url(), headers: request.headers(), body: request.postDataBuffer() });
+    await route.fulfill({ status: answer.status, headers: answer.headers, body: typeof answer.body === 'string' ? answer.body : Buffer.from(answer.body) });
+  });
+}
+
+/** Opens Dropbox from the link screen, allows the app, and comes back with the code. */
+async function codeFromDropbox(page: Page, context: BrowserContext): Promise<string> {
+  const opened = context.waitForEvent('page');
+  await page.keyboard.press('2');
+  const approval = await opened;
+  const code = await approval.locator('#code').innerText();
+  await approval.close();
+  return code;
+}
+
+async function linkConsole(page: Page, context: BrowserContext, dropbox: FakeDropbox): Promise<void> {
+  await openConsole(page, 'settings/dropbox');
+  await page.getByLabel('App key').fill(dropbox.appKey);
+  await page.getByLabel('App key').press('Escape');
+  await expect(page.locator('.menu li').nth(1).locator('button')).toBeEnabled();
+  await page.getByLabel('Access code').fill(await codeFromDropbox(page, context));
+  await page.getByLabel('Access code').press('Enter');
+  await expect(page.getByText('Linked to the Dropbox of Chosen One.')).toBeVisible();
+}
+
+function saveZip(slot: string, description: string): Buffer {
+  return Buffer.from(
+    zipSync({
+      [`SAVEGAME/SLOT${slot}/SAVE.DAT`]: new Uint8Array(fakeSaveDat('Narg', description)),
+      [`SAVEGAME/SLOT${slot}/ARTEMPLE.SAV`]: new Uint8Array([1, 2, 3]),
+    }),
+  );
+}
+
+/** When the save in a Fallout 2 slot was written, to the millisecond, as the console has it stored. */
+function savedAt(page: Page, slot: string): Promise<number> {
+  return page.evaluate(async (key) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('overseer-console');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      return await new Promise<number>((resolve, reject) => {
+        const request = db.transaction('overlay').objectStore('overlay').get(['fo2', key]);
+        request.onsuccess = () => resolve((request.result as { mtime: number }).mtime);
+        request.onerror = () => reject(request.error);
+      });
+    } finally {
+      db.close();
+    }
+  }, `data/savegame/slot${slot}/save.dat`);
+}
+
+/** Makes this browser one that has never held a save, as a second device would be. */
+async function forgetSaves(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    for (const name of ['overseer-console', 'overseer-console-history']) {
+      await new Promise<void>((resolve, reject) => {
+        const request = indexedDB.deleteDatabase(name);
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+      });
+    }
+    localStorage.removeItem('overseer-console:dropbox:synced');
+  });
+  await page.reload();
+}
+
+test('links to a Dropbox with an app key and a pasted code, and unlinks again', async ({ page, context }) => {
+  const dropbox = new FakeDropbox();
+  await standIn(context, dropbox);
+
+  // The settings lead there, and so does the deck of a game that is not loaded.
+  await openConsole(page, 'fo2');
+  await expect(page.locator('.menu li').nth(1)).toContainText('Load holodisk from Dropbox');
+  await expect(page.locator('.menu li').nth(1)).toContainText('NOT LINKED');
+  await page.goto('#/settings');
+  await expect(page.locator('.menu li').filter({ hasText: 'Dropbox link' })).toContainText('NOT LINKED');
+  await page.keyboard.press('d');
+  await expect(page.getByRole('heading', { name: 'Dropbox link' })).toBeVisible();
+  await expect(page.getByText('Before the first link')).toBeVisible();
+  const open = page.locator('.menu li').nth(1).locator('button');
+  await expect(open).toBeDisabled();
+
+  // Typed keys are text, not commands: this key holds the digits of four menu entries.
+  await page.keyboard.press('1');
+  await expect(page.getByLabel('App key')).toBeFocused();
+  await page.keyboard.type(`${dropbox.appKey}x`);
+  await page.keyboard.press('Backspace');
+  await expect(page.getByLabel('App key')).toHaveValue(dropbox.appKey);
+  await expect(page.getByRole('heading', { name: 'Dropbox link' })).toBeVisible();
+  // ESC hands the keyboard back to the menu without leaving the screen.
+  await page.keyboard.press('Escape');
+  await expect(page.getByLabel('App key')).not.toBeFocused();
+  await expect(page.getByRole('heading', { name: 'Dropbox link' })).toBeVisible();
+  await expect(open).toBeEnabled();
+
+  const code = await codeFromDropbox(page, context);
+  expect(code).toBe(dropbox.code);
+  await page.keyboard.press('3');
+  await expect(page.getByLabel('Access code')).toBeFocused();
+  await page.keyboard.type('not-the-code');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('status')).toContainText('Dropbox did not accept that code');
+
+  await page.getByLabel('Access code').fill(code);
+  await page.getByLabel('Access code').press('Escape');
+  await page.keyboard.press('4');
+  await expect(page.getByText('Linked to the Dropbox of Chosen One.')).toBeVisible();
+  await expect(page.locator('.readout').first()).toContainText('chosen@arroyo.example');
+  await expect(page.getByLabel('Saves folder')).toHaveValue('/Saves');
+
+  // The link outlives the page, and the console says so where it promised nothing leaves the device.
+  await page.goto('#/');
+  await page.reload();
+  await expect(page.getByText('ONLY THE SAVES YOU UPLOAD GO TO YOUR OWN DROPBOX')).toBeVisible();
+  await page.goto('#/settings');
+  await expect(page.locator('.menu li').filter({ hasText: 'Dropbox link' })).toContainText('LINKED');
+  await page.keyboard.press('d');
+
+  // Folders are tidied as they are stored.
+  await page.getByLabel('Saves folder').fill('Vault 13\\Backups/');
+  await page.getByLabel('Saves folder').press('Enter');
+  await expect(page.getByLabel('Saves folder')).toHaveValue('/Vault 13/Backups');
+  await page.getByLabel('Games folder').fill('../elsewhere');
+  await page.getByLabel('Games folder').press('Enter');
+  await expect(page.getByRole('status')).toContainText('cannot contain');
+
+  await page.keyboard.press('u');
+  await expect(page.getByText('UNLINK FROM THE DROPBOX OF CHOSEN ONE?')).toBeVisible();
+  await page.keyboard.press('y');
+  await expect(page.getByText('Unlinked. Dropbox has cancelled the access the console had.')).toBeVisible();
+  expect(dropbox.linked).toBe(false);
+  // The key is kept for the next time.
+  await expect(page.getByLabel('App key')).toHaveValue(dropbox.appKey);
+  await page.goto('#/');
+  await expect(page.getByText('NOTHING IS UPLOADED')).toBeVisible();
+});
+
+test('says which permissions a Dropbox app lacks', async ({ page, context }) => {
+  const dropbox = new FakeDropbox();
+  // A new app as Dropbox makes it: nothing ticked on its Permissions tab yet.
+  dropbox.allowed = ['account_info.read'];
+  await standIn(context, dropbox);
+
+  await openConsole(page, 'settings/dropbox');
+  await page.getByLabel('App key').fill(dropbox.appKey);
+  await page.getByLabel('App key').press('Escape');
+  await expect(page.locator('.menu li').nth(1).locator('button')).toBeEnabled();
+  await page.getByLabel('Access code').fill(await codeFromDropbox(page, context));
+  await page.getByLabel('Access code').press('Enter');
+  await expect(page.getByRole('status')).toContainText('does not allow files.metadata.read, files.content.read, files.content.write');
+  await expect(page.getByRole('status')).toContainText('Permissions tab');
+  await expect(page.locator('.board')).toContainText('NOT LINKED');
+  expect(dropbox.linked).toBe(false);
+});
+
+test('carries saves to another browser through Dropbox', async ({ page, context }) => {
+  const dropbox = new FakeDropbox();
+  await standIn(context, dropbox);
+  await linkConsole(page, context, dropbox);
+
+  // A save made here.
+  await page.goto('#/saves/fo2');
+  await expect(page.locator('.menu li').filter({ hasText: 'Fetch from Dropbox' })).toBeVisible();
+  await page.locator('input[accept*="zip"]').setInputFiles({ name: 'saves.zip', mimeType: 'application/zip', buffer: saveZip('03', 'before the temple') });
+  await expect(page.getByText('1 save restored from the archive.')).toBeVisible();
+  const saved = await savedAt(page, '03');
+
+  await page.keyboard.press('u');
+  await expect(page.getByText('1 save uploaded to Dropbox.')).toBeVisible();
+  expect([...dropbox.files.values()].map((file) => file.path)).toEqual(['/Saves/Fallout 2/SLOT03.zip']);
+  await page.keyboard.press('u');
+  await expect(page.getByText('Dropbox already holds every save that is in this browser.')).toBeVisible();
+  await page.keyboard.press('f');
+  await expect(page.getByText('Dropbox holds nothing newer than this browser.')).toBeVisible();
+
+  // Another browser, linked to the same Dropbox, holding nothing.
+  await forgetSaves(page);
+  await expect(page.getByText('NO SAVED GAMES YET')).toBeVisible();
+  await page.keyboard.press('f');
+  await expect(page.getByText('1 save fetched from Dropbox.')).toBeVisible();
+  const slot = page.locator('.menu li').first();
+  await expect(slot).toContainText('SLOT 03');
+  await expect(slot).toContainText('before the temple');
+  // It is the save of that moment, not one made now, and all of it.
+  expect(await savedAt(page, '03')).toBe(saved);
+  await page.keyboard.press('1');
+  await expect(page.locator('.readout').first()).toContainText('in 2 files');
+  await page.keyboard.press('0');
+
+  // The game is played on elsewhere, and that save uploaded.
+  dropbox.put('/Saves/Fallout 2/SLOT03.zip', saveZip('03', 'through the temple'), new Date(Date.now() + 60_000).toISOString().slice(0, 19) + 'Z');
+  await page.keyboard.press('u');
+  await expect(page.getByRole('status')).toContainText('SLOT 03 is newer in Dropbox and was left alone: fetch it first.');
+  await page.keyboard.press('f');
+  await expect(page.getByText('SLOT 03 HOLDS AN OLDER SAVE IN THIS BROWSER.')).toBeVisible();
+  // ESC is "no": nothing was touched.
+  await page.keyboard.press('Escape');
+  await expect(slot).toContainText('before the temple');
+  await page.keyboard.press('f');
+  await expect(page.getByText('SLOT 03 HOLDS AN OLDER SAVE IN THIS BROWSER.')).toBeVisible();
+  await page.keyboard.press('y');
+  await expect(page.getByText('1 save fetched from Dropbox.')).toBeVisible();
+  await expect(slot).toContainText('through the temple');
+
+  // What it replaced is one roll back away.
+  await page.keyboard.press('1');
+  await page.keyboard.press('v');
+  await expect(page.locator('.menu li').first()).toContainText('before the temple');
+  await expect(page.locator('.menu-note')).toContainText('Replaced by a save fetched from Dropbox');
+  await page.keyboard.press('Escape');
+
+  // Erasing a save that is in Dropbox erases it there as well.
+  await page.keyboard.press('d');
+  await expect(page.getByText('Its copy in your Dropbox is erased as well.')).toBeVisible();
+  await page.keyboard.press('y');
+  await expect(page.getByText('SLOT 03 erased, here and in Dropbox.')).toBeVisible();
+  expect(dropbox.files.size).toBe(0);
+  await page.keyboard.press('f');
+  await expect(page.getByText('There are no saves for Fallout 2 in Dropbox yet.')).toBeVisible();
+});
+
+test('says so when Dropbox has cancelled the link', async ({ page, context }) => {
+  const dropbox = new FakeDropbox();
+  await standIn(context, dropbox);
+  await linkConsole(page, context, dropbox);
+  await page.goto('#/saves/fo2');
+  await expect(page.locator('.menu li').filter({ hasText: 'Fetch from Dropbox' })).toBeVisible();
+
+  // The player removes the app from their Dropbox account.
+  dropbox.disconnectApp();
+  await page.keyboard.press('f');
+  await expect(page.getByRole('status')).toContainText('Dropbox no longer accepts this link');
+  await expect(page.locator('.menu li').filter({ hasText: 'Keep saves in your Dropbox' })).toContainText('NOT LINKED');
+});
+
+/** Bytes that depend on where they are, so a piece put in the wrong place shows. */
+function patterned(size: number): Buffer {
+  const data = Buffer.alloc(size);
+  for (let i = 0; i < size; i++) data[i] = (i * 31 + (i >>> 16)) & 0xff;
+  return data;
+}
+
+test('loads a game from the folder in Dropbox', async ({ page, context }) => {
+  const dropbox = new FakeDropbox();
+  // Larger than one piece of the copy (4 MB), so that pieces have to be joined.
+  const master = patterned(5 << 20);
+  master.writeUInt32LE(16, master.length - 8);
+  master.writeUInt32LE(master.length, master.length - 4);
+  const small = Buffer.alloc(4096, 0x2a);
+  small.writeUInt32LE(16, small.length - 8);
+  small.writeUInt32LE(small.length, small.length - 4);
+  dropbox.put('/Games/Fallout 2/master.dat', master);
+  dropbox.put('/Games/Fallout 2/critter.dat', small);
+  dropbox.put('/Games/Fallout 2/patch000.dat', small);
+  dropbox.put('/Games/Fallout 2/fallout2.cfg', '[system]\r\nlanguage=english\r\n');
+  dropbox.put('/Games/Fallout 2/fallout2.exe', 'not a program');
+  dropbox.put('/Games/Fallout 2/sound/music/01hub.acm', Buffer.alloc(2048, 1));
+  dropbox.put('/Games/Fallout 2/data/worldmap.dat', Buffer.alloc(512, 2));
+  dropbox.put('/Games/Fallout 2/data/SAVEGAME/SLOT02/SAVE.DAT', fakeSaveDat('Narg', 'came with the folder'));
+  dropbox.put('/Saves/Fallout 2/SLOT03.zip', saveZip('03', 'not part of the game'));
+  await standIn(context, dropbox);
+  await linkConsole(page, context, dropbox);
+
+  // The other game is not there, and is not mistaken for this one.
+  await page.goto('#/fo1');
+  await page.keyboard.press('d');
+  await expect(page.getByText('HOLODISK REJECTED')).toBeVisible();
+  await expect(page.getByRole('alert')).toContainText('Fallout was not found in your Dropbox. What is there is Fallout 2.');
+
+  await page.goto('#/fo2');
+  await expect(page.locator('.menu li').nth(1)).toContainText('Load holodisk from Dropbox');
+  await page.keyboard.press('d');
+  await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByRole('status')).toContainText('5 files');
+  await expect(page.getByRole('status')).toContainText('Saved games found in the folder were added');
+  await expect(page.locator('.menu button').first()).toContainText('Continue');
+
+  // The files are in the origin private file system, every byte where it belongs.
+  const stored = await page.evaluate(async () => {
+    const root = await navigator.storage.getDirectory();
+    const game = await (await (await root.getDirectoryHandle('overseer-console')).getDirectoryHandle('games')).getDirectoryHandle('fo2');
+    const current = JSON.parse(await (await (await game.getFileHandle('current.json')).getFile()).text());
+    const install = await game.getDirectoryHandle(current.install);
+    const manifest = JSON.parse(await (await (await install.getFileHandle('manifest.json')).getFile()).text());
+    const entry = manifest.files.find((f: { path: string }) => f.path === 'master.dat');
+    const bytes = new Uint8Array(await (await (await install.getFileHandle(entry.blob)).getFile()).arrayBuffer());
+    let wrong = 0;
+    for (let i = 0; i < bytes.length - 8; i++) if (bytes[i] !== ((i * 31 + (i >>> 16)) & 0xff)) wrong++;
+    return { files: manifest.files.map((f: { path: string }) => f.path).sort(), masterBytes: bytes.length, wrong, packed: manifest.files.filter((f: { pack?: unknown }) => f.pack).length };
+  });
+  expect(stored).toEqual({
+    files: ['critter.dat', 'data/worldmap.dat', 'master.dat', 'patch000.dat', 'sound/music/01hub.acm'],
+    masterBytes: 5 << 20,
+    wrong: 0,
+    packed: 4,
+  });
+
+  // Loaded, it can be fetched again in place.
+  await expect(page.locator('.menu li').filter({ hasText: 'Replace holodisk from Dropbox' })).toBeVisible();
+});

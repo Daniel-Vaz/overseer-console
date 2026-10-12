@@ -2,8 +2,10 @@
   import { onMount } from 'svelte';
   import { isGameId, type GameId } from '../lib/games';
   import { sourcesFromDrop } from '../lib/storage/importer';
+  import { isTyping } from './keys';
   import Boot from './screens/Boot.svelte';
   import Credits from './screens/Credits.svelte';
+  import Dropbox from './screens/Dropbox.svelte';
   import Game from './screens/Game.svelte';
   import Main from './screens/Main.svelte';
   import Manual from './screens/Manual.svelte';
@@ -36,7 +38,9 @@
         : section === 'saves'
           ? 'SAVE ARCHIVES'
           : section === 'settings'
-            ? 'TERMINAL SETTINGS'
+            ? route[1] === 'dropbox'
+              ? 'DROPBOX LINK'
+              : 'TERMINAL SETTINGS'
             : section === 'manual'
               ? 'OPERATIONS MANUAL'
               : section === 'credits'
@@ -90,7 +94,7 @@
   });
 
   function onKeydown(event: KeyboardEvent): void {
-    if (!booted || event.defaultPrevented) return;
+    if (!booted || event.defaultPrevented || isTyping(event)) return;
     if (event.key === 'Escape' || event.key === 'Backspace') {
       if (route.length) {
         event.preventDefault();
@@ -170,6 +174,8 @@
               <Main {go} />
             {:else if section === 'saves'}
               <Saves {go} {game} />
+            {:else if section === 'settings' && route[1] === 'dropbox'}
+              <Dropbox {go} />
             {:else if section === 'settings'}
               <Settings {go} />
             {:else if section === 'manual'}

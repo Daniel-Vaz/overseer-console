@@ -3,8 +3,9 @@
  *
  * Saving over a slot destroys what was in it, and these games are well known
  * for saves that turn out to be dead ends hours later. So before a slot is
- * overwritten - by the game, by restoring an archive, or by rolling back - its
- * previous contents are kept as a version.
+ * overwritten - by the game, by restoring an archive, by a save fetched from
+ * the player's Dropbox, or by rolling back - its previous contents are kept
+ * as a version.
  *
  * A save rewrites dozens of map files of which most did not change, so file
  * contents are stored once per slot under their hash and shared by the
@@ -22,7 +23,7 @@ const DB_VERSION = 1;
 const VERSIONS = 'versions';
 const BLOBS = 'blobs';
 
-export type VersionCause = 'save' | 'import' | 'restore';
+export type VersionCause = 'save' | 'import' | 'restore' | 'cloud';
 
 interface VersionFile {
   key: string;

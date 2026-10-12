@@ -12,10 +12,13 @@ into the browser's private storage on your device and plays from there.
 
 - No game data is hosted or distributed here. You need to own the games
   ([GOG](https://www.gog.com/game/fallout), [Steam](https://store.steampowered.com/app/38400), Epic).
-- Nothing is uploaded. There is no server, no account and no tracking.
+- Nothing is uploaded, unless you link your own Dropbox: then the saves you choose to upload go to a folder
+  in your Dropbox and nowhere else. There is no server, no account and no tracking.
 - Saved games work as in the originals and can be exported to and imported from zip files.
 - Saving over a slot keeps what was in it: every slot has a history of earlier versions to roll back to.
 - Continue takes you from the console straight into your latest save.
+- Optional Dropbox link: carry saves between devices, and load a game from a folder in your own Dropbox
+  (the way to get a game with its music onto a phone).
 - The save archives show each save's screenshot and character sheet, read from the save file itself.
 - Touch screens: tap, drag, press-and-hold and two-finger gestures stand in for the mouse, with on-screen mouse
   buttons and a keyboard that appears when a game asks for text.
@@ -31,11 +34,41 @@ ZeniMax Media, Microsoft or Interplay. Fallout is a trademark of Bethesda Softwo
 | Engine glue | `engines/lib/overseer.js` | Linked into both engines. Gives them a clock that can pause, hands the thread back to the browser during long loops, reads game archives from disk on demand, and reports file changes in batches. |
 | Game data store | `src/lib/storage/` | Imported game files live in the origin private file system (OPFS). Files the engines write (saves, settings) live in IndexedDB and are committed atomically per save. Before a save slot is overwritten its contents go into a history (`history.ts`), with unchanged files stored once. |
 | Save reader | `src/lib/savefile.ts`, `dat.ts`, `gamefacts.ts` | Reads a save's header, picture and character sheet, and fetches the palette and the names of perks, traits and skills out of the player's own `MASTER.DAT` (both archive formats). |
+| Dropbox link | `src/lib/dropbox/` | Optional. Talks to the player's own Dropbox straight from the browser: linking, saves as one zip per slot, and game files read piece by piece through the same importer as a folder on disk. |
 | Console | `index.html`, `src/launcher/` | The terminal: import, save archives, settings, manual, credits. Svelte. |
 | Player | `play.html`, `src/player/` | Boots an engine against the stored data. A separate page, so that leaving a game frees its memory. `src/player/touch/` turns fingers into the mouse and keyboard events the engines already listen for. |
 
 A game starts in well under a second because nothing is copied into memory up front: archives are
 read in 1 MB blocks as the engine asks for them, with a bounded cache.
+
+## Dropbox link
+
+Optional. The console has no Dropbox app of its own: every player creates one in their own account, with
+access to a single folder, and links the console to it.
+
+1. In the [Dropbox App Console](https://www.dropbox.com/developers/apps) choose **Create app**, **Scoped
+   access**, **App folder**, and any name.
+2. On the app's **Permissions** tab tick `files.metadata.read`, `files.content.read` and
+   `files.content.write`, and press **Submit**.
+3. In the console open **Terminal settings**, **Dropbox link**. Enter the **App key** from the app's Settings
+   tab, open Dropbox from there, allow the app, and paste the code it shows.
+
+Linking is the OAuth code flow with PKCE. There is no app secret and no redirect address; the app key is
+not a secret. After that:
+
+- **Saves.** *Save archives* offers *Upload to Dropbox* and *Fetch from Dropbox*. Nothing moves by itself. A
+  save only ever replaces an older one, and what a fetch replaces goes into the slot's history. In Dropbox a
+  slot is one zip, `Apps/<app>/Saves/<game>/SLOTnn.zip`: the archive the console exports, so it unpacks
+  into a desktop install.
+- **Games.** Put the folder a game is installed in anywhere inside `Apps/<app>/`, using Dropbox's own app
+  or website, and choose *Load holodisk from Dropbox* on the game's deck. The console only reads there.
+
+Both folders can be changed on the Dropbox link screen.
+
+The link is a token kept in this site's browser storage until *Unlink*, which also has Dropbox cancel it.
+The token reaches the app's folder and nothing else. That limit matters: a site served from
+`<user>.github.io/<project>/` shares its storage with every other page on that address. Create the app
+with **App folder** access, never Full Dropbox.
 
 ## Developing
 
@@ -64,6 +97,15 @@ FO1_DIR="/path/to/Fallout" FO2_DIR="/path/to/Fallout 2" npm run test:e2e
 ```
 
 `tests/e2e/touch.spec.ts` plays them again with fingers only, on a phone-sized screen.
+
+`tests/e2e/dropbox.spec.ts` and `tests/unit/dropbox.test.ts` run against a stand-in for Dropbox
+(`tests/fake-dropbox.ts`). No test talks to the real one unless you ask: with a token generated on your
+Dropbox app's Settings tab, this checks the stand-in against the real thing, in a folder of its own that it
+removes again:
+
+```sh
+DROPBOX_TEST_TOKEN="<token>" npx vitest run tests/unit/dropbox.live.test.ts
+```
 
 `PW_BROWSERS=chromium,firefox,webkit` picks the browsers (default: Chromium). WebKit needs system
 libraries that many machines lack; the official Playwright container has them:

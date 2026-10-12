@@ -5,10 +5,10 @@
  * visited map. What SAVE.DAT says is read by savefile.ts; earlier versions of
  * a slot are kept by storage/history.ts.
  */
-import { strToU8, unzipSync, zipSync, type Zippable } from 'fflate';
+import { strFromU8, strToU8, unzipSync, zipSync, type Zippable } from 'fflate';
 import type { GameId } from './games';
 import { SAVE_PREFIX, isSaveData, parseCharacter, parseSaveHeader, slotOf, slotPrefix, type Character } from './savefile';
-import { countVersions, deleteVersions, replaceSlot } from './storage/history';
+import { countVersions, deleteVersions, replaceSlot, type VersionCause } from './storage/history';
 import { pathKey } from './storage/manifest';
 import { clearOverlay, listOverlay, listOverlayKeys, readOverlay, type OverlayChanges, type OverlayEntry } from './storage/overlay';
 
@@ -159,22 +159,57 @@ export async function deleteSave(game: GameId, slot: number): Promise<void> {
 }
 
 /**
- * Packs saves into a zip laid out like the game's own SAVEGAME folder, so the
- * archive can be unpacked straight into a desktop install (data/SAVEGAME).
+ * Carried in the archives the console keeps in the player's Dropbox: what a
+ * zip cannot say precisely. Archives exported by hand do without it.
  */
-export async function exportSaves(game: GameId, slot?: number): Promise<Blob> {
+const ARCHIVE_INFO = 'overseer.json';
+
+interface ArchiveInfo {
+  version: 1;
+  game: GameId;
+  /** When each file was written, by slot number and lower-cased name: "3/save.dat". */
+  times: Record<string, number>;
+}
+
+/** No set of saved games comes near this; an archive that claims more is not one. */
+const MAX_ARCHIVE_BYTES = 512 << 20;
+
+function zipEntries(game: GameId, entries: OverlayEntry[], withTimes = false): Uint8Array {
   const files: Zippable = {};
-  for (const entry of await saveEntries(game, slot)) {
+  const info: ArchiveInfo = { version: 1, game, times: {} };
+  for (const entry of entries) {
     // "data/SAVEGAME/SLOT01/SAVE.DAT" -> "SAVEGAME/SLOT01/SAVE.DAT"
     const inside = entry.path.replace(/\\/g, '/').split('/').slice(1).join('/');
     files[inside] = [entry.data!, { mtime: entry.mtime }];
+    info.times[`${slotOf(entry.key)}/${entry.key.replace(/^data\/savegame\/slot\d+\//, '')}`] = entry.mtime;
   }
   files['README.txt'] = strToU8(
     `Saved games exported from Overseer Console (${game === 'fo1' ? 'Fallout' : 'Fallout 2'}).\r\n` +
       'To use them in a desktop install, copy the SLOTnn folders into the game\'s data\\SAVEGAME folder.\r\n',
   );
-  const zipped = zipSync(files, { level: 6 });
+  if (withTimes) files[ARCHIVE_INFO] = strToU8(JSON.stringify(info));
+  return zipSync(files, { level: 6 });
+}
+
+/**
+ * Packs saves into a zip laid out like the game's own SAVEGAME folder, so the
+ * archive can be unpacked straight into a desktop install (data/SAVEGAME).
+ */
+export async function exportSaves(game: GameId, slot?: number): Promise<Blob> {
+  const zipped = zipEntries(game, await saveEntries(game, slot));
   return new Blob([zipped.buffer as ArrayBuffer], { type: 'application/zip' });
+}
+
+/**
+ * One slot as an archive that also records when each of its files was
+ * written, with the moment of the save itself. Null when the slot holds no
+ * readable save.
+ */
+export async function packSlot(game: GameId, slot: number): Promise<{ data: Uint8Array; savedAt: number } | null> {
+  const entries = await saveEntries(game, slot);
+  const main = entries.find((entry) => isSaveData(entry.key));
+  if (!main || !parseSaveHeader(main.data!)) return null;
+  return { data: zipEntries(game, entries, true), savedAt: main.mtime };
 }
 
 export interface SaveImport {
@@ -185,18 +220,47 @@ export interface SaveImport {
   commit(): Promise<void>;
 }
 
+export interface ArchiveOptions {
+  /** Take this slot and ignore whatever else the archive holds. */
+  only?: number;
+  /**
+   * Keep the times the saves were written at, instead of counting them as
+   * saved now. `writtenAt` stands in where the archive does not say.
+   */
+  keepTimes?: boolean;
+  writtenAt?: number;
+  /** Why a slot's previous contents went into its history. */
+  cause?: VersionCause;
+}
+
+function readInfo(data: Uint8Array | undefined): Record<string, number> {
+  if (!data) return {};
+  try {
+    const info = JSON.parse(strFromU8(data)) as Partial<ArchiveInfo>;
+    return info.times && typeof info.times === 'object' ? info.times : {};
+  } catch {
+    return {};
+  }
+}
+
 /**
  * Reads a zip of saves. Accepts the console's own exports as well as a
  * zipped SAVEGAME folder or bare SLOTnn folders from a desktop install.
  */
-export async function readSaveArchive(game: GameId, archive: Blob): Promise<SaveImport> {
+export async function readSaveArchive(game: GameId, archive: Blob, options: ArchiveOptions = {}): Promise<SaveImport> {
   let unzipped: Record<string, Uint8Array>;
+  let claimed = 0;
   try {
-    unzipped = unzipSync(new Uint8Array(await archive.arrayBuffer()));
+    unzipped = unzipSync(new Uint8Array(await archive.arrayBuffer()), {
+      filter: (file) => (claimed += file.originalSize) <= MAX_ARCHIVE_BYTES,
+    });
   } catch {
     throw new Error('That file is not a zip archive.');
   }
+  if (claimed > MAX_ARCHIVE_BYTES) throw new Error('That archive is far too large to be saved games.');
 
+  const now = Date.now();
+  const times = options.keepTimes ? readInfo(unzipped[ARCHIVE_INFO]) : {};
   const puts: OverlayChanges['puts'] = [];
   const slots = new Set<number>();
   for (const [name, data] of Object.entries(unzipped)) {
@@ -206,11 +270,25 @@ export async function readSaveArchive(game: GameId, archive: Blob): Promise<Save
     if (at < 0 || at === parts.length - 1) continue;
     const slot = Number(parts[at]!.slice(4));
     if (!Number.isInteger(slot) || slot < 1 || slot > 999) continue;
-    const path = `data/SAVEGAME/SLOT${String(slot).padStart(2, '0')}/${parts.slice(at + 1).join('/')}`;
-    puts.push({ key: pathKey(path), path, mtime: Date.now(), data });
+    if (options.only !== undefined && slot !== options.only) continue;
+    // What follows becomes a path in the game's folder: it must stay inside the slot.
+    const inside = parts.slice(at + 1);
+    if (inside.some((part) => part === '' || part === '.' || part === '..')) {
+      throw new Error(`That archive holds a file name the console does not accept (${name}).`);
+    }
+    const path = `data/SAVEGAME/SLOT${String(slot).padStart(2, '0')}/${inside.join('/')}`;
+    const written = times[`${slot}/${inside.join('/').toLowerCase()}`];
+    const mtime = Number.isFinite(written) && written! > 0 ? written! : options.keepTimes ? (options.writtenAt ?? now) : now;
+    puts.push({ key: pathKey(path), path, mtime, data });
     slots.add(slot);
   }
-  if (!slots.size) throw new Error('No saved games in that archive (expected SLOT01, SLOT02... folders).');
+  if (!slots.size) {
+    throw new Error(
+      options.only === undefined
+        ? 'No saved games in that archive (expected SLOT01, SLOT02... folders).'
+        : `That archive does not hold SLOT${String(options.only).padStart(2, '0')}.`,
+    );
+  }
 
   // A slot is only worth importing with its SAVE.DAT, and of the right game.
   for (const slot of slots) {
@@ -229,7 +307,7 @@ export async function readSaveArchive(game: GameId, archive: Blob): Promise<Save
       // What a slot held before goes into its history, not into the void.
       for (const slot of found) {
         const prefix = slotPrefix(slot);
-        await replaceSlot(game, slot, puts.filter((put) => put.key.startsWith(prefix)), 'import');
+        await replaceSlot(game, slot, puts.filter((put) => put.key.startsWith(prefix)), options.cause ?? 'import');
       }
     },
   };

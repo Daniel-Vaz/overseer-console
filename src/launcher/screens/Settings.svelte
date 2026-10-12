@@ -138,6 +138,16 @@
         'Asks the browser never to clear game data and saves on its own. Without it, a browser short on disk space may.',
       action: () => void seal(),
     },
+    {
+      key: 'd',
+      label: 'Dropbox link',
+      icon: 'export-save',
+      state: sys.dropbox.linked ? 'LINKED' : 'NOT LINKED',
+      note: sys.dropbox.linked
+        ? `Linked to the Dropbox of ${sys.dropbox.name}. Open to change its folders or to unlink.`
+        : 'Optional. Keep saves in your own Dropbox to move them between devices, and load game files from it.',
+      action: () => go('settings/dropbox'),
+    },
     { key: '0', label: 'Back', icon: 'back', action: () => go('') },
   ]);
 </script>

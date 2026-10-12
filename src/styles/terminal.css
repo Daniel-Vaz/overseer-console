@@ -827,6 +827,59 @@ kbd {
   background: repeating-linear-gradient(90deg, var(--phosphor) 0 0.55em, transparent 0.55em 0.7em);
 }
 
+/* A line of text the player types, set like a readout: LABEL ..... [value] */
+.field {
+  display: grid;
+  /* As wide as a readout's labels, so that fields and readouts line up. */
+  grid-template-columns: 18ch minmax(0, 46ch);
+  gap: 0 1ch;
+  align-items: baseline;
+  margin-top: 0.25em;
+}
+
+.field span {
+  display: flex;
+  align-items: baseline;
+  color: var(--phosphor-dim);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.field span::after {
+  content: '';
+  flex: 1 1 auto;
+  min-width: 2ch;
+  margin-left: 1ch;
+  border-bottom: 0.13em dotted var(--phosphor-faint);
+  transform: translateY(-0.22em);
+}
+
+.field input {
+  width: 100%;
+  padding: 0 0.5ch;
+  border: 0;
+  border-bottom: 2px solid var(--phosphor-dim);
+  border-radius: 0;
+  background: var(--tube-lit);
+  color: var(--phosphor-hot);
+  caret-color: var(--phosphor);
+  font: inherit;
+  /* Phones zoom into anything they find too small to type in. */
+  font-size: max(1em, 16px);
+  text-shadow: inherit;
+}
+
+.field input:focus {
+  outline: none;
+  border-color: var(--phosphor);
+  box-shadow: 0 0 0.9em rgba(77, 255, 124, 0.35);
+}
+
+.field input::placeholder {
+  color: var(--phosphor-faint);
+  text-shadow: none;
+}
+
 .panel {
   margin-top: 0.8em;
   padding: 0.5em 1.5ch;
@@ -919,11 +972,13 @@ kbd {
     margin-left: 0;
   }
 
-  .readout {
+  .readout,
+  .field {
     grid-template-columns: 1fr;
   }
 
-  .readout dt::after {
+  .readout dt::after,
+  .field span::after {
     content: ':';
     flex: none;
     min-width: 0;

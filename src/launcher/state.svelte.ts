@@ -1,5 +1,9 @@
 /** Everything the console's screens share. */
-import { GAME_IDS, type GameId } from '../lib/games';
+import { DropboxError } from '../lib/dropbox/api';
+import { LinkError } from '../lib/dropbox/auth';
+import { dropboxGameFiles } from '../lib/dropbox/games';
+import { loadLink } from '../lib/dropbox/link';
+import { GAMES, GAME_IDS, type GameId } from '../lib/games';
 import { briefSaves, latestOf, type LatestSave } from '../lib/saves';
 import { loadSettings, saveSettings, type Settings } from '../lib/settings';
 import { ImportError, planImport, runImport, type ImportPlan, type SourceFile } from '../lib/storage/importer';
@@ -16,6 +20,8 @@ export interface InstallInfo {
 export interface ImportJob {
   phase: 'idle' | 'reading' | 'copying' | 'done' | 'failed';
   game?: GameId;
+  /** The files come from the player's Dropbox, not from this device. */
+  remote?: boolean;
   plan?: ImportPlan;
   doneBytes: number;
   totalBytes: number;
@@ -25,6 +31,17 @@ export interface ImportJob {
 
 const IDLE: ImportJob = { phase: 'idle', doneBytes: 0, totalBytes: 0, path: '' };
 
+export interface DropboxStatus {
+  linked: boolean;
+  /** Whose Dropbox it is. */
+  name: string;
+}
+
+function dropboxStatus(): DropboxStatus {
+  const link = loadLink();
+  return { linked: link !== null, name: link?.account.name ?? '' };
+}
+
 class ConsoleState {
   settings = $state<Settings>(loadSettings());
   /** undefined: not looked at yet. null: not installed. */
@@ -33,6 +50,8 @@ class ConsoleState {
   /** The save "continue" would load, per game. */
   latest = $state<Record<GameId, LatestSave | null>>({ fo1: null, fo2: null });
   storage = $state<StorageStatus | null>(null);
+  /** Whether this browser is linked to the player's Dropbox. */
+  dropbox = $state<DropboxStatus>(dropboxStatus());
   job = $state<ImportJob>({ ...IDLE });
   hints = $state<Hint[]>([]);
 
@@ -53,8 +72,14 @@ class ConsoleState {
     setSoundEnabled(this.settings.sound);
   }
 
+  /** The link may have been made, dropped or found dead since it was last looked at. */
+  refreshDropbox(): void {
+    this.dropbox = dropboxStatus();
+  }
+
   /** Looks at what is installed and saved in this browser. */
   async refresh(): Promise<void> {
+    this.refreshDropbox();
     this.supported = await probeStorage();
     if (!this.supported) {
       this.installs = { fo1: null, fo2: null };
@@ -84,18 +109,34 @@ class ConsoleState {
   }
 
   /** Imports whatever the user picked or dropped. */
-  async importFrom(sources: SourceFile[], preferred?: GameId): Promise<GameId | null> {
+  importFrom(sources: SourceFile[], preferred?: GameId): Promise<GameId | null> {
+    return this.importWith(async () => sources, preferred);
+  }
+
+  /**
+   * Imports a game from the folder the player keeps in their Dropbox. Unlike
+   * a folder picked by hand, a search of that folder must turn up the game
+   * that was asked for: nobody wants the other one downloaded by surprise.
+   */
+  importFromDropbox(game: GameId): Promise<GameId | null> {
+    return this.importWith(() => dropboxGameFiles(game), game, true);
+  }
+
+  private async importWith(find: () => Promise<SourceFile[]>, preferred?: GameId, remote = false): Promise<GameId | null> {
     if (this.busy) return null;
-    this.job = { ...IDLE, phase: 'reading', game: preferred };
+    this.job = { ...IDLE, phase: 'reading', game: preferred, remote };
     try {
-      const plan = await planImport(sources, preferred);
+      const plan = await planImport(await find(), preferred);
+      if (remote && preferred && plan.game !== preferred) {
+        throw new ImportError(`${GAMES[preferred].title} was not found in your Dropbox. What is there is ${GAMES[plan.game].title}.`);
+      }
       const status = await storageStatus().catch(() => null);
       if (status && status.quota > 0 && status.quota - status.usage < plan.totalBytes * 1.05) {
         throw new ImportError(
           'Not enough browser storage is available for this game. Free some disk space, or remove the other game first.',
         );
       }
-      this.job = { phase: 'copying', game: plan.game, plan, doneBytes: 0, totalBytes: plan.totalBytes, path: '' };
+      this.job = { phase: 'copying', game: plan.game, remote, plan, doneBytes: 0, totalBytes: plan.totalBytes, path: '' };
       await runImport(plan, (progress) => {
         this.job.doneBytes = progress.doneBytes;
         this.job.totalBytes = progress.totalBytes;
@@ -110,10 +151,12 @@ class ConsoleState {
     } catch (err) {
       console.error(err);
       const message =
-        err instanceof ImportError
+        err instanceof ImportError || err instanceof DropboxError || err instanceof LinkError
           ? err.message
           : `The copy failed: ${err instanceof Error ? err.message : String(err)}`;
       this.job = { ...this.job, phase: 'failed', error: message };
+      // A link Dropbox has cancelled is forgotten on the spot.
+      this.refreshDropbox();
       return null;
     }
   }

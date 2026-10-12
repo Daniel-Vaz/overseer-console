@@ -99,7 +99,11 @@
 <div class="columns">
   <div>
     <Menu {items} label="Main directory" bind:selected />
-    <p class="gap dim">NOTHING IS UPLOADED. GAME FILES AND SAVES STAY ON THIS DEVICE.</p>
+    <p class="gap dim">
+      {sys.dropbox.linked
+        ? 'GAME FILES AND SAVES STAY ON THIS DEVICE. ONLY THE SAVES YOU UPLOAD GO TO YOUR OWN DROPBOX.'
+        : 'NOTHING IS UPLOADED. GAME FILES AND SAVES STAY ON THIS DEVICE.'}
+    </p>
   </div>
 
   <aside class="board gap" aria-label="Status board">

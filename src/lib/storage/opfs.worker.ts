@@ -7,18 +7,25 @@
  */
 import { LAZY_THRESHOLD, STORE_ROOT, type ManifestFile } from './manifest';
 
-export interface ImportEntry {
-  path: string;
-  file: File;
-}
+/**
+ * A file to copy in: one the worker reads itself, or (given by its size
+ * alone) one the page reads for it, piece by piece. The second kind is how
+ * files that are not on this device arrive.
+ */
+export type ImportEntry = { path: string; file: File } | { path: string; size: number };
 
 export type WorkerRequest =
   | { id: number; op: 'import'; dir: string[]; entries: ImportEntry[] }
   | { id: number; op: 'write'; dir: string[]; name: string; data: Uint8Array }
-  | { id: number; op: 'remove'; dir: string[]; name: string };
+  | { id: number; op: 'remove'; dir: string[]; name: string }
+  /** The page's answer to a 'read': the bytes, or why there are none. */
+  | { id: number; op: 'data'; data: Uint8Array }
+  | { id: number; op: 'no-data'; message: string };
 
 export type WorkerResponse =
   | { id: number; type: 'progress'; doneBytes: number; totalBytes: number; path: string }
+  /** Asks the page for part of an entry the worker cannot read itself. */
+  | { id: number; type: 'read'; entry: number; offset: number; length: number }
   | { id: number; type: 'done'; files?: ManifestFile[] }
   | { id: number; type: 'error'; message: string };
 
@@ -49,9 +56,29 @@ function writeAll(access: SyncHandle, data: Uint8Array, at: number): void {
   }
 }
 
+/** Reads the page is being waited on for, by the import that asked. */
+const awaited = new Map<number, { resolve: (data: Uint8Array) => void; reject: (err: Error) => void }>();
+
+function sizeOf(entry: ImportEntry): number {
+  return 'file' in entry ? entry.file.size : entry.size;
+}
+
+/** `length` bytes of an entry from `offset`, wherever the entry lives. */
+async function read(id: number, entries: ImportEntry[], index: number, offset: number, length: number): Promise<Uint8Array> {
+  const entry = entries[index]!;
+  if (length === 0) return new Uint8Array(0);
+  if ('file' in entry) return new Uint8Array(await entry.file.slice(offset, offset + length).arrayBuffer());
+  const data = await new Promise<Uint8Array>((resolve, reject) => {
+    awaited.set(id, { resolve, reject });
+    postMessage({ id, type: 'read', entry: index, offset, length } satisfies WorkerResponse);
+  });
+  if (data.length !== length) throw new Error(`${entry.path}: received ${data.length} of ${length} bytes`);
+  return data;
+}
+
 async function importFiles(id: number, dirPath: string[], entries: ImportEntry[]): Promise<ManifestFile[]> {
   const dir = await openDir(dirPath, true);
-  const totalBytes = entries.reduce((sum, e) => sum + e.file.size, 0);
+  const totalBytes = entries.reduce((sum, e) => sum + sizeOf(e), 0);
   let doneBytes = 0;
   let lastReport = 0;
   const report = (path: string, force = false) => {
@@ -66,10 +93,12 @@ async function importFiles(id: number, dirPath: string[], entries: ImportEntry[]
   let packOffset = 0;
   let blobIndex = 0;
   try {
-    for (const { path, file } of entries) {
+    for (const [index, entry] of entries.entries()) {
+      const { path } = entry;
+      const size = sizeOf(entry);
       report(path);
-      if (file.size < LAZY_THRESHOLD) {
-        const data = new Uint8Array(await file.arrayBuffer());
+      if (size < LAZY_THRESHOLD) {
+        const data = await read(id, entries, index, 0, size);
         writeAll(pack, data, packOffset);
         files.push({ path, size: data.length, pack: [packOffset, data.length] });
         packOffset += data.length;
@@ -80,20 +109,20 @@ async function importFiles(id: number, dirPath: string[], entries: ImportEntry[]
       const blob = `b${String(blobIndex++).padStart(4, '0')}.bin`;
       const access = await openForWriting(dir, blob);
       try {
-        for (let offset = 0; offset < file.size; offset += CHUNK) {
-          const chunk = new Uint8Array(await file.slice(offset, offset + CHUNK).arrayBuffer());
+        for (let offset = 0; offset < size; offset += CHUNK) {
+          const chunk = await read(id, entries, index, offset, Math.min(CHUNK, size - offset));
           writeAll(access, chunk, offset);
           doneBytes += chunk.length;
           report(path);
         }
         access.flush();
-        if (access.getSize() !== file.size) {
-          throw new Error(`${path}: wrote ${access.getSize()} of ${file.size} bytes`);
+        if (access.getSize() !== size) {
+          throw new Error(`${path}: wrote ${access.getSize()} of ${size} bytes`);
         }
       } finally {
         access.close();
       }
-      files.push({ path, size: file.size, blob });
+      files.push({ path, size, blob });
     }
     pack.flush();
   } finally {
@@ -105,6 +134,13 @@ async function importFiles(id: number, dirPath: string[], entries: ImportEntry[]
 
 self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
   const request = event.data;
+  if (request.op === 'data' || request.op === 'no-data') {
+    const waiting = awaited.get(request.id);
+    awaited.delete(request.id);
+    if (request.op === 'data') waiting?.resolve(request.data);
+    else waiting?.reject(new Error(request.message));
+    return;
+  }
   try {
     if (request.op === 'import') {
       const files = await importFiles(request.id, request.dir, request.entries);

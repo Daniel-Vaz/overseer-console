@@ -62,6 +62,11 @@
     await sys.importFrom(sources, game);
   }
 
+  async function fromDropbox(): Promise<void> {
+    view = 'main';
+    await sys.importFromDropbox(game);
+  }
+
   async function eject(): Promise<void> {
     view = 'main';
     await removeInstall(game);
@@ -77,6 +82,15 @@
         ? `Pick the folder ${def.title} is installed in. The browser will ask you to confirm the "upload"; nothing leaves this device.`
         : 'Select MASTER.DAT, CRITTER.DAT and the other data files together.',
       action: () => (canPickFolder ? folderInput : filesInput)?.click(),
+    },
+    {
+      key: 'd',
+      label: 'Load holodisk from Dropbox',
+      state: sys.dropbox.linked ? undefined : 'NOT LINKED',
+      note: sys.dropbox.linked
+        ? `Fetches ${def.title} from the game folder you put in the console's app folder in your Dropbox.`
+        : `Optional. Link your own Dropbox, put your ${def.title} folder in it, and load the game from there on any device.`,
+      action: () => (sys.dropbox.linked ? void fromDropbox() : go('settings/dropbox')),
     },
     {
       key: '2',
@@ -127,6 +141,17 @@
       note: 'Load the game files again, for example after patching your copy. Saved games are kept.',
       action: () => (canPickFolder ? folderInput : filesInput)?.click(),
     },
+    // Offered once there is a link; the deck of an empty game says how to make one.
+    ...(sys.dropbox.linked
+      ? [
+          {
+            key: 'd',
+            label: 'Replace holodisk from Dropbox',
+            note: 'Fetches the game again from the folder in your Dropbox. Saved games are kept.',
+            action: () => void fromDropbox(),
+          } satisfies MenuItem,
+        ]
+      : []),
     {
       key: '4',
       label: 'Eject holodisk',
@@ -174,9 +199,9 @@
 <div>
 {#if job?.phase === 'reading'}
   <p class="gap">READING HOLODISK<span class="cursor"></span></p>
-  <p class="dim">Looking for {def.title} in what you selected.</p>
+  <p class="dim">Looking for {def.title} in {job.remote ? 'your Dropbox' : 'what you selected'}.</p>
 {:else if job?.phase === 'copying'}
-  <p class="gap">LOADING HOLODISK INTO PRIVATE STORAGE</p>
+  <p class="gap">{job.remote ? 'FETCHING HOLODISK FROM DROPBOX' : 'LOADING HOLODISK'} INTO PRIVATE STORAGE</p>
   <div class="meter gap" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(percent)}>
     <div class="track"><div class="fill" style:width="{percent}%"></div></div>
     <span>{Math.round(percent)}%</span>

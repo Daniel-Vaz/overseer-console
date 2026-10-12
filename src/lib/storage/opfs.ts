@@ -16,11 +16,31 @@ export interface ImportProgress {
   path: string;
 }
 
+/**
+ * What can be copied into the store: a File from this device, or anything
+ * that is read the same way, such as a file in the player's Dropbox.
+ */
+export interface SourceBlob {
+  readonly size: number;
+  readonly lastModified: number;
+  slice(start: number, end: number): { arrayBuffer(): Promise<ArrayBuffer> };
+  arrayBuffer(): Promise<ArrayBuffer>;
+  text(): Promise<string>;
+}
+
+export interface SourceEntry {
+  path: string;
+  file: SourceBlob;
+}
+
+/** Reads part of an entry on the worker's behalf. */
+type PageRead = (entry: number, offset: number, length: number) => Promise<Uint8Array>;
+
 let worker: Worker | null = null;
 let nextId = 1;
 const pending = new Map<
   number,
-  { resolve: (files?: ManifestFile[]) => void; reject: (err: Error) => void; onProgress?: (p: ImportProgress) => void }
+  { resolve: (files?: ManifestFile[]) => void; reject: (err: Error) => void; onProgress?: (p: ImportProgress) => void; read?: PageRead }
 >();
 
 function getWorker(): Worker {
@@ -32,6 +52,13 @@ function getWorker(): Worker {
     if (!entry) return;
     if (message.type === 'progress') {
       entry.onProgress?.(message);
+    } else if (message.type === 'read') {
+      const { id } = message;
+      const answer = (request: WorkerRequest, transfer: Transferable[] = []) => worker?.postMessage(request, transfer);
+      (entry.read ? entry.read(message.entry, message.offset, message.length) : Promise.reject(new Error('nothing to read from'))).then(
+        (data) => answer({ id, op: 'data', data }, [data.buffer]),
+        (err: unknown) => answer({ id, op: 'no-data', message: err instanceof Error ? err.message : String(err) }),
+      );
     } else if (message.type === 'done') {
       pending.delete(message.id);
       entry.resolve(message.files);
@@ -49,10 +76,10 @@ function getWorker(): Worker {
   return worker;
 }
 
-function call(op: WorkerOp, onProgress?: (p: ImportProgress) => void): Promise<ManifestFile[] | undefined> {
+function call(op: WorkerOp, onProgress?: (p: ImportProgress) => void, read?: PageRead): Promise<ManifestFile[] | undefined> {
   return new Promise((resolve, reject) => {
     const id = nextId++;
-    pending.set(id, { resolve, reject, onProgress });
+    pending.set(id, { resolve, reject, onProgress, read });
     getWorker().postMessage({ ...op, id });
   });
 }
@@ -137,7 +164,7 @@ export async function openBlob(install: Install, name: string): Promise<File> {
  */
 export async function writeInstall(
   game: GameId,
-  entries: ImportEntry[],
+  entries: SourceEntry[],
   describe: (install: string, files: ManifestFile[]) => Manifest,
   onProgress?: (p: ImportProgress) => void,
 ): Promise<Manifest> {
@@ -145,7 +172,12 @@ export async function writeInstall(
   const base = ['games', game];
   const previous = await loadInstall(game).catch(() => null);
 
-  const files = await call({ op: 'import', dir: [...base, install], entries }, onProgress);
+  // Files of this device go to the worker as they are. Anything else it asks
+  // the page for, a piece at a time.
+  const handed = entries.map(({ path, file }): ImportEntry => (file instanceof File ? { path, file } : { path, size: file.size }));
+  const files = await call({ op: 'import', dir: [...base, install], entries: handed }, onProgress, async (entry, offset, length) =>
+    new Uint8Array(await entries[entry]!.file.slice(offset, offset + length).arrayBuffer()),
+  );
   const manifest = describe(install, files ?? []);
   const encode = (value: unknown) => new TextEncoder().encode(JSON.stringify(value));
   await call({ op: 'write', dir: [...base, install], name: 'manifest.json', data: encode(manifest) });
