@@ -38,6 +38,7 @@
     {
       key: '1',
       label: 'Picture',
+      icon: 'picture',
       state: s.display === 'classic' ? 'CLASSIC 4:3' : 'WIDE',
       note:
         s.display === 'classic'
@@ -48,6 +49,7 @@
     {
       key: '2',
       label: 'Scaling',
+      icon: 'scaling',
       state: s.scaling === 'fill' ? 'FILL WINDOW' : s.scaling === 'integer' ? 'WHOLE PIXELS' : 'SMOOTH',
       note:
         s.scaling === 'fill'
@@ -60,6 +62,7 @@
     {
       key: '3',
       label: 'Start in fullscreen',
+      icon: 'fullscreen',
       state: s.fullscreen ? 'ON' : 'OFF',
       note: 'F11 toggles fullscreen at any time while playing.',
       action: () => sys.update({ fullscreen: !s.fullscreen }),
@@ -67,6 +70,7 @@
     {
       key: '4',
       label: 'Intro movies',
+      icon: 'movies',
       state: s.skipIntro ? 'SKIP' : 'PLAY',
       note: s.skipIntro
         ? 'Games open on their main menu.'
@@ -90,6 +94,7 @@
           {
             key: 't',
             label: 'Touch pointer',
+            icon: s.touchPointer === 'direct' ? 'pointer-finger' : 'pointer-trackpad',
             state: s.touchPointer === 'direct' ? 'FOLLOWS FINGER' : 'TRACKPAD',
             note:
               s.touchPointer === 'direct'
@@ -102,7 +107,7 @@
     {
       key: '6',
       label: 'Tube effects',
-      icon: 'terminal',
+      icon: 'tube',
       state: s.crt ? 'ON' : 'OFF',
       note: 'Scanlines, glow and flicker on this console. Does not affect the games.',
       action: () => sys.update({ crt: !s.crt }),
@@ -118,7 +123,7 @@
     {
       key: '8',
       label: 'Game data kept in memory',
-      icon: 'gamedata',
+      icon: 'memory',
       state: `${s.cacheMb} MB`,
       note: 'Game files are read from disk as needed and kept in memory up to this size. Lower it on devices with little memory.',
       action: () => {
@@ -129,7 +134,7 @@
     {
       key: '9',
       label: 'Seal private storage',
-      icon: 'save',
+      icon: sys.storage?.persisted ? 'sealed' : 'unsealed',
       state: sys.storage?.persisted ? 'SEALED' : 'NOT SEALED',
       tone: sys.storage?.persisted ? undefined : 'amber',
       disabled: !sys.supported,
@@ -141,7 +146,7 @@
     {
       key: 'd',
       label: 'Dropbox link',
-      icon: 'export-save',
+      icon: 'uplink',
       state: sys.dropbox.linked ? 'LINKED' : 'NOT LINKED',
       note: sys.dropbox.linked
         ? `Linked to the Dropbox of ${sys.dropbox.name}. Open to change its folders or to unlink.`
@@ -160,7 +165,7 @@
     <Menu {items} label="Settings" bind:selected />
   </div>
   <aside class="board gap" aria-label="Private storage">
-    <Glyph name={items[selected]?.icon ?? 'settings'} />
+    <Glyph name={items[selected]?.icon ?? 'settings'} tone={items[selected]?.tone} />
     {#if sys.storage}
       <dl class="readout">
         <dt>In use</dt>

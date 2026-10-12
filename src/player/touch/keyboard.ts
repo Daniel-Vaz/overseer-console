@@ -10,8 +10,10 @@
  */
 
 interface Key {
-  /** What the key shows. */
+  /** What the key shows, or what it is called when it shows a picture. */
   label: string;
+  /** Drawn in place of the label: the lines of a 24 x 24 picture. The usual arrow characters are missing from many fonts. */
+  symbol?: string;
   /** DOM `code`, e.g. "KeyA". A leading "@" marks a key of the keyboard itself. */
   code: string;
   key: string;
@@ -27,18 +29,18 @@ const digit = (char: string, shifted: string): Key => ({ label: char, code: `Dig
 const fn = (n: number): Key => ({ label: `F${n}`, code: `F${n}`, key: `F${n}`, keyCode: 111 + n });
 
 const ESC: Key = { label: 'ESC', code: 'Escape', key: 'Escape', keyCode: 27 };
-const BACKSPACE: Key = { label: '⌫', code: 'Backspace', key: 'Backspace', keyCode: 8 };
+const BACKSPACE: Key = { label: 'Backspace', symbol: 'M9 5h12v14H9l-6-7zM13 9.5l5 5M18 9.5l-5 5', code: 'Backspace', key: 'Backspace', keyCode: 8 };
 const TAB: Key = { label: 'TAB', code: 'Tab', key: 'Tab', keyCode: 9 };
-const ENTER: Key = { label: '↵', code: 'Enter', key: 'Enter', keyCode: 13 };
+const ENTER: Key = { label: 'Enter', symbol: 'M19 5v9H6M10 10l-4 4 4 4', code: 'Enter', key: 'Enter', keyCode: 13 };
 const SPACE: Key = { label: 'SPACE', code: 'Space', key: ' ', keyCode: 32, span: 2 };
-const SHIFT: Key = { label: '⇧', code: '@shift', key: '', keyCode: 0 };
+const SHIFT: Key = { label: 'Shift', symbol: 'M12 4l8 9h-5v7H9v-7H4z', code: '@shift', key: '', keyCode: 0 };
 const LAYER: Key = { label: 'FN', code: '@layer', key: '', keyCode: 0 };
 const COMMA: Key = { label: ',', code: 'Comma', key: ',', keyCode: 188, shifted: '<' };
 const PERIOD: Key = { label: '.', code: 'Period', key: '.', keyCode: 190, shifted: '>' };
-const LEFT: Key = { label: '←', code: 'ArrowLeft', key: 'ArrowLeft', keyCode: 37 };
-const RIGHT: Key = { label: '→', code: 'ArrowRight', key: 'ArrowRight', keyCode: 39 };
-const UP: Key = { label: '↑', code: 'ArrowUp', key: 'ArrowUp', keyCode: 38 };
-const DOWN: Key = { label: '↓', code: 'ArrowDown', key: 'ArrowDown', keyCode: 40 };
+const LEFT: Key = { label: 'Left', symbol: 'M20 12H5M11 6l-6 6 6 6', code: 'ArrowLeft', key: 'ArrowLeft', keyCode: 37 };
+const RIGHT: Key = { label: 'Right', symbol: 'M4 12h15M13 6l6 6-6 6', code: 'ArrowRight', key: 'ArrowRight', keyCode: 39 };
+const UP: Key = { label: 'Up', symbol: 'M12 20V5M6 11l6-6 6 6', code: 'ArrowUp', key: 'ArrowUp', keyCode: 38 };
+const DOWN: Key = { label: 'Down', symbol: 'M12 4v15M6 13l6 6 6-6', code: 'ArrowDown', key: 'ArrowDown', keyCode: 40 };
 const HOME: Key = { label: 'HOME', code: 'Home', key: 'Home', keyCode: 36 };
 const PAGE_UP: Key = { label: 'PGUP', code: 'PageUp', key: 'PageUp', keyCode: 33 };
 const PAGE_DOWN: Key = { label: 'PGDN', code: 'PageDown', key: 'PageDown', keyCode: 34 };
@@ -129,12 +131,17 @@ export class Keyboard {
           button.type = 'button';
           button.tabIndex = -1;
           button.dataset.code = key.code;
-          button.textContent = this.shift && key.shifted ? key.shifted : key.label;
+          if (key.symbol) {
+            button.setAttribute('aria-label', key.label);
+            button.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${key.symbol}" /></svg>`;
+          } else {
+            button.textContent = this.shift && key.shifted ? key.shifted : key.label;
+          }
           if (key.span) button.style.flexGrow = String(key.span);
           if (key.code === '@shift') button.classList.toggle('armed', this.shift);
           if (key.code === '@layer') button.classList.toggle('armed', this.layer === 1);
-          // Words and the wide symbols are set smaller than letters.
-          if (key.code.startsWith('@') || key.label.length > 1 || key === BACKSPACE || key === ENTER) button.classList.add('word');
+          // Words are set smaller than letters.
+          if (!key.symbol && (key.code.startsWith('@') || key.label.length > 1)) button.classList.add('word');
           line.append(button);
         }
         return line;

@@ -18,13 +18,27 @@
     <!-- The game draws here. SDL looks the element up by this id. -->
     <div id="stage"><canvas id="canvas" width="640" height="480" tabindex="-1"></canvas></div>
 
-    <button id="handle" type="button" hidden aria-label="Open the console menu (F9)">F9 &#9776;</button>
+    <button id="handle" type="button" hidden aria-label="Open the console menu (F9)">
+      F9
+      <svg viewBox="0 0 14 12" aria-hidden="true"><path d="M0 0h14v2H0zM0 5h14v2H0zM0 10h14v2H0z" /></svg>
+    </button>
 
     <!-- Touch play: buttons beside the picture, and a keyboard. Hidden until the page is touched. -->
     <div id="deck" hidden>
       <div class="deck-side deck-left">
-        <button type="button" data-act="menu" aria-label="Console menu: pause, help, exit">&#9776;<small>MENU</small></button>
-        <button type="button" data-act="keys" aria-label="Show or hide the keyboard">&#9000;<small>KEYS</small></button>
+        <button type="button" data-act="menu" aria-label="Console menu: pause, help, exit">
+          <svg viewBox="0 0 32 32" aria-hidden="true">
+            <path class="lit" d="M3 5h26v5H3zM3 13.5h26v5H3zM3 22h26v5H3z" />
+          </svg>
+          <small>MENU</small>
+        </button>
+        <button type="button" data-act="keys" aria-label="Show or hide the keyboard">
+          <svg viewBox="0 0 40 32" aria-hidden="true">
+            <rect x="2" y="6" width="36" height="20" rx="3" />
+            <path class="lit" d="M6 10h4v3H6zM12 10h4v3h-4zM18 10h4v3h-4zM24 10h4v3h-4zM30 10h4v3h-4zM6 15h4v3H6zM12 15h4v3h-4zM18 15h4v3h-4zM24 15h4v3h-4zM30 15h4v3h-4zM11 20h18v3H11z" />
+          </svg>
+          <small>KEYS</small>
+        </button>
         <span class="deck-gap"></span>
         <button type="button" data-act="esc" aria-label="Escape key">ESC</button>
       </div>

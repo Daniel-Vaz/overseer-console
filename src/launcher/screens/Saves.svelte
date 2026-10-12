@@ -414,7 +414,7 @@
             key: 'u',
             label: 'Keep saves in your Dropbox',
             state: 'NOT LINKED',
-            icon: 'export-save',
+            icon: 'uplink',
             note: 'Optional. Link your own Dropbox to carry saves between devices.',
             action: () => go('settings/dropbox'),
           },
@@ -537,7 +537,8 @@
   <h1>Save archives: {def.title}</h1>
 
   {#if message}
-    <div class="panel" class:bad={message.bad} role="status">
+    <div class="panel signed" class:bad={message.bad} role="status">
+      <Glyph name={message.bad ? 'fault' : 'ok'} tone={message.bad ? 'alert' : undefined} />
       <p class:alert={message.bad}>{message.text}</p>
     </div>
   {/if}
@@ -545,38 +546,58 @@
   {#if slots === null}
     <p class="gap">READING ARCHIVES<span class="cursor"></span></p>
   {:else if confirm === 'import' && pendingImport}
-    <p class="gap amber">
-      {pendingImport.conflicts.map(slotLabel).join(', ')}
-      {pendingImport.conflicts.length === 1 ? 'ALREADY HOLDS A SAVE' : 'ALREADY HOLD SAVES'}.
-    </p>
-    <p>Restoring the archive replaces them. What they hold now is kept as an earlier version.</p>
+    <div class="signed ask gap">
+      <Glyph name="warning" tone="amber" />
+      <div>
+        <p class="amber">
+          {pendingImport.conflicts.map(slotLabel).join(', ')}
+          {pendingImport.conflicts.length === 1 ? 'ALREADY HOLDS A SAVE' : 'ALREADY HOLD SAVES'}.
+        </p>
+        <p>Restoring the archive replaces them. What they hold now is kept as an earlier version.</p>
+      </div>
+    </div>
     <Menu items={importItems} label="Confirm import" />
   {:else if confirm === 'fetch' && pendingFetch}
     {@const replaced = pendingFetch.items.filter((item) => item.standing === 'newer-there').map((item) => item.slot)}
-    <p class="gap amber">
-      {slotList(replaced)}
-      {replaced.length === 1 ? 'HOLDS AN OLDER SAVE' : 'HOLD OLDER SAVES'} IN THIS BROWSER.
-    </p>
-    <p>
-      Fetching replaces {replaced.length === 1 ? 'it' : 'them'} with what your Dropbox holds. What
-      {replaced.length === 1 ? 'the slot holds' : 'the slots hold'} now is kept as an earlier version.
-    </p>
+    <div class="signed ask gap">
+      <Glyph name="warning" tone="amber" />
+      <div>
+        <p class="amber">
+          {slotList(replaced)}
+          {replaced.length === 1 ? 'HOLDS AN OLDER SAVE' : 'HOLD OLDER SAVES'} IN THIS BROWSER.
+        </p>
+        <p>
+          Fetching replaces {replaced.length === 1 ? 'it' : 'them'} with what your Dropbox holds. What
+          {replaced.length === 1 ? 'the slot holds' : 'the slots hold'} now is kept as an earlier version.
+        </p>
+      </div>
+    </div>
     <Menu items={fetchItems} label="Confirm fetch" />
   {:else if open && confirm === 'delete'}
-    <p class="gap amber">ERASE {slotLabel(open.slot)} "{open.description}"?</p>
-    <p>
-      This cannot be undone. Export it first if you may want it back.
-      {#if open.versions}Its {plural(open.versions, 'earlier version')} {open.versions === 1 ? 'is' : 'are'} erased with it.{/if}
-      {#if sys.dropbox.linked && isSynced(game, open.slot)}Its copy in your Dropbox is erased as well.{/if}
-    </p>
+    <div class="signed ask gap">
+      <Glyph name="warning" tone="amber" />
+      <div>
+        <p class="amber">ERASE {slotLabel(open.slot)} "{open.description}"?</p>
+        <p>
+          This cannot be undone. Export it first if you may want it back.
+          {#if open.versions}Its {plural(open.versions, 'earlier version')} {open.versions === 1 ? 'is' : 'are'} erased with it.{/if}
+          {#if sys.dropbox.linked && isSynced(game, open.slot)}Its copy in your Dropbox is erased as well.{/if}
+        </p>
+      </div>
+    </div>
     <Menu items={deleteItems} label="Confirm erase" />
   {:else if open && rollback && confirm === 'rollback'}
-    <p class="gap amber">ROLL {slotLabel(open.slot)} BACK TO THE SAVE OF {stamp(rollback.id)}?</p>
-    <p>
-      "{rollback.header.description || 'no description'}": {rollback.header.character}, {rollback.header.map},
-      {rollback.header.gameDate}, {rollback.header.gameClock} hours.
-    </p>
-    <p>The save now in the slot is kept as an earlier version, so you can change your mind.</p>
+    <div class="signed ask gap">
+      <Glyph name="warning" tone="amber" />
+      <div>
+        <p class="amber">ROLL {slotLabel(open.slot)} BACK TO THE SAVE OF {stamp(rollback.id)}?</p>
+        <p>
+          "{rollback.header.description || 'no description'}": {rollback.header.character}, {rollback.header.map},
+          {rollback.header.gameDate}, {rollback.header.gameClock} hours.
+        </p>
+        <p>The save now in the slot is kept as an earlier version, so you can change your mind.</p>
+      </div>
+    </div>
     <Menu items={rollbackItems} label="Confirm roll back" />
   {:else if open && versions}
     <div class="columns portrait">
@@ -624,7 +645,7 @@
       {#if open.thumbnail && palette}
         <Thumbnail pixels={open.thumbnail} {palette} label="The screen when this game was saved" />
       {:else}
-        <Glyph name="save" />
+        <Glyph name="save" tone={open.valid ? undefined : 'alert'} />
       {/if}
       {#if open.sheet}
         <Sheet character={open.sheet} {game} {facts} />
@@ -658,7 +679,7 @@
         </aside>
       {:else}
         <aside class="board gap" aria-hidden="true">
-          <Glyph name={listItems[selected]?.icon ?? 'save'} />
+          <Glyph name={listItems[selected]?.icon ?? 'save'} tone={listItems[selected]?.tone} />
         </aside>
       {/if}
     </div>

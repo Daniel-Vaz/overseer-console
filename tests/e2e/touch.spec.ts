@@ -47,6 +47,9 @@ test('on a phone the start gate asks for a tap and makes room for the touch deck
 
   await expect(page.getByText('TAP TO BEGIN')).toBeVisible({ timeout: 60_000 });
   await expect(page.locator('body')).toHaveClass(/touch/);
+  // The deck and the keyboard draw their own symbols: the fonts of a phone may not have them.
+  await expect(page.locator('#deck button[data-act="menu"] svg, #deck button[data-act="keys"] svg')).toHaveCount(2);
+  await expect(page.locator('#keys button[aria-label="Backspace"] svg')).toHaveCount(1);
   // The picture is fitted between the two strips of buttons.
   const stage = (await page.locator('#stage').boundingBox())!;
   expect(stage.x).toBeGreaterThan(50);

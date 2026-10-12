@@ -36,6 +36,39 @@ test('wears its mark on the main directory, and every icon it names is there', a
   }
 });
 
+test('the status board has a picture for every entry, and each one loads', async ({ page }) => {
+  await openConsole(page);
+  const glyph = page.locator('.board .glyph');
+  const pictures = new Set<string>();
+  const walk = async () => {
+    const entries = await page.locator('.menu button').count();
+    await page.keyboard.press('Home');
+    for (let entry = 0; entry < entries; entry++) {
+      await expect(glyph).toBeVisible();
+      pictures.add(await glyph.evaluate((node) => getComputedStyle(node).getPropertyValue('--glyph')));
+      await page.keyboard.press('ArrowDown');
+    }
+  };
+
+  await walk();
+  // A deck without its holodisk is drawn in the colour of its "NO HOLODISK".
+  await page.keyboard.press('Home');
+  await expect(page.locator('.menu li').first()).toContainText('NO HOLODISK');
+  await expect(glyph).toHaveClass(/amber/);
+  await page.keyboard.press('4');
+  await expect(page.getByRole('heading', { name: 'Terminal settings' })).toBeVisible();
+  await walk();
+
+  // Six entries on the main directory; ten more on the settings, where the two sounds share one.
+  expect(pictures.size).toBeGreaterThanOrEqual(16);
+  for (const picture of pictures) {
+    const url = new URL(/url\(["']?(.+?)["']?\)/.exec(picture)![1]!, page.url()).href;
+    const response = await page.request.get(url);
+    expect(response.ok(), url).toBe(true);
+    expect(response.headers()['content-type'], url).toBe('image/png');
+  }
+});
+
 test('any key skips the power-on sequence', async ({ page }) => {
   await page.goto('');
   await expect(page.getByText('POWER-ON SELF TEST')).toBeVisible();
@@ -128,6 +161,8 @@ test('imports a game folder into browser storage, and ejects it again', async ({
   await expect(page.locator('.menu button').first()).toContainText('Begin simulation');
   await page.keyboard.press('4');
   await expect(page.getByText('EJECT THE FALLOUT 2 HOLODISK?')).toBeVisible();
+  // What cannot be taken back is asked under a caution sign.
+  await expect(page.locator('.signed .glyph.amber')).toBeVisible();
   await page.keyboard.press('y');
   await expect(page.getByText('NOT LOADED')).toBeVisible();
 });

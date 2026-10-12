@@ -9,6 +9,10 @@ import '@fontsource/vt323/latin-400.css';
 import '../styles/terminal.css';
 import '../styles/player.css';
 
+import faultIcon from '../assets/icons/fault.png';
+import rotateIcon from '../assets/icons/rotate.png';
+import suspendedIcon from '../assets/icons/suspended.png';
+import warningIcon from '../assets/icons/warning.png';
 import { bootEngine, NoInstallError, StorageUnavailableError, type Engine } from '../lib/engine/host';
 import { GAMES, isGameId, type GameId } from '../lib/games';
 import { loadSettings, recordLaunch, saveSettings } from '../lib/settings';
@@ -59,6 +63,14 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, t
   const node = document.createElement(tag);
   if (className) node.className = className;
   if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+/** One of the console's pictures, drawn in phosphor or in the colour of a caution or a fault. */
+function glyph(image: string, tone?: 'amber' | 'alert'): HTMLElement {
+  const node = el('div', tone ? `glyph ${tone}` : 'glyph');
+  node.style.setProperty('--glyph', `url(${image})`);
+  node.setAttribute('aria-hidden', 'true');
   return node;
 }
 
@@ -168,6 +180,9 @@ const touch = new TouchControls(
 // sized for it; elsewhere it appears with the first touch.
 if (fingerFirst()) touch.show();
 
+/** A phone: held upright, its screen leaves the picture very small. */
+const handheld = (): boolean => fingerFirst() && Math.min(screen.width, screen.height) < 600;
+
 function touchHelpSeen(): boolean {
   try {
     return localStorage.getItem(TOUCH_HELP_KEY) === '1';
@@ -231,7 +246,7 @@ async function toggleFullscreen(quiet = false): Promise<void> {
       await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
       // A phone held upright shows a tiny picture; turn it, where the browser lets a page do that.
       const orientation = screen.orientation as ScreenOrientation & { lock?(orientation: string): Promise<void> };
-      if (fingerFirst() && Math.min(screen.width, screen.height) < 600) void orientation.lock?.('landscape').catch(() => undefined);
+      if (handheld()) void orientation.lock?.('landscape').catch(() => undefined);
     }
   } catch {
     if (!quiet) toast('FULLSCREEN IS NOT AVAILABLE HERE');
@@ -381,6 +396,7 @@ function openMenu(confirmExit = false): void {
 
   if (confirmExit) {
     body.replaceChildren(
+      glyph(warningIcon, 'amber'),
       el('p', 'big amber', 'End simulation?'),
       el('p', 'gap', 'Progress since your last save will be lost.'),
       actions([
@@ -408,6 +424,7 @@ function openMenu(confirmExit = false): void {
   keys.style.textAlign = 'left';
 
   body.replaceChildren(
+    glyph(suspendedIcon),
     el('p', 'big', 'Simulation suspended'),
     actions([
       ['[R] Resume', closeMenu],
@@ -454,6 +471,7 @@ function fatal(message: string): void {
   detail.textContent = engineLog.slice(-4).join('\n');
   detail.style.whiteSpace = 'pre-wrap';
   body.replaceChildren(
+    glyph(faultIcon, 'alert'),
     el('p', 'big alert', 'System fault'),
     el('p', 'gap', message),
     el('p', 'gap dim', wasRunning ? 'Games you saved before this point are safe.' : ''),
@@ -646,6 +664,12 @@ async function main(): Promise<void> {
   );
   if (fingerFirst()) {
     setHints([['TAP', 'BEGIN']]);
+    if (handheld()) {
+      // The style sheet shows it only while the phone is held upright.
+      const turn = el('div', 'turn-hint dim');
+      turn.append(glyph(rotateIcon), 'Turn the phone sideways for a larger picture.');
+      body.append(turn);
+    }
     body.append(actions([['Back to console', leave]]));
   } else {
     setHints([

@@ -747,6 +747,34 @@ kbd {
   filter: drop-shadow(0 0 0.35em rgba(77, 255, 124, 0.5));
 }
 
+.glyph.amber {
+  background: var(--amber);
+  filter: drop-shadow(0 0 0.35em rgba(255, 190, 85, 0.5));
+}
+
+.glyph.alert {
+  background: var(--alert);
+  filter: drop-shadow(0 0 0.35em rgba(255, 106, 85, 0.5));
+}
+
+/* A sign beside a message: what kind of message it is shows before it is read. */
+.signed {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0 1.6ch;
+  align-items: center;
+}
+
+.signed > .glyph {
+  width: 2.2em;
+  margin: 0;
+}
+
+/* A question whose answer cannot be taken back wears a larger one. */
+.signed.ask > .glyph {
+  width: 3.4em;
+}
+
 /* The picture stored with a save, and the character sheet beside it. */
 .thumb {
   display: block;
@@ -918,8 +946,11 @@ kbd {
   position: absolute;
   inset: 0;
   z-index: 3;
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5em;
   background: rgba(2, 10, 4, 0.9);
   border: 0.3em dashed var(--phosphor);
   border-radius: inherit;
@@ -927,6 +958,11 @@ kbd {
   text-transform: uppercase;
   text-align: center;
   text-shadow: var(--glow);
+}
+
+.dropzone .glyph {
+  width: min(4em, 176px);
+  margin: 0;
 }
 
 .sr-only {

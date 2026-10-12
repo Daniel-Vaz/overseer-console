@@ -108,6 +108,34 @@ body.player {
   text-transform: uppercase;
 }
 
+/* The picture over a suspended, ended or failed game. */
+#terminal .glyph {
+  flex: none;
+  width: 4.2em;
+  margin-bottom: 0.5em;
+}
+
+/* At the start gate, while a phone is held upright. */
+.turn-hint {
+  display: none;
+}
+
+@media (orientation: portrait) {
+  .turn-hint {
+    display: flex;
+    align-items: center;
+    gap: 1.4ch;
+    max-width: 34ch;
+    margin-top: 1.1em;
+    text-align: left;
+  }
+}
+
+#terminal .turn-hint .glyph {
+  width: 2.8em;
+  margin: 0;
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;
@@ -151,6 +179,13 @@ body.player {
   opacity: 0.28;
   cursor: pointer;
   transition: opacity 0.15s;
+}
+
+#handle svg {
+  width: 0.82em;
+  height: 0.7em;
+  margin-left: 0.5ch;
+  fill: currentColor;
 }
 
 #handle:hover,
@@ -391,11 +426,27 @@ body.keys-open {
   color: var(--phosphor-hot);
 }
 
+.keys-row button svg {
+  height: 1em;
+  vertical-align: middle;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: square;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 0.2em rgba(77, 255, 124, 0.45));
+}
+
 .keys-row button.down,
 .keys-row button.armed {
   background: var(--phosphor);
   color: var(--tube);
   text-shadow: none;
+}
+
+.keys-row button.down svg,
+.keys-row button.armed svg {
+  filter: none;
 }
 
 /* The explanation of the touch controls: a table that stays a table on a phone. */
@@ -430,6 +481,11 @@ body.keys-open {
   .readout.touch-help,
   .touch-tip {
     font-size: 0.8em;
+  }
+
+  #terminal .glyph {
+    width: 3em;
+    margin-bottom: 0.3em;
   }
 
   #terminal .actions {

@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { isGameId, type GameId } from '../lib/games';
   import { sourcesFromDrop } from '../lib/storage/importer';
+  import Glyph from './components/Glyph.svelte';
   import { isTyping } from './keys';
   import Boot from './screens/Boot.svelte';
   import Credits from './screens/Credits.svelte';
@@ -200,7 +201,10 @@
         </div>
 
         {#if dragging > 0}
-          <div class="dropzone">Release to load holodisk</div>
+          <div class="dropzone">
+            <Glyph name="folder" />
+            <span>Release to load holodisk</span>
+          </div>
         {/if}
       </div>
     </div>

@@ -123,6 +123,7 @@
       label: 'App key',
       state: looksLikeAppKey(key) ? 'ENTERED' : key ? 'NOT AN APP KEY' : 'NOT ENTERED',
       tone: looksLikeAppKey(key) ? undefined : 'amber',
+      icon: 'key',
       note: 'The key of the Dropbox app you made for this console (see below). It is an address, not a password.',
       action: () => keyInput?.focus(),
     },
@@ -130,6 +131,7 @@
       key: '2',
       label: 'Open Dropbox to allow the link',
       state: 'OPENS A NEW TAB',
+      icon: 'external',
       disabled: !authorization,
       note: authorization
         ? 'Dropbox asks whether the app may use its folder, then shows a code. Copy the code and come back here.'
@@ -140,13 +142,14 @@
       key: '3',
       label: 'Access code',
       state: code.trim() ? 'ENTERED' : 'NOT ENTERED',
+      icon: 'keypad',
       note: 'Paste the code Dropbox showed. It works once and for a few minutes.',
       action: () => codeInput?.focus(),
     },
     {
       key: '4',
       label: busy ? 'Linking...' : 'Link',
-      icon: 'save',
+      icon: 'link',
       disabled: busy || !authorization || !code.trim(),
       note: 'Trades the code for the link. The link is kept in this browser until you unlink.',
       action: () => void linkNow(),
@@ -175,6 +178,7 @@
       key: 'u',
       label: 'Unlink',
       tone: 'amber',
+      icon: 'unlink',
       note: 'Forgets the link in this browser and has Dropbox cancel it. Your files stay where they are.',
       action: () => (view = 'unlink'),
     },
@@ -186,14 +190,15 @@
     { key: 'n', label: 'No, keep the link', action: () => (view = 'main') },
   ]);
 
-  const icon = $derived((link ? linkedItems : unlinkedItems)[selected]?.icon ?? 'export-save');
+  const pointed = $derived((link ? linkedItems : unlinkedItems)[selected]);
 </script>
 
 <h1>Dropbox link</h1>
 <p class="sub">Optional. Your saves in your own Dropbox, and your games loaded from it.</p>
 
 {#if message}
-  <div class="panel" class:bad={message.bad} role="status">
+  <div class="panel signed" class:bad={message.bad} role="status">
+    <Glyph name={message.bad ? 'fault' : 'ok'} tone={message.bad ? 'alert' : undefined} />
     <p class:alert={message.bad}>{message.text}</p>
   </div>
 {/if}
@@ -201,11 +206,16 @@
 <div class="columns">
   <div>
     {#if link && view === 'unlink'}
-      <p class="gap amber">UNLINK FROM THE DROPBOX OF {link.account.name.toUpperCase()}?</p>
-      <p>
-        The console forgets the link and asks Dropbox to cancel it. Everything in your Dropbox stays where it is, and
-        so does everything in this browser.
-      </p>
+      <div class="signed ask gap">
+        <Glyph name="warning" tone="amber" />
+        <div>
+          <p class="amber">UNLINK FROM THE DROPBOX OF {link.account.name.toUpperCase()}?</p>
+          <p>
+            The console forgets the link and asks Dropbox to cancel it. Everything in your Dropbox stays where it is,
+            and so does everything in this browser.
+          </p>
+        </div>
+      </div>
       <Menu items={unlinkItems} label="Confirm unlink" />
     {:else if link}
       <dl class="readout gap">
@@ -266,7 +276,7 @@
   </div>
 
   <aside class="board gap" aria-label="Dropbox link">
-    <Glyph name={icon} />
+    <Glyph name={pointed?.icon ?? 'uplink'} tone={pointed?.tone} />
     <dl class="readout">
       <dt>Link</dt>
       <dd class:amber={!link}>{link ? 'LINKED' : 'NOT LINKED'}</dd>

@@ -6,6 +6,7 @@
   import { formatBytes } from '../../lib/storage/manifest';
   import { removeInstall } from '../../lib/storage/opfs';
   import Deck from '../components/Deck.svelte';
+  import Glyph from '../components/Glyph.svelte';
   import Menu from '../components/Menu.svelte';
   import { ago } from '../format';
   import { launchGame } from '../launch';
@@ -211,20 +212,26 @@
   <p class="gap amber">KEEP THIS TAB OPEN UNTIL THE COPY FINISHES.</p>
 {:else}
   {#if job?.phase === 'failed'}
-    <div class="panel bad" role="alert">
-      <p class="alert">HOLODISK REJECTED</p>
-      <p>{job.error}</p>
+    <div class="panel signed bad" role="alert">
+      <Glyph name="fault" tone="alert" />
+      <div>
+        <p class="alert">HOLODISK REJECTED</p>
+        <p>{job.error}</p>
+      </div>
     </div>
   {:else if job?.phase === 'done' && job.plan}
-    <div class="panel" role="status">
-      <p class="hot">HOLODISK LOADED</p>
-      <p>
-        {job.plan.entries.length} files, {formatBytes(job.plan.totalBytes)}.
-        {#if job.plan.saves.length}Saved games found in the folder were added to the save archives.{/if}
-      </p>
-      {#each job.plan.warnings as warning (warning)}
-        <p class="amber">{warning}</p>
-      {/each}
+    <div class="panel signed" role="status">
+      <Glyph name="ok" />
+      <div>
+        <p class="hot">HOLODISK LOADED</p>
+        <p>
+          {job.plan.entries.length} files, {formatBytes(job.plan.totalBytes)}.
+          {#if job.plan.saves.length}Saved games found in the folder were added to the save archives.{/if}
+        </p>
+        {#each job.plan.warnings as warning (warning)}
+          <p class="amber">{warning}</p>
+        {/each}
+      </div>
     </div>
   {/if}
 
@@ -232,8 +239,13 @@
     <p class="gap">{def.title} is sold by:</p>
     <Menu items={storeItems} label="Stores" />
   {:else if view === 'eject'}
-    <p class="gap amber">EJECT THE {def.title.toUpperCase()} HOLODISK?</p>
-    <p>The game data is removed from this browser. Your saved games stay, and you can load the holodisk again later.</p>
+    <div class="signed ask gap">
+      <Glyph name="warning" tone="amber" />
+      <div>
+        <p class="amber">EJECT THE {def.title.toUpperCase()} HOLODISK?</p>
+        <p>The game data is removed from this browser. Your saved games stay, and you can load the holodisk again later.</p>
+      </div>
+    </div>
     <Menu items={ejectItems} label="Confirm eject" />
   {:else if install}
     <dl class="readout gap">

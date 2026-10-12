@@ -59,7 +59,7 @@
         state: copying ? 'LOADING...' : install === undefined ? 'CHECKING' : install ? 'READY' : 'NO HOLODISK',
         tone: install || install === undefined ? undefined : 'amber',
         note: install ? def.blurb : `Needs your own copy of ${def.title}. Open to load it.`,
-        icon: 'gamedata',
+        icon: game === 'fo1' ? 'holodisk-01' : 'holodisk-02',
         action: () => go(game),
       };
     }),
@@ -76,13 +76,13 @@
       key: '5',
       label: 'Operations manual',
       note: 'Where the game files are, controls, and what to do when something fails.',
-      icon: 'terminal',
+      icon: 'manual',
       action: () => go('manual'),
     },
-    { key: '6', label: 'Credits and legal', note: 'Who made the engines, and the small print.', action: () => go('credits') },
+    { key: '6', label: 'Credits and legal', note: 'Who made the engines, and the small print.', icon: 'credits', action: () => go('credits') },
   ]);
 
-  const icon = $derived(items[selected]?.icon);
+  const pointed = $derived(items[selected]);
 </script>
 
 <header class="masthead">
@@ -94,12 +94,15 @@
 </header>
 
 {#if !sys.supported}
-  <div class="panel bad">
-    <p class="alert">PRIVATE STORAGE UNAVAILABLE</p>
-    <p>
-      This browser window will not let the console store game data. That happens in private windows and in old
-      browsers. Open the console in a normal window of a current Chrome, Edge, Firefox or Safari.
-    </p>
+  <div class="panel signed bad">
+    <Glyph name="fault" tone="alert" />
+    <div>
+      <p class="alert">PRIVATE STORAGE UNAVAILABLE</p>
+      <p>
+        This browser window will not let the console store game data. That happens in private windows and in old
+        browsers. Open the console in a normal window of a current Chrome, Edge, Firefox or Safari.
+      </p>
+    </div>
   </div>
 {/if}
 
@@ -114,8 +117,8 @@
   </div>
 
   <aside class="board gap" aria-label="Status board">
-    {#if icon}
-      <Glyph name={icon} />
+    {#if pointed?.icon}
+      <Glyph name={pointed.icon} tone={pointed.tone} />
     {:else}
       <Emblem />
     {/if}
