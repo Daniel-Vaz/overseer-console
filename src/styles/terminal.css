@@ -467,6 +467,26 @@ h2::after {
   color: var(--phosphor-dim);
 }
 
+/* The console's mark beside the title of its first screen: the one picture on the tube that is not phosphor. */
+.masthead {
+  display: flex;
+  align-items: center;
+  gap: 1.6ch;
+}
+
+.masthead > div {
+  min-width: 0;
+}
+
+.mark {
+  flex: none;
+  width: 4.4em;
+  height: 4.4em;
+  border: 2px solid var(--phosphor-dim);
+  border-radius: 22%;
+  box-shadow: 0 0 0.9em rgba(77, 255, 124, 0.3);
+}
+
 .prose {
   max-width: 78ch;
 }
@@ -934,6 +954,11 @@ kbd {
 
   .controls {
     justify-content: space-between;
+  }
+
+  .mark {
+    width: 3.2em;
+    height: 3.2em;
   }
 
   .menu button {

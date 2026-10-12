@@ -23,7 +23,7 @@ function serviceWorker(): Plugin {
         .filter((file) => !file.endsWith('.map'))
         .sort();
       // The pages themselves are emitted after this hook runs, so name them here.
-      const precache = ['', 'index.html', 'play.html', ...files.filter((file) => !file.endsWith('.html')), 'favicon.svg', 'manifest.webmanifest'];
+      const precache = ['', 'index.html', 'play.html', ...files.filter((file) => !file.endsWith('.html')), 'favicon.ico', 'favicon-96.png', 'manifest.webmanifest'];
       const version = createHash('sha256').update(precache.join('\n')).digest('hex').slice(0, 12);
       const source = readFileSync(`${root}src/sw.js`, 'utf8')
         .replace('__VERSION__', version)

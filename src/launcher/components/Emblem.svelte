@@ -1,5 +1,5 @@
 <script lang="ts">
-  // A cogwheel, drawn from scratch: the console's own mark.
+  // A cogwheel, drawn from scratch: what the status board shows when an entry has no picture of its own.
   const TEETH = 12;
   const OUTER = 96;
   const ROOT = 80;

@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import mark from '../../assets/mark.webp';
   import { GAMES, GAME_IDS } from '../../lib/games';
+  import { PROJECT_NAME } from '../../lib/project';
   import { formatBytes } from '../../lib/storage/manifest';
   import Emblem from '../components/Emblem.svelte';
   import Glyph from '../components/Glyph.svelte';
@@ -83,8 +85,13 @@
   const icon = $derived(items[selected]?.icon);
 </script>
 
-<h1>Main directory</h1>
-<p class="sub">Fallout and Fallout 2 in this browser, from your own copy of the games.</p>
+<header class="masthead">
+  <img class="mark" src={mark} alt={PROJECT_NAME} width="288" height="288" />
+  <div>
+    <h1>Main directory</h1>
+    <p class="sub">Fallout and Fallout 2 in this browser, from your own copy of the games.</p>
+  </div>
+</header>
 
 {#if !sys.supported}
   <div class="panel bad">

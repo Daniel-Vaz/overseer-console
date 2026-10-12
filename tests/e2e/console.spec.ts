@@ -15,6 +15,27 @@ test('plays the power-on sequence once, then shows the main directory', async ({
   await expect(page.getByText('POWER-ON SELF TEST')).toHaveCount(0);
 });
 
+test('wears its mark on the main directory, and every icon it names is there', async ({ page }) => {
+  await openConsole(page);
+  const mark = page.getByRole('img', { name: 'Overseer Console' });
+  await expect(mark).toBeVisible();
+  await expect.poll(() => mark.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth)).toBeGreaterThan(0);
+
+  // The tab icon, the home screen icon and the icons of the installed app.
+  const named = await page.evaluate(async () => {
+    const links = [...document.querySelectorAll<HTMLLinkElement>('link[rel~="icon"], link[rel="apple-touch-icon"]')].map((link) => link.href);
+    const manifest = document.querySelector<HTMLLinkElement>('link[rel="manifest"]')!.href;
+    const icons = ((await (await fetch(manifest)).json()) as { icons: { src: string }[] }).icons;
+    return [...links, ...icons.map((icon) => new URL(icon.src, manifest).href)];
+  });
+  expect(named.length).toBeGreaterThanOrEqual(6);
+  for (const url of named) {
+    const response = await page.request.get(url);
+    expect(response.ok(), url).toBe(true);
+    expect(response.headers()['content-type'], url).toMatch(/^image\//);
+  }
+});
+
 test('any key skips the power-on sequence', async ({ page }) => {
   await page.goto('');
   await expect(page.getByText('POWER-ON SELF TEST')).toBeVisible();
