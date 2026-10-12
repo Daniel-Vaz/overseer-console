@@ -937,6 +937,13 @@ kbd {
   }
 }
 
+/* The footer lists keys. A phone or tablet has none; the menus work by touch. */
+@media (hover: none) and (pointer: coarse) {
+  .hints {
+    display: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .refresh,
   .crt-on .screen,

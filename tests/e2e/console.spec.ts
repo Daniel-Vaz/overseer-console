@@ -282,9 +282,11 @@ test('continue goes from the main directory straight into the latest save', asyn
   });
   expect(config).toContain('skip_opening_movies=1');
   await page.keyboard.press('Escape');
+  await expect(page.getByRole('heading', { name: 'SIMULATION 02: Fallout 2' })).toBeVisible();
 
   // Any save can be loaded directly from the archives.
   await page.goto('#/saves/fo2');
+  await expect(page.locator('.menu li').first()).toContainText('SLOT 02');
   await page.keyboard.press('1');
   await expect(page.locator('.readout')).toContainText('older');
   await page.waitForTimeout(1500);

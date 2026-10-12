@@ -17,6 +17,8 @@ into the browser's private storage on your device and plays from there.
 - Saving over a slot keeps what was in it: every slot has a history of earlier versions to roll back to.
 - Continue takes you from the console straight into your latest save.
 - The save archives show each save's screenshot and character sheet, read from the save file itself.
+- Touch screens: tap, drag, press-and-hold and two-finger gestures stand in for the mouse, with on-screen mouse
+  buttons and a keyboard that appears when a game asks for text.
 
 This is an unofficial fan project. It is not affiliated with or endorsed by Bethesda Softworks,
 ZeniMax Media, Microsoft or Interplay. Fallout is a trademark of Bethesda Softworks LLC.
@@ -30,7 +32,7 @@ ZeniMax Media, Microsoft or Interplay. Fallout is a trademark of Bethesda Softwo
 | Game data store | `src/lib/storage/` | Imported game files live in the origin private file system (OPFS). Files the engines write (saves, settings) live in IndexedDB and are committed atomically per save. Before a save slot is overwritten its contents go into a history (`history.ts`), with unchanged files stored once. |
 | Save reader | `src/lib/savefile.ts`, `dat.ts`, `gamefacts.ts` | Reads a save's header, picture and character sheet, and fetches the palette and the names of perks, traits and skills out of the player's own `MASTER.DAT` (both archive formats). |
 | Console | `index.html`, `src/launcher/` | The terminal: import, save archives, settings, manual, credits. Svelte. |
-| Player | `play.html`, `src/player/` | Boots an engine against the stored data. A separate page, so that leaving a game frees its memory. |
+| Player | `play.html`, `src/player/` | Boots an engine against the stored data. A separate page, so that leaving a game frees its memory. `src/player/touch/` turns fingers into the mouse and keyboard events the engines already listen for. |
 
 A game starts in well under a second because nothing is copied into memory up front: archives are
 read in 1 MB blocks as the engine asks for them, with a bounded cache.
@@ -60,6 +62,8 @@ copies are:
 ```sh
 FO1_DIR="/path/to/Fallout" FO2_DIR="/path/to/Fallout 2" npm run test:e2e
 ```
+
+`tests/e2e/touch.spec.ts` plays them again with fingers only, on a phone-sized screen.
 
 `PW_BROWSERS=chromium,firefox,webkit` picks the browsers (default: Chromium). WebKit needs system
 libraries that many machines lack; the official Playwright container has them:

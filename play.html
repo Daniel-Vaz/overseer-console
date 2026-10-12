@@ -2,19 +2,50 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="robots" content="noindex" />
     <meta name="theme-color" content="#050605" />
     <title>Simulation - Overseer Console</title>
     <link rel="icon" href="favicon.svg" type="image/svg+xml" />
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="apple-touch-icon" href="icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
   </head>
   <body class="player">
     <!-- The game draws here. SDL looks the element up by this id. -->
     <div id="stage"><canvas id="canvas" width="640" height="480" tabindex="-1"></canvas></div>
 
     <button id="handle" type="button" hidden aria-label="Open the console menu (F9)">F9 &#9776;</button>
+
+    <!-- Touch play: buttons beside the picture, and a keyboard. Hidden until the page is touched. -->
+    <div id="deck" hidden>
+      <div class="deck-side deck-left">
+        <button type="button" data-act="menu" aria-label="Console menu: pause, help, exit">&#9776;<small>MENU</small></button>
+        <button type="button" data-act="keys" aria-label="Show or hide the keyboard">&#9000;<small>KEYS</small></button>
+        <span class="deck-gap"></span>
+        <button type="button" data-act="esc" aria-label="Escape key">ESC</button>
+      </div>
+      <div class="deck-side deck-right">
+        <span class="deck-gap"></span>
+        <button type="button" data-act="left" aria-label="Left mouse button: click where the pointer is">
+          <svg viewBox="0 0 24 32" aria-hidden="true">
+            <path class="lit" d="M12 2H9a7 7 0 0 0-7 7v4h10z" />
+            <path d="M9 2h6a7 7 0 0 1 7 7v14a7 7 0 0 1-7 7H9a7 7 0 0 1-7-7V9a7 7 0 0 1 7-7zM2 13h20M12 2v11" />
+          </svg>
+          <small>CLICK</small>
+        </button>
+        <button type="button" data-act="right" aria-label="Right mouse button: switch the cursor">
+          <svg viewBox="0 0 24 32" aria-hidden="true">
+            <path class="lit" d="M12 2h3a7 7 0 0 1 7 7v4H12z" />
+            <path d="M9 2h6a7 7 0 0 1 7 7v14a7 7 0 0 1-7 7H9a7 7 0 0 1-7-7V9a7 7 0 0 1 7-7zM2 13h20M12 2v11" />
+          </svg>
+          <small>CURSOR</small>
+        </button>
+      </div>
+    </div>
+    <div id="keys" hidden aria-label="Keyboard"></div>
     <div id="toast" role="status" aria-live="polite"></div>
 
     <!-- Boot log, the start gate, the pause menu and error reports. -->

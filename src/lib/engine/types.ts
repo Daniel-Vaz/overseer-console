@@ -49,6 +49,9 @@ export interface EngineModule {
   overseer: OverseerApi;
   /** Set by SDL once it opened the audio device. */
   SDL2?: { audioContext?: AudioContext };
+  /** SDL's text input switch: the games turn it on while they wait for typing. */
+  _SDL_IsTextInputActive?(): number;
+  _SDL_StopTextInput?(): void;
   HEAPU8: Uint8Array;
 }
 

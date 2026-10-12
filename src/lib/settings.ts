@@ -31,6 +31,12 @@ export interface Settings {
    * direct: the engine feeds the sound card itself; lowest delay.
    */
   audio: 'buffered' | 'direct';
+  /**
+   * Touch screens only.
+   * direct: the pointer goes where the finger is.
+   * trackpad: the picture works like a laptop's trackpad.
+   */
+  touchPointer: 'direct' | 'trackpad';
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -42,6 +48,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sound: true,
   cacheMb: 192,
   audio: 'buffered',
+  touchPointer: 'direct',
 };
 
 export function loadSettings(): Settings {
@@ -54,6 +61,7 @@ export function loadSettings(): Settings {
     if (merged.display !== 'classic' && merged.display !== 'wide') merged.display = DEFAULT_SETTINGS.display;
     if (!['fill', 'integer', 'smooth'].includes(merged.scaling)) merged.scaling = DEFAULT_SETTINGS.scaling;
     if (merged.audio !== 'buffered' && merged.audio !== 'direct') merged.audio = DEFAULT_SETTINGS.audio;
+    if (merged.touchPointer !== 'direct' && merged.touchPointer !== 'trackpad') merged.touchPointer = DEFAULT_SETTINGS.touchPointer;
     if (!Number.isFinite(merged.cacheMb)) merged.cacheMb = DEFAULT_SETTINGS.cacheMb;
     merged.cacheMb = Math.min(1024, Math.max(32, Math.round(merged.cacheMb)));
     return merged;

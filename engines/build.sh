@@ -30,8 +30,11 @@ JOBS="${JOBS:-$(nproc 2>/dev/null || echo 4)}"
 #    page needs, and SDL's real tick counter for the glue to line up with
 #    (--undefined pulls it out of the SDL2 archive even when, after the
 #    rename above, nothing else in the link refers to it)
+#  - SDL's text input switch, which the games turn on while they wait for
+#    typing (a save's description, a character's name): the host page shows
+#    its on-screen keyboard for touch players exactly then
 COMPILE_FLAGS="-DSDL_GetTicks=overseer_ticks"
-LINK_FLAGS="--js-library=/glue/overseer.js -sASYNCIFY_STACK_SIZE=1048576 -sEXPORTED_RUNTIME_METHODS=callMain,FS -sEXPORTED_FUNCTIONS=_main,_SDL_GetTicks -Wl,--undefined=SDL_GetTicks"
+LINK_FLAGS="--js-library=/glue/overseer.js -sASYNCIFY_STACK_SIZE=1048576 -sEXPORTED_RUNTIME_METHODS=callMain,FS -sEXPORTED_FUNCTIONS=_main,_SDL_GetTicks,_SDL_IsTextInputActive,_SDL_StopTextInput -Wl,--undefined=SDL_GetTicks -Wl,--undefined=SDL_IsTextInputActive -Wl,--undefined=SDL_StopTextInput"
 
 log() { printf '\033[1;32m[engines]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[engines]\033[0m %s\n' "$*" >&2; exit 1; }

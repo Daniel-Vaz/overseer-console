@@ -69,6 +69,40 @@
     to leave fullscreen, so there the <span class="hot">`</span> key (left of 1) stands in for ESC.
   </p>
 
+  <h2>Touch screens</h2>
+  <p>
+    On a phone or tablet the games are played with fingers on the picture, and a few buttons appear beside it. The
+    first time, the game explains them; MENU brings the explanation back.
+  </p>
+  <dl class="readout gap">
+    <dt>Tap</dt>
+    <dd>Click. In the games, tap the small round buttons, not the words beside them</dd>
+    <dt>Drag</dt>
+    <dd>Move the pointer without clicking, to look before you act</dd>
+    <dt>Press and hold</dt>
+    <dd>Hold the button down: opens the action menu on a person or thing, picks up an item to drag</dd>
+    <dt>Two fingers</dt>
+    <dd>Drag to scroll the map and lists. Tap to switch the cursor between walking and using</dd>
+    <dt>CLICK, CURSOR</dt>
+    <dd>
+      The two mouse buttons. CLICK clicks where the pointer already is, for small targets: drag to aim, then press
+      it. CURSOR is the right button
+    </dd>
+    <dt>KEYS, ESC, MENU</dt>
+    <dd>A keyboard (it comes up by itself when a game asks for text), the escape key, and the console menu</dd>
+  </dl>
+  <p>
+    Terminal settings has a <span class="hot">Touch pointer</span> choice: the pointer can follow your finger, or the
+    picture can work like a laptop trackpad, which is more precise on a small screen. Turn a phone sideways; on an
+    iPhone, add the console to the home screen to play without the browser's bars.
+  </p>
+  <p>
+    The game files have to be where the device's file picker can reach them: copied onto it, or in a cloud folder.
+    Where the browser cannot pick a whole folder, select <span class="hot">MASTER.DAT</span>,
+    <span class="hot">CRITTER.DAT</span> and, for Fallout 2, <span class="hot">PATCH000.DAT</span> together; the game
+    then plays without its music.
+  </p>
+
   <h2>Saved games</h2>
   <p>
     Saving works as in the original games. Each save is written to this browser's storage the moment the game

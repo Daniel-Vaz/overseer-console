@@ -10,15 +10,17 @@ import { test as base } from '@playwright/test';
  * gets a fresh profile on disk instead.
  */
 export const test = base.extend({
-  context: async ({ browserName, browser, playwright, baseURL, viewport }, use) => {
+  context: async ({ browserName, browser, playwright, baseURL, viewport, hasTouch, isMobile, deviceScaleFactor }, use) => {
+    // Firefox has no notion of a mobile page; a touch screen it does have.
+    const options = { baseURL, viewport, hasTouch, deviceScaleFactor, ...(browserName === 'firefox' ? {} : { isMobile }) };
     if (browserName !== 'webkit') {
-      const context = await browser.newContext({ baseURL, viewport });
+      const context = await browser.newContext(options);
       await use(context);
       await context.close();
       return;
     }
     const profile = mkdtempSync(join(tmpdir(), 'overseer-webkit-'));
-    const context = await playwright.webkit.launchPersistentContext(profile, { baseURL, viewport });
+    const context = await playwright.webkit.launchPersistentContext(profile, options);
     await use(context);
     await context.close();
     rmSync(profile, { recursive: true, force: true });

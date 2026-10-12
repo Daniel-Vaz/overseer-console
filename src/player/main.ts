@@ -11,13 +11,15 @@ import '../styles/player.css';
 
 import { bootEngine, NoInstallError, StorageUnavailableError, type Engine } from '../lib/engine/host';
 import { GAMES, isGameId, type GameId } from '../lib/games';
-import { loadSettings, recordLaunch } from '../lib/settings';
+import { loadSettings, recordLaunch, saveSettings } from '../lib/settings';
 import { audioBridgeStats, installAudioBridge } from './audio-bridge';
+import { TouchControls, fingerFirst } from './touch/controls';
 
 type Phase = 'boot' | 'gate' | 'running' | 'menu' | 'fatal' | 'leaving';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 const canvas = $<HTMLCanvasElement>('canvas');
+const stage = $('stage');
 const terminal = $('terminal');
 const body = $('terminal-body');
 const hints = $('terminal-hints');
@@ -34,11 +36,19 @@ const requested = query.get('game');
 const loadSlot = /^[1-9]\d{0,3}$/.test(query.get('slot') ?? '') ? Number(query.get('slot')) : undefined;
 const consoleUrl = (game?: GameId) => `${import.meta.env.BASE_URL}${game ? `#/${game}` : ''}`;
 
+/** Seen the touch controls explained once; they are not explained again unasked. */
+const TOUCH_HELP_KEY = 'overseer-console:touch-help';
+
 let phase: Phase = 'boot';
 let engine: Engine | null = null;
+let startedAt = 0;
+/** SDL starts with text input switched on; it is switched off once so that the games' own requests stand out. */
+let textInputReset = false;
 let keyboardLocked = false;
 let hiddenPause = false;
 let confirmingExit = false;
+/** What the suspended screen shows: the menu itself, or the touch help. */
+let menuView: 'menu' | 'touch' = 'menu';
 const engineLog: string[] = [];
 
 // ---------------------------------------------------------------------
@@ -127,6 +137,50 @@ function showProgress(done: number, total: number): void {
 }
 
 // ---------------------------------------------------------------------
+// Touch
+// ---------------------------------------------------------------------
+
+const touch = new TouchControls(
+  {
+    stage,
+    canvas,
+    deck: $('deck'),
+    keys: $('keys'),
+    turns: () => engine?.module.overseer.stats().sleeps ?? 0,
+    playing: () => phase === 'running',
+    wantsText: () => {
+      const module = engine?.module;
+      if (!module?._SDL_IsTextInputActive || !module._SDL_StopTextInput) return undefined;
+      if (!textInputReset) {
+        // Not before the game is past its start-up.
+        if (performance.now() - startedAt < 1500) return undefined;
+        module._SDL_StopTextInput();
+        textInputReset = true;
+      }
+      return module._SDL_IsTextInputActive() !== 0;
+    },
+    openMenu: () => openMenu(),
+    layoutChanged: () => fit(),
+  },
+  settings.touchPointer,
+);
+// Phones and tablets get the deck from the start, so that the picture is
+// sized for it; elsewhere it appears with the first touch.
+if (fingerFirst()) touch.show();
+
+function touchHelpSeen(): boolean {
+  try {
+    return localStorage.getItem(TOUCH_HELP_KEY) === '1';
+  } catch {
+    return true;
+  }
+}
+
+touch.onFirstShown = () => {
+  if (phase === 'running' && !touchHelpSeen()) openTouchHelp();
+};
+
+// ---------------------------------------------------------------------
 // Picture
 // ---------------------------------------------------------------------
 
@@ -135,8 +189,10 @@ function fit(): void {
   if (!engine) return;
   const { width, height } = engine.screen;
   const ratio = window.devicePixelRatio || 1;
-  const availableWidth = window.innerWidth;
-  const availableHeight = window.innerHeight;
+  // The stage is the window, less the touch deck and keyboard when they are shown.
+  const availableWidth = stage.clientWidth;
+  const availableHeight = stage.clientHeight;
+  if (availableWidth <= 0 || availableHeight <= 0) return;
 
   let cssWidth = 0;
   let cssHeight = 0;
@@ -159,21 +215,26 @@ function fit(): void {
   if (canvas.style.width !== wantWidth) canvas.style.width = wantWidth;
   if (canvas.style.height !== wantHeight) canvas.style.height = wantHeight;
   canvas.classList.toggle('smooth', settings.scaling === 'smooth');
+  touch.resized(cssWidth, cssHeight, cssWidth / width);
 }
 
 // SDL sets the canvas size itself when it opens its window; put ours back.
 new MutationObserver(fit).observe(canvas, { attributes: true, attributeFilter: ['style', 'width', 'height'] });
 window.addEventListener('resize', fit);
+new ResizeObserver(fit).observe(stage);
 
-async function toggleFullscreen(): Promise<void> {
+async function toggleFullscreen(quiet = false): Promise<void> {
   try {
     if (document.fullscreenElement) {
       await document.exitFullscreen();
     } else {
       await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+      // A phone held upright shows a tiny picture; turn it, where the browser lets a page do that.
+      const orientation = screen.orientation as ScreenOrientation & { lock?(orientation: string): Promise<void> };
+      if (fingerFirst() && Math.min(screen.width, screen.height) < 600) void orientation.lock?.('landscape').catch(() => undefined);
     }
   } catch {
-    toast('FULLSCREEN IS NOT AVAILABLE HERE');
+    if (!quiet) toast('FULLSCREEN IS NOT AVAILABLE HERE');
   }
 }
 
@@ -202,7 +263,36 @@ document.addEventListener('fullscreenchange', () => {
 // Running, pausing, leaving
 // ---------------------------------------------------------------------
 
+/**
+ * Keeps the screen on while the game runs. A movie or a long read does not
+ * touch the screen, and a phone would dim and lock in the middle of it.
+ */
+interface WakeLockHandle {
+  release(): Promise<void>;
+}
+let wakeLock: WakeLockHandle | null = null;
+
+function stayAwake(awake: boolean): void {
+  const api = (navigator as Navigator & { wakeLock?: { request(type: 'screen'): Promise<WakeLockHandle> } }).wakeLock;
+  if (!awake) {
+    void wakeLock?.release().catch(() => undefined);
+    wakeLock = null;
+  } else if (api && !wakeLock && !document.hidden) {
+    // Refused on low battery and the like; the game is no worse off.
+    void api
+      .request('screen')
+      .then((lock) => {
+        if (phase === 'running') wakeLock = lock;
+        else void lock.release().catch(() => undefined);
+      })
+      .catch(() => undefined);
+  }
+}
+
 function suspendEngine(): void {
+  // No button may stay down while the game cannot see it come up.
+  touch.releaseAll();
+  stayAwake(false);
   engine?.pause();
   void engine?.audioContext()?.suspend();
 }
@@ -210,6 +300,7 @@ function suspendEngine(): void {
 function resumeEngine(): void {
   void engine?.audioContext()?.resume();
   engine?.resume();
+  stayAwake(true);
 }
 
 function begin(): void {
@@ -218,8 +309,11 @@ function begin(): void {
   hideTerminal();
   handle.hidden = false;
   recordLaunch(engine.game);
+  // On a phone the browser's own bars take a third of the screen; ask to be rid of them.
   if (settings.fullscreen) void toggleFullscreen();
+  else if (fingerFirst()) void toggleFullscreen(true);
   canvas.focus({ preventScroll: true });
+  startedAt = performance.now();
   try {
     engine.start();
   } catch (err) {
@@ -227,12 +321,60 @@ function begin(): void {
     return;
   }
   fit();
-  toast('F9 CONSOLE MENU   F11 FULLSCREEN', 4500);
+  stayAwake(true);
+  if (!touch.visible) toast('F9 CONSOLE MENU   F11 FULLSCREEN', 4500);
+  else if (!touchHelpSeen()) openTouchHelp();
+}
+
+/** Explains the touch controls. Shown by itself once, and from the menu. */
+function openTouchHelp(): void {
+  if (phase !== 'running' && phase !== 'menu') return;
+  phase = 'menu';
+  menuView = 'touch';
+  suspendEngine();
+  showTerminal({ centered: true, veil: true, state: 'SUSPENDED' });
+  try {
+    localStorage.setItem(TOUCH_HELP_KEY, '1');
+  } catch {
+    // Then it is explained again next time.
+  }
+
+  const help = el('dl', 'readout touch-help');
+  const trackpad = settings.touchPointer === 'trackpad';
+  for (const [what, meaning] of [
+    ['Tap', trackpad ? 'Click where the pointer is' : 'Click'],
+    ['Drag', 'Move the pointer. Nothing is clicked'],
+    ['Hold', 'Keep the button pressed: action menus, dragging items'],
+    ['2 fingers', 'Drag to scroll. Tap to switch the cursor'],
+    ['CLICK', 'Clicks where the pointer is: drag to aim, then press it'],
+    ['CURSOR', 'Switches the cursor between walking and using'],
+    ['KEYS', 'Keyboard. Comes up by itself when the game wants text'],
+    ['ESC, MENU', 'Skip or close. Pause, this help, leave the game'],
+  ] as const) {
+    help.append(el('dt', undefined, what), el('dd', undefined, meaning));
+  }
+
+  body.replaceChildren(
+    el('p', 'hot', 'TOUCH CONTROLS'),
+    help,
+    // The first thing a newcomer taps is a label, and nothing happens.
+    el('p', 'dim touch-tip', 'In the games, tap the small round buttons, not the words beside them.'),
+    actions([['[R] Got it', closeMenu]]),
+  );
+  setHints([['R', 'RESUME']]);
+}
+
+function togglePointerMode(): void {
+  settings.touchPointer = settings.touchPointer === 'direct' ? 'trackpad' : 'direct';
+  saveSettings(settings);
+  touch.setMode(settings.touchPointer);
+  openMenu();
 }
 
 function openMenu(confirmExit = false): void {
   if (phase !== 'running' && phase !== 'menu') return;
   phase = 'menu';
+  menuView = 'menu';
   confirmingExit = confirmExit;
   suspendEngine();
   showTerminal({ centered: true, veil: true, state: 'SUSPENDED' });
@@ -272,7 +414,15 @@ function openMenu(confirmExit = false): void {
       [document.fullscreenElement ? '[F] Leave fullscreen' : '[F] Fullscreen', () => void toggleFullscreen().then(() => openMenu())],
       ['[X] Exit to console', () => openMenu(true)],
     ]),
-    keys,
+    // Players using the touch controls get their help and their one setting here.
+    ...(touch.visible
+      ? [
+          actions([
+            ['[T] Touch controls', openTouchHelp],
+            [`[P] Pointer: ${settings.touchPointer === 'direct' ? 'follows finger' : 'trackpad'}`, togglePointerMode],
+          ]),
+        ]
+      : [keys]),
   );
   setHints([
     ['R', 'RESUME'],
@@ -388,8 +538,11 @@ function onKey(event: KeyboardEvent): void {
       if (key === 'y') leave();
       else if (key === 'n' || key === 'escape') openMenu();
     } else if (key === 'r' || key === 'escape' || key === 'f9' || key === 'enter') closeMenu();
+    else if (menuView === 'touch') return;
     else if (key === 'f' || key === 'f11') void toggleFullscreen().then(() => openMenu());
     else if (key === 'x') openMenu(true);
+    else if (key === 't' && touch.visible) openTouchHelp();
+    else if (key === 'p' && touch.visible) togglePointerMode();
   } else if (phase === 'fatal') {
     if (key === 'r') location.reload();
     else if (key === 'c' || key === 'escape') leave();
@@ -448,7 +601,8 @@ async function main(): Promise<void> {
       game,
       canvas,
       settings,
-      { width: window.innerWidth, height: window.innerHeight },
+      // The room the picture will have, which the touch deck may have narrowed.
+      { width: stage.clientWidth || window.innerWidth, height: stage.clientHeight || window.innerHeight },
       {
         status: (line) => logLine(line),
         progress: showProgress,
@@ -483,19 +637,27 @@ async function main(): Promise<void> {
   fit();
   showTerminal({ centered: true, state: 'READY' });
   const prompt = el('p', 'gap');
-  prompt.append('PRESS ANY KEY OR CLICK TO BEGIN', el('span', 'cursor'));
+  prompt.append(fingerFirst() ? 'TAP TO BEGIN' : 'PRESS ANY KEY OR CLICK TO BEGIN', el('span', 'cursor'));
   body.replaceChildren(
     el('p', 'big', `${def.label} ready`),
     el('p', 'dim', `${def.title} - ${def.engine.name}`),
     ...(loadSlot === undefined ? [] : [el('p', 'gap', `CONTINUING FROM SAVE SLOT ${String(loadSlot).padStart(2, '0')}`)]),
     prompt,
   );
-  setHints([
-    ['ANY KEY', 'BEGIN'],
-    ['ESC', 'BACK TO CONSOLE'],
-    ['F9', 'CONSOLE MENU IN GAME'],
-  ]);
-  terminal.addEventListener('pointerup', begin, { once: true });
+  if (fingerFirst()) {
+    setHints([['TAP', 'BEGIN']]);
+    body.append(actions([['Back to console', leave]]));
+  } else {
+    setHints([
+      ['ANY KEY', 'BEGIN'],
+      ['ESC', 'BACK TO CONSOLE'],
+      ['F9', 'CONSOLE MENU IN GAME'],
+    ]);
+  }
+  terminal.addEventListener('pointerup', (event) => {
+    // A button on the gate does its own thing.
+    if (!(event.target instanceof Element && event.target.closest('button'))) begin();
+  });
 }
 
 void main();

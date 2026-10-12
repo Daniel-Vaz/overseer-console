@@ -84,6 +84,21 @@
           : 'The lowest delay, but any hiccup of the browser is heard as a click or gap.',
       action: () => sys.update({ audio: s.audio === 'buffered' ? 'direct' : 'buffered' }),
     },
+    // Only where there is a touch screen to speak of.
+    ...(navigator.maxTouchPoints > 0 || 'ontouchstart' in window || matchMedia('(any-pointer: coarse)').matches
+      ? [
+          {
+            key: 't',
+            label: 'Touch pointer',
+            state: s.touchPointer === 'direct' ? 'FOLLOWS FINGER' : 'TRACKPAD',
+            note:
+              s.touchPointer === 'direct'
+                ? 'Tap what you want to click; the pointer goes where your finger is.'
+                : 'The picture works like a laptop trackpad: drag to move the pointer, tap anywhere to click. Precise on small screens.',
+            action: () => sys.update({ touchPointer: s.touchPointer === 'direct' ? 'trackpad' : 'direct' }),
+          } satisfies MenuItem,
+        ]
+      : []),
     {
       key: '6',
       label: 'Tube effects',
