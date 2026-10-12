@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Page } from '@playwright/test';
+import { errors, type Page } from '@playwright/test';
 
 /** Opens the console on a route with the power-on sequence already seen. */
 export async function openConsole(page: Page, route = '', settings: Record<string, unknown> = {}): Promise<void> {
@@ -12,6 +12,22 @@ export async function openConsole(page: Page, route = '', settings: Record<strin
     }
   }, settings);
   await page.goto(`#/${route}`);
+}
+
+/**
+ * Picks a folder through the hidden input behind "Load holodisk".
+ *
+ * Playwright sets the files and then waits for the input's `input` event,
+ * which WebKit now and then fires before Playwright is listening: the page
+ * has the folder and the call never returns. What the page shows next is the
+ * proof of the upload, so running out of time here is not a failure.
+ */
+export async function pickFolder(page: Page, folder: string): Promise<void> {
+  try {
+    await page.locator('input[webkitdirectory]').setInputFiles(folder, { timeout: 10_000 });
+  } catch (error) {
+    if (!(error instanceof errors.TimeoutError)) throw error;
+  }
 }
 
 /** A Fallout 2 style archive: its last four bytes hold the size of the file. */

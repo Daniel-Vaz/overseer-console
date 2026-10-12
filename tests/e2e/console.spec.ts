@@ -1,6 +1,6 @@
 import { expect, test } from './fixtures';
 import { zipSync } from 'fflate';
-import { fakeFallout2Folder, fakeSaveDat, junkFolder, openConsole } from './helpers';
+import { fakeFallout2Folder, fakeSaveDat, junkFolder, openConsole, pickFolder } from './helpers';
 
 test('plays the power-on sequence once, then shows the main directory', async ({ page }) => {
   await page.goto('');
@@ -69,7 +69,7 @@ test('explains how to load a game when none is installed', async ({ page }) => {
 
 test('rejects a folder that is not a game and says why', async ({ page }) => {
   await openConsole(page, 'fo2');
-  await page.locator('input[webkitdirectory]').setInputFiles(junkFolder());
+  await pickFolder(page, junkFolder());
   await expect(page.getByText('HOLODISK REJECTED')).toBeVisible();
   await expect(page.getByRole('alert')).toContainText('MASTER.DAT');
   // Still offers to try again.
@@ -78,7 +78,7 @@ test('rejects a folder that is not a game and says why', async ({ page }) => {
 
 test('imports a game folder into browser storage, and ejects it again', async ({ page }) => {
   await openConsole(page, 'fo2');
-  await page.locator('input[webkitdirectory]').setInputFiles(fakeFallout2Folder());
+  await pickFolder(page, fakeFallout2Folder());
 
   await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 60_000 });
   // master.dat, critter.dat, patch000.dat, one music file, one data file; no exe, no manual.
@@ -208,7 +208,7 @@ test('the player sends you back to the console when there is nothing to play', a
 
 test('the player boots an engine against stored data, and a second tab is refused', async ({ page, context }) => {
   await openConsole(page, 'fo2');
-  await page.locator('input[webkitdirectory]').setInputFiles(fakeFallout2Folder());
+  await pickFolder(page, fakeFallout2Folder());
   await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 60_000 });
   await page.waitForTimeout(1500);
   await page.keyboard.press('1');
@@ -252,7 +252,7 @@ test('continue goes from the main directory straight into the latest save', asyn
   await expect(page.getByText('Continue:')).toHaveCount(0);
 
   await page.goto('#/fo2');
-  await page.locator('input[webkitdirectory]').setInputFiles(fakeFallout2Folder());
+  await pickFolder(page, fakeFallout2Folder());
   await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 60_000 });
   await page.goto('#/saves/fo2');
   await page.waitForTimeout(20); // a later save

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import type { Page } from '@playwright/test';
 import { unzipSync } from 'fflate';
 import { expect, test } from './fixtures';
-import { openConsole } from './helpers';
+import { openConsole, pickFolder } from './helpers';
 
 /**
  * Plays the real games. Needs your own copies:
@@ -80,7 +80,7 @@ for (const game of GAMES) {
     page.on('pageerror', (error) => faults.push(error.message));
 
     await openConsole(page, game.id, { skipIntro: true });
-    await page.locator('input[webkitdirectory]').setInputFiles(game.dir!);
+    await pickFolder(page, game.dir!);
     await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 300_000 });
 
     // Main menu.

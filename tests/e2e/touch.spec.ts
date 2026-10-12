@@ -1,6 +1,6 @@
 import type { CDPSession, Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { fakeFallout2Folder, openConsole } from './helpers';
+import { fakeFallout2Folder, openConsole, pickFolder } from './helpers';
 
 /**
  * Playing by touch, on a screen the size of a phone held sideways.
@@ -39,7 +39,7 @@ test('the console can be worked with a finger', async ({ page }) => {
 
 test('on a phone the start gate asks for a tap and makes room for the touch deck', async ({ page }) => {
   await openConsole(page, 'fo2');
-  await page.locator('input[type=file]').first().setInputFiles(fakeFallout2Folder());
+  await pickFolder(page, fakeFallout2Folder());
   await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 60_000 });
   await pause(page, 1500);
   await page.locator('.menu button', { hasText: 'Begin simulation' }).tap();
@@ -157,7 +157,7 @@ for (const game of GAMES) {
     const deck = (act: string) => page.locator(`#deck button[data-act="${act}"]`);
 
     await openConsole(page, game.id, { skipIntro: true });
-    await page.locator('input[webkitdirectory]').setInputFiles(game.dir!);
+    await pickFolder(page, game.dir!);
     await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 300_000 });
     await pause(page, 1500);
     await page.locator('.menu button', { hasText: 'Begin simulation' }).tap();
