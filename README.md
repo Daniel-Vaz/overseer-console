@@ -1,8 +1,34 @@
-# Overseer Console
+<p align="center">
+  <a href="https://daniel-vaz.github.io/overseer-console/">
+    <img src="docs/logo.png" width="190" alt="The Overseer Console logo: a rusted control pod around a green screen">
+  </a>
+</p>
 
-Play **Fallout** and **Fallout 2** in your browser, from your own copy of the games.
+<h1 align="center">Overseer Console</h1>
 
-Live site: <https://daniel-vaz.github.io/overseer-console/>
+<p align="center">
+  Play <b>Fallout</b> and <b>Fallout 2</b> in your browser, from your own copy of the games.
+</p>
+
+<p align="center">
+  <a href="https://daniel-vaz.github.io/overseer-console/"><img src="https://img.shields.io/badge/open_the_console-4dff7c?style=for-the-badge" alt="Open the console"></a>
+  <a href="https://github.com/Daniel-Vaz/overseer-console/actions/workflows/deploy.yml"><img src="https://img.shields.io/github/actions/workflow/status/Daniel-Vaz/overseer-console/deploy.yml?branch=main&style=for-the-badge&label=build%20and%20tests" alt="Build and tests"></a>
+</p>
+
+<p align="center">
+  <a href="#features">Features</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#dropbox-link">Dropbox link</a> ·
+  <a href="#developing">Developing</a> ·
+  <a href="#deploying">Deploying</a> ·
+  <a href="#credits">Credits</a>
+</p>
+
+<p align="center">
+  <a href="https://daniel-vaz.github.io/overseer-console/">
+    <img src="docs/console.webp" width="840" alt="The console's main directory: a green phosphor terminal in a steel housing, with Fallout 2 loaded and a save to continue from">
+  </a>
+</p>
 
 Overseer Console is a static web page styled as a vault terminal. It runs the open source
 [Fallout Community Edition](https://github.com/alexbatalov/fallout1-ce) and
@@ -10,21 +36,26 @@ Overseer Console is a static web page styled as a vault terminal. It runs the op
 WebAssembly. You point it at the folder a store installed the game to; it copies the data files
 into the browser's private storage on your device and plays from there.
 
-- No game data is hosted or distributed here. You need to own the games
-  ([GOG](https://www.gog.com/game/fallout), [Steam](https://store.steampowered.com/app/38400), Epic).
-- Nothing is uploaded, unless you link your own Dropbox: then the saves you choose to upload go to a folder
-  in your Dropbox and nowhere else. There is no server, no account and no tracking.
-- Saved games work as in the originals and can be exported to and imported from zip files.
-- Saving over a slot keeps what was in it: every slot has a history of earlier versions to roll back to.
-- Continue takes you from the console straight into your latest save.
-- Optional Dropbox link: carry saves between devices, and load a game from a folder in your own Dropbox
-  (the way to get a game with its music onto a phone).
-- The save archives show each save's screenshot and character sheet, read from the save file itself.
-- Touch screens: tap, drag, press-and-hold and two-finger gestures stand in for the mouse, with on-screen mouse
-  buttons and a keyboard that appears when a game asks for text.
+## Features
 
-This is an unofficial fan project. It is not affiliated with or endorsed by Bethesda Softworks,
-ZeniMax Media, Microsoft or Interplay. Fallout is a trademark of Bethesda Softworks LLC.
+- **Your own copy of the games.** No game data is hosted or distributed here. You need to own them
+  ([GOG](https://www.gog.com/game/fallout), [Steam](https://store.steampowered.com/app/38400), Epic).
+- **No server, no account, no tracking.** Nothing is uploaded, unless you link your own Dropbox: then the
+  saves you choose to upload go to a folder in your Dropbox and nowhere else.
+- **Saves as in the originals.** Saved games work as they always did, and can be exported to and imported
+  from zip files.
+- **A history for every slot.** Saving over a slot keeps what was in it: every slot has earlier versions to
+  roll back to.
+- **Continue.** One key takes you from the console straight into your latest save.
+- **Save archives.** They show each save's screenshot and character sheet, read from the save file itself.
+- **Dropbox link, if you want one.** Carry saves between devices, and load a game from a folder in your own
+  Dropbox (the way to get a game with its music onto a phone).
+- **Touch screens.** Tap, drag, press-and-hold and two-finger gestures stand in for the mouse, with
+  on-screen mouse buttons and a keyboard that appears when a game asks for text.
+
+> [!NOTE]
+> This is an unofficial fan project. It is not affiliated with or endorsed by Bethesda Softworks,
+> ZeniMax Media, Microsoft or Interplay. Fallout is a trademark of Bethesda Softworks LLC.
 
 ## How it works
 
@@ -65,10 +96,10 @@ not a secret. After that:
 
 Both folders can be changed on the Dropbox link screen.
 
-The link is a token kept in this site's browser storage until *Unlink*, which also has Dropbox cancel it.
-The token reaches the app's folder and nothing else. That limit matters: a site served from
-`<user>.github.io/<project>/` shares its storage with every other page on that address. Create the app
-with **App folder** access, never Full Dropbox.
+> [!IMPORTANT]
+> Create the app with **App folder** access, never Full Dropbox. The link is a token kept in this site's
+> browser storage until *Unlink*, which also has Dropbox cancel it. With App folder access the token reaches
+> the app's folder and nothing else.
 
 ## Developing
 
