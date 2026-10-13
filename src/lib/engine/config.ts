@@ -9,7 +9,7 @@
  */
 import { GAMES, type GameId } from '../games';
 import { Ini } from '../ini';
-import type { Settings } from '../settings';
+import type { Picture } from '../settings';
 import { BORROWED_ARCHIVE } from '../storage/ettu';
 import { pathKey, type Manifest } from '../storage/manifest';
 
@@ -53,9 +53,9 @@ export function highScreen(viewportWidth: number, viewportHeight: number): Scree
 }
 
 /** The resolution a game is started at. */
-export function chooseScreen(display: Settings['display'], viewport: { width: number; height: number }): ScreenSize {
-  if (display === 'classic') return CLASSIC_SCREEN;
-  return display === 'high' ? highScreen(viewport.width, viewport.height) : wideScreen(viewport.width, viewport.height);
+export function chooseScreen(picture: Picture, viewport: { width: number; height: number }): ScreenSize {
+  if (picture === 'classic') return CLASSIC_SCREEN;
+  return picture === 'high' ? highScreen(viewport.width, viewport.height) : wideScreen(viewport.width, viewport.height);
 }
 
 /**

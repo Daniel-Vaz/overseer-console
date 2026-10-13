@@ -24,13 +24,13 @@
   const number = (value: number) => value.toLocaleString('en-US');
 </script>
 
+<!-- A label never parts from its value at the end of a line: each pair is set as one word. -->
 <div class="sheet">
   <p>
     {#if character.level !== undefined}
-      <b>Level</b> {character.level}{#if character.experience !== undefined}<span class="dim">, {number(character.experience)} XP</span>{/if}
-      <span class="sep"></span>
+      <span class="pair"><b>Level</b> {character.level}{#if character.experience !== undefined}<span class="dim">, {number(character.experience)} XP</span>{/if}</span>
     {/if}
-    <b>HP</b> {character.hitPoints}/{character.maxHitPoints}
+    <span class="pair"><b>HP</b> {character.hitPoints}/{character.maxHitPoints}</span>
   </p>
   {#if character.poisoned || character.irradiated}
     <p class="amber">{[character.poisoned && 'POISONED', character.irradiated && 'IRRADIATED'].filter(Boolean).join(', ')}</p>
@@ -57,10 +57,8 @@
     <p><b>Perks</b> {perks}</p>
   {/if}
   <p>
-    <b>{world === 'fo1' ? 'Reputation' : 'Karma'}</b> {number(character.karma)}
-    <span class="sep"></span>
-    <b>Kills</b> {number(character.kills)}
-    <span class="sep"></span>
-    <b>{world === 'fo1' ? 'Caps' : 'Money'}</b> {number(character.money)}
+    <span class="pair"><b>{world === 'fo1' ? 'Reputation' : 'Karma'}</b> {number(character.karma)}</span>
+    <span class="pair"><b>Kills</b> {number(character.kills)}</span>
+    <span class="pair"><b>{world === 'fo1' ? 'Caps' : 'Money'}</b> {number(character.money)}</span>
   </p>
 </div>

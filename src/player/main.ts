@@ -58,6 +58,8 @@ let confirmingExit = false;
 /** What the suspended screen shows: the menu itself, or the touch help. */
 let menuView: 'menu' | 'touch' = 'menu';
 const engineLog: string[] = [];
+/** What the engine last put in a message box, and when: its way of saying it cannot go on. */
+let complaint: { text: string; at: number } | null = null;
 /** Whether holding Shift lights up what lies on the ground in this game. */
 let lights = false;
 
@@ -91,6 +93,8 @@ function setHints(pairs: [key: string, label: string][]): void {
 }
 
 function showTerminal(options: { centered?: boolean; veil?: boolean; state: string }): void {
+  // A notice that was up over the game has no business showing through what now covers it.
+  toastEl.classList.remove('show');
   terminal.hidden = false;
   terminal.classList.toggle('centered', !!options.centered);
   terminal.classList.toggle('veil', !!options.veil);
@@ -487,7 +491,66 @@ function leave(): void {
   location.replace(consoleUrl(engine?.game ?? (isGameId(requested) ? requested : undefined)));
 }
 
-function fatal(message: string): void {
+/**
+ * The engines report what they cannot recover from in a message box, and
+ * then stop. In a browser that box is the page's own alert: it stands in
+ * front of the game in the browser's dress, and once it is dismissed nothing
+ * is left of what it said. It is not shown. What the engine said is kept,
+ * and the fault screen says it if the engine does stop (see `ended`).
+ */
+window.alert = (message?: unknown): void => {
+  const text = String(message ?? '').replace(/\s+/g, ' ').trim();
+  if (!text) return;
+  complaint = { text, at: performance.now() };
+  console.warn(`[engine] ${text}`);
+  // Should the game carry on regardless, the player has still been told.
+  if (phase === 'running') toast(text, 8000, true);
+};
+
+/**
+ * Whether the player has done anything since the game began: pressed a key,
+ * a button of the mouse, or the screen. The way out of a game is through its
+ * menus, so an engine that stops before then was not asked to.
+ */
+let touched = false;
+for (const type of ['keydown', 'pointerdown', 'touchstart'] as const) {
+  window.addEventListener(type, (event) => (touched ||= phase === 'running' && event.isTrusted), { capture: true, passive: true });
+}
+
+/**
+ * The engine has stopped. Leaving through a game's own menu is how a session
+ * ends: that goes back to the console. An engine that stops after
+ * complaining, with anything but a clean status, or before the player has
+ * touched the game at all has failed, and going back without a word would
+ * leave the player on a deck with no idea why.
+ *
+ * (The status alone does not say: what an engine returns from its `main`
+ * after it has once handed the thread back to the browser is lost, and that
+ * is how both of them report a start-up that failed.)
+ */
+function ended(status: number): void {
+  // An engine that cannot go on says so and stops at once. What it said about something it got over, an hour ago, is not why it stops now.
+  const said = complaint && performance.now() - complaint.at < 10_000 ? complaint.text : null;
+  if (status === 0 && !said && touched) {
+    leave();
+    return;
+  }
+  const title = engine ? GAMES[engine.game].title : 'The game';
+  // An engine that gives up within moments of its start has found fault with what it was given to run.
+  const starting = !touched || (startedAt > 0 && performance.now() - startedAt < 20_000);
+  fatal(
+    said
+      ? `${title} stopped. The engine reports: ${said}`
+      : touched
+        ? `${title} stopped unexpectedly (status ${status}).`
+        : `${title} stopped by itself before it was up.`,
+    starting
+      ? 'It stopped while starting, which points at the game data. Load the holodisk again from the complete game folder; for Fallout Et Tu, from the newest package.'
+      : undefined,
+  );
+}
+
+function fatal(message: string, advice?: string): void {
   if (phase === 'fatal' || phase === 'leaving') return;
   const wasRunning = phase === 'running' || phase === 'menu';
   phase = 'fatal';
@@ -500,6 +563,7 @@ function fatal(message: string): void {
     glyph(faultIcon, 'alert'),
     el('p', 'big alert', 'System fault'),
     el('p', 'gap', message),
+    ...(advice ? [el('p', 'gap', advice)] : []),
     el('p', 'gap dim', wasRunning ? 'Games you saved before this point are safe.' : ''),
     actions([
       ['[R] Restart', () => location.reload()],
@@ -663,8 +727,8 @@ async function main(): Promise<void> {
           if (files > 1) toast('SAVED TO BROWSER STORAGE');
         },
         storageFailed: (reason) => toast(`NOT STORED: ${reason.toUpperCase()}. THIS SAVE WILL BE LOST WHEN YOU LEAVE.`, 20_000, true),
-        exit: () => leave(),
-        fatal,
+        exit: ended,
+        fatal: (message) => fatal(message),
       },
       { loadSlot },
     );

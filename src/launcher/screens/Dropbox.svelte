@@ -124,7 +124,7 @@
       state: looksLikeAppKey(key) ? 'ENTERED' : key ? 'NOT AN APP KEY' : 'NOT ENTERED',
       tone: looksLikeAppKey(key) ? undefined : 'amber',
       icon: 'key',
-      note: 'The key of the Dropbox app you made for this console (see below). It is an address, not a password.',
+      note: 'The key of the Dropbox app you made for this console (see the steps above). It is an address, not a password.',
       action: () => keyInput?.focus(),
     },
     {
@@ -185,9 +185,10 @@
     { key: '0', label: 'Back', icon: 'back', action: () => go('settings') },
   ]);
 
+  // ENTER lands on leaving things as they are, as wherever the console asks before it acts.
   const unlinkItems = $derived<MenuItem[]>([
-    { key: 'y', label: busy ? 'Unlinking...' : 'Yes, unlink', tone: 'amber', disabled: busy, action: () => void unlinkNow() },
     { key: 'n', label: 'No, keep the link', action: () => (view = 'main') },
+    { key: 'y', label: busy ? 'Unlinking...' : 'Yes, unlink', tone: 'amber', disabled: busy, action: () => void unlinkNow() },
   ]);
 
   const pointed = $derived((link ? linkedItems : unlinkedItems)[selected]);
@@ -245,13 +246,8 @@
         </p>
       </div>
     {:else}
-      <div class="gap">
-        <Field label="App key" bind:value={appKey} bind:input={keyInput} placeholder="FROM YOUR DROPBOX APP" />
-        <Field label="Access code" bind:value={code} bind:input={codeInput} placeholder="SHOWN BY DROPBOX" onenter={() => void linkNow()} />
-      </div>
-      <Menu items={unlinkedItems} label="Link to Dropbox" bind:selected />
+      <!-- What to do comes before what to fill in: the fields mean nothing to someone who has not made the app yet. -->
       <div class="prose">
-        <h2>Before the first link</h2>
         <p>
           The console has no accounts and no server. To link, you make a small private app in your own Dropbox. It
           gives the console one folder to work in and nothing else.
@@ -269,9 +265,14 @@
             and press Submit.
           </dd>
           <dt>Step 3</dt>
-          <dd>Copy the App key from the app's Settings tab into the field above. Then open Dropbox from here, allow the app, and paste the code it shows.</dd>
+          <dd>Copy the App key from the app's Settings tab into the field below. Then open Dropbox from here, allow the app, and paste the code it shows.</dd>
         </dl>
       </div>
+      <div class="gap">
+        <Field label="App key" bind:value={appKey} bind:input={keyInput} placeholder="FROM YOUR DROPBOX APP" />
+        <Field label="Access code" bind:value={code} bind:input={codeInput} placeholder="SHOWN BY DROPBOX" onenter={() => void linkNow()} />
+      </div>
+      <Menu items={unlinkedItems} label="Link to Dropbox" bind:selected />
     {/if}
   </div>
 
@@ -283,7 +284,7 @@
       <dt>Reaches</dt>
       <dd>ONE APP FOLDER</dd>
       <dt>Moves files</dt>
-      <dd>WHEN YOU SAY SO</dd>
+      <dd>WHEN ASKED</dd>
     </dl>
   </aside>
 </div>

@@ -1,7 +1,8 @@
 import type { Page } from '@playwright/test';
+import { zipSync } from 'fflate';
 import { arrange, DOOR_HEIGHT, DOOR_WIDTH, MONITOR, lampOver, type Layout } from '../../src/launcher/vault/layout';
 import { expect, test } from './fixtures';
-import { openConsole } from './helpers';
+import { fakeSaveDat, openConsole } from './helpers';
 
 /** A window with room around the console, and one without. */
 const LARGE = { width: 1920, height: 1080 };
@@ -242,12 +243,12 @@ test('sealing the storage rolls the great door shut; a seal that is refused leav
   const entry = page.locator('.menu li').filter({ hasText: 'Seal private storage' });
   await expect(entry).toContainText('NOT SEALED');
 
-  await page.keyboard.press('9');
+  await page.keyboard.press('l');
   await expect(plate).toHaveText('DOOR JAMMED OPEN');
   await expect(entry).toContainText('NOT SEALED');
 
   await page.evaluate(() => ((window as unknown as { granting: boolean }).granting = true));
-  await page.keyboard.press('9');
+  await page.keyboard.press('l');
   await expect(entry).toContainText('SEALED');
   // It takes its time: a door like that does not hurry.
   await expect(plate).toHaveText('VAULT DOOR: SHUT', { timeout: SLOWLY });
@@ -256,6 +257,40 @@ test('sealing the storage rolls the great door shut; a seal that is refused leav
   const { layout, at } = await room(page);
   await page.mouse.click(...at(layout.gear.x + 10, layout.gear.y + 10));
   await expect(plate).toHaveText('KNOCK, KNOCK...?');
+});
+
+test('an unsealed store is pointed out once it holds something, and the console says what that means', async ({ page }) => {
+  await fakeSeal(page, false);
+  await openConsole(page);
+  const settings = page.locator('.menu li').filter({ hasText: 'Terminal settings' });
+  const seal = page.locator('.board dd').last();
+  // With nothing kept here there is nothing a browser could clear: no warning on a first visit.
+  await expect(seal).toHaveText('OPEN');
+  await expect(seal).not.toHaveClass(/amber/);
+  await expect(settings).not.toContainText('NOT SEALED');
+
+  await page.goto('#/saves/fo2');
+  const archive = zipSync({ 'SAVEGAME/SLOT01/SAVE.DAT': new Uint8Array(fakeSaveDat('Narg', 'worth keeping')) });
+  await page.locator('input[accept*="zip"]').setInputFiles({ name: 'saves.zip', mimeType: 'application/zip', buffer: Buffer.from(archive) });
+  await expect(page.getByText('1 save restored from the archive.')).toBeVisible();
+  await page.goto('#/');
+  await expect(settings).toContainText('STORAGE NOT SEALED');
+  await expect(seal).toHaveClass(/amber/);
+  // The entry says what it is about and where to mend it.
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator('.menu li.selected')).toContainText('Terminal settings');
+  await expect(page.locator('.menu-note')).toContainText('a browser short of disk space may clear the games and saves kept here');
+
+  // Sealed, there is nothing to point out. (The archives look at the store again as they open.)
+  await page.evaluate(() => ((window as unknown as { sealed: boolean }).sealed = true));
+  await page.goto('#/saves/fo2');
+  await expect(page.locator('.menu li').first()).toContainText('SLOT 01');
+  await page.goto('#/');
+  await expect(seal).toHaveText('SEALED');
+  await expect(settings).not.toContainText('NOT SEALED');
 });
 
 test('holding Shift and asking for the credits brings the whole cast through', async ({ page }) => {

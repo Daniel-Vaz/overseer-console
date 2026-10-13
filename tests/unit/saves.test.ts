@@ -2,7 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { THUMBNAIL_HEIGHT, THUMBNAIL_WIDTH, parseSaveHeader } from '../../src/lib/saves';
 
 /** Builds the header the engines write at the start of SAVE.DAT. */
-function saveFile(options: { character: string; description: string; month: number; day: number; year: number; ticks: number; map: string }): Uint8Array {
+function saveFile(options: {
+  character: string;
+  description: string;
+  month: number;
+  day: number;
+  year: number;
+  ticks: number;
+  map: string;
+  elevation?: number;
+  mapIndex?: number;
+}): Uint8Array {
   const data = new Uint8Array(0x83 + THUMBNAIL_WIDTH * THUMBNAIL_HEIGHT + 128);
   const view = new DataView(data.buffer);
   const put = (offset: number, text: string) => {
@@ -18,6 +28,8 @@ function saveFile(options: { character: string; description: string; month: numb
   view.setInt16(0x67, options.day, false);
   view.setInt16(0x69, options.year, false);
   view.setUint32(0x6b, options.ticks, false);
+  view.setInt16(0x6f, options.elevation ?? 0, false);
+  view.setInt16(0x71, options.mapIndex ?? 0, false);
   put(0x73, options.map);
   data.fill(7, 0x83, 0x83 + THUMBNAIL_WIDTH * THUMBNAIL_HEIGHT);
   return data;
@@ -37,6 +49,14 @@ describe('parseSaveHeader', () => {
     expect(header!.map).toBe('ARTEMPLE');
     expect(header!.thumbnail).toHaveLength(THUMBNAIL_WIDTH * THUMBNAIL_HEIGHT);
     expect(header!.thumbnail![0]).toBe(7);
+  });
+
+  it('reads the number of the map and the level the player stood on', () => {
+    // As the engines write them: two 16-bit numbers between the time and the name of the map file.
+    const header = parseSaveHeader(
+      saveFile({ character: 'Narg', description: '', month: 8, day: 19, year: 2241, ticks: 0, map: 'DENBUS1.SAV', elevation: 1, mapIndex: 9 }),
+    );
+    expect(header).toMatchObject({ map: 'DENBUS1', mapIndex: 9, elevation: 1 });
   });
 
   it('wraps the clock at midnight', () => {

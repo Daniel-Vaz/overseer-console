@@ -1,7 +1,7 @@
 import { expect, test } from './fixtures';
 import { zipSync } from 'fflate';
 import type { Page } from '@playwright/test';
-import { fakeFallout1Folder, fakeFallout2Folder, fakeSaveDat, junkFolder, openConsole, pickFolder } from './helpers';
+import { fakeFallout1Folder, fakeFallout2Folder, fakeFallout2WithPlaces, fakeSaveDat, junkFolder, openConsole, pickFolder } from './helpers';
 
 test('plays the power-on sequence once, then shows the main directory', async ({ page }) => {
   await page.goto('');
@@ -92,15 +92,79 @@ test('is fully usable from the keyboard and remembers settings', async ({ page }
 
   await page.keyboard.press('5');
   await expect(page.getByRole('heading', { name: 'Terminal settings' })).toBeVisible();
-  const picture = page.locator('.menu li').first();
-  await expect(picture).toContainText('CLASSIC');
-  await page.keyboard.press('1');
-  await expect(picture).toContainText('WIDE');
-  await page.keyboard.press('1');
-  await expect(picture).toContainText('HIGH RESOLUTION');
+  // The settings stand under what they belong to, and their keys run on in order.
+  await expect(page.locator('.menu .group')).toContainText(['The games', 'This console', 'Storage']);
+  expect(await page.locator('.menu .key').allInnerTexts()).toEqual(['[1]', '[2]', '[3]', '[4]', '[5]', '[6]', '[7]', '[8]', '[9]', '[V]', '[M]', '[L]', '[D]', '[0]']);
+
+  // A setting steps on with ENTER and the right arrow, and back with the left one.
+  const scaling = page.locator('.menu li').filter({ hasText: 'Scaling' });
+  await page.keyboard.press('ArrowDown');
+  await expect(scaling).toContainText('FILL WINDOW');
+  await page.keyboard.press('ArrowLeft');
+  await expect(scaling).toContainText('SMOOTH');
+  await page.keyboard.press('ArrowRight');
+  await expect(scaling).toContainText('FILL WINDOW');
+  await page.keyboard.press('Enter');
+  await expect(scaling).toContainText('WHOLE PIXELS');
 
   await page.reload();
-  await expect(page.locator('.menu li').first()).toContainText('HIGH RESOLUTION');
+  await expect(page.locator('.menu li').filter({ hasText: 'Scaling' })).toContainText('WHOLE PIXELS');
+});
+
+test('every game has a picture of its own', async ({ page }) => {
+  // A player who had chosen one picture for all games, before each had its own, keeps it for each.
+  await openConsole(page, 'settings', { display: 'wide' });
+  const summary = page.locator('.menu li').filter({ hasText: 'Picture' });
+  await expect(summary).toContainText('WIDE');
+  await page.keyboard.press('1');
+  await expect(page.getByRole('heading', { name: 'Picture' })).toBeVisible();
+  await expect(page.getByText('OVERSEER CONSOLE // PICTURE')).toBeVisible();
+
+  const decks = page.locator('.menu li');
+  await expect(decks).toContainText(['Deck A: Fallout', 'Deck B: Fallout 2', 'Deck C: Fallout Et Tu', 'Back']);
+  await page.keyboard.press('3');
+  await expect(decks.nth(2)).toContainText('HIGH RESOLUTION');
+  await expect(page.locator('.menu-note')).toContainText('The picture Fallout Et Tu was laid out for.');
+  await page.keyboard.press('Home');
+  await page.keyboard.press('ArrowLeft');
+  await expect(decks.nth(0)).toContainText('CLASSIC 4:3');
+  // The others are as they were.
+  await expect(decks.nth(1)).toContainText('WIDE');
+
+  await page.reload();
+  await expect(decks.nth(0)).toContainText('CLASSIC 4:3');
+  await expect(decks.nth(1)).toContainText('WIDE');
+  await expect(decks.nth(2)).toContainText('HIGH RESOLUTION');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('heading', { name: 'Terminal settings' })).toBeVisible();
+  await expect(summary).toContainText('CLASSIC / WIDE / HIGH');
+
+  // A deck has the same choice for its own game, and the game is started at it.
+  await page.goto('#/fo2');
+  await pickFolder(page, await fakeFallout2Folder());
+  await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 60_000 });
+  const entry = page.locator('.menu li').filter({ hasText: 'Picture' });
+  await expect(entry).toContainText('WIDE');
+  await page.keyboard.press('3');
+  await expect(entry).toContainText('HIGH RESOLUTION');
+  await page.keyboard.press('3');
+  await expect(entry).toContainText('CLASSIC 4:3');
+  // The cursor is on the entry: the left arrow steps it back.
+  await page.keyboard.press('ArrowLeft');
+  await expect(entry).toContainText('HIGH RESOLUTION');
+  await page.waitForTimeout(1500);
+  await page.keyboard.press('1');
+  await page.waitForURL(/play\.html/);
+  await expect(page.getByText('PRESS ANY KEY')).toBeVisible({ timeout: 60_000 });
+  const size = await page.evaluate(() => {
+    const engine = (window as unknown as { overseerEngine: { screen: { width: number; height: number } } }).overseerEngine;
+    return engine.screen;
+  });
+  // Half as tall again as the original, and as wide as the window's shape allows.
+  expect(size).toEqual({ width: 1152, height: 720 });
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('heading', { name: 'SIMULATION 02: Fallout 2' })).toBeVisible();
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('overseer-console:settings')!).picture)).toEqual({ fo1: 'classic', fo2: 'high', ettu: 'high' });
 });
 
 test('the switches on the housing turn the tube effects and sounds off', async ({ page }) => {
@@ -119,10 +183,17 @@ test('explains how to load a game when none is installed', async ({ page }) => {
   await expect(page.getByText('NOT LOADED')).toBeVisible();
   await expect(page.getByText('Nothing is uploaded')).toBeVisible();
   await expect(page.locator('.menu button').first()).toContainText('Load holodisk');
+  // The entries are numbered as they stand, with no letter among them that could pass for a digit.
+  expect(await page.locator('.menu .key').allInnerTexts()).toEqual(['[1]', '[2]', '[3]', '[4]', '[5]', '[0]']);
 
-  await page.keyboard.press('3');
+  await page.keyboard.press('5');
   await expect(page.getByText('Fallout 2 is sold by')).toBeVisible();
   await expect(page.locator('.menu button')).toContainText(['GOG', 'Steam', 'Epic Games', 'Back']);
+  // ESC closes that list first, and only then leaves the deck.
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.menu button').first()).toContainText('Load holodisk');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('heading', { name: 'Main directory' })).toBeVisible();
 });
 
 test('rejects a folder that is not a game and says why', async ({ page }) => {
@@ -163,10 +234,18 @@ test('imports a game folder into browser storage, and ejects it again', async ({
 
   await page.keyboard.press('2');
   await expect(page.locator('.menu button').first()).toContainText('Begin simulation');
+  // What is done to the game data itself (loading it again, taking it out) is one entry, not four beside the one that plays.
+  await expect(page.locator('.menu button')).toContainText(['Begin simulation', 'Save archives', 'Picture', 'Holodisk', 'Back']);
   await page.keyboard.press('4');
+  await expect(page.locator('.menu button')).toContainText(['Replace holodisk: select the game folder', 'Replace holodisk: select a zip of the game folder', 'Eject holodisk', 'Back']);
+  await page.keyboard.press('e');
   await expect(page.getByText('EJECT THE FALLOUT 2 HOLODISK?')).toBeVisible();
-  // What cannot be taken back is asked under a caution sign.
+  // What cannot be taken back is asked under a caution sign, and ENTER lands on leaving things as they are.
   await expect(page.locator('.signed .glyph.amber')).toBeVisible();
+  await expect(page.locator('.menu li.selected')).toContainText('No, keep it');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.menu button').first()).toContainText('Replace holodisk');
+  await page.keyboard.press('e');
   await page.keyboard.press('y');
   await expect(page.getByText('NOT LOADED')).toBeVisible();
 });
@@ -186,20 +265,50 @@ test('restores, exports and erases saved games', async ({ page }) => {
   await expect(slot).toContainText('SLOT 03');
   await expect(slot).toContainText('before the temple');
   await expect(slot).toContainText('Narg');
+  // A slot is opened by its own number.
+  await expect(slot.locator('.key')).toHaveText('[3]');
 
-  await page.keyboard.press('1');
+  await page.keyboard.press('3');
   await expect(page.locator('.readout')).toContainText('25 JUL 2241, 0824 hours');
   await expect(page.locator('.readout')).toContainText('ARTEMPLE');
+  // When it was saved is written the way the games write their own dates.
+  await expect(page.locator('.readout')).toContainText(/\d\d [A-Z]{3} \d{4}, \d\d:\d\d \(JUST NOW\)/);
 
   const download = page.waitForEvent('download');
   await page.keyboard.press('e');
   expect((await download).suggestedFilename()).toMatch(/^overseer-fo2-slot03-.*\.zip$/);
 
+  // Erasing asks first, and ENTER lands on keeping the save.
   await page.keyboard.press('d');
   await expect(page.getByText('ERASE SLOT 03')).toBeVisible();
+  await expect(page.locator('.menu li.selected')).toContainText('No, keep it');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.menu li').first()).toContainText('Load this save');
+  await page.keyboard.press('d');
+  await expect(page.getByText('It is kept for a week under Erased saves and can be put back from there.')).toBeVisible();
   await page.keyboard.press('y');
   await expect(page.getByText('SLOT 03 erased.')).toBeVisible();
   await expect(page.getByText('NO SAVED GAMES YET')).toBeVisible();
+
+  // Erased is not gone: for a week the save can be put back as it was.
+  const erased = page.locator('.menu li').filter({ hasText: 'Erased saves' });
+  await expect(erased).toContainText('1 KEPT');
+  await page.keyboard.press('r');
+  await expect(page.getByText('ERASED SAVES', { exact: true })).toBeVisible();
+  await expect(page.locator('.menu li').first()).toContainText('SLOT 03');
+  await expect(page.locator('.menu li').first()).toContainText('ERASED JUST NOW');
+  await expect(page.locator('.menu-note')).toContainText('Kept until');
+  // ESC leaves that list without touching anything.
+  await page.keyboard.press('Escape');
+  await expect(erased).toContainText('1 KEPT');
+  await page.keyboard.press('r');
+  await page.keyboard.press('3');
+  await expect(page.getByText('SLOT 03 put back.')).toBeVisible();
+  await expect(slot).toContainText('SLOT 03');
+  await expect(slot).toContainText('before the temple');
+  await expect(page.locator('.menu li').filter({ hasText: 'Erased saves' })).toHaveCount(0);
+  await page.keyboard.press('3');
+  await expect(page.locator('.readout')).toContainText('in 2 files');
 });
 
 test('keeps what a slot held before it was replaced, and rolls back to it', async ({ page }) => {
@@ -223,7 +332,7 @@ test('keeps what a slot held before it was replaced, and rolls back to it', asyn
   await expect(page.locator('.menu-note')).toContainText('1 earlier version kept.');
 
   // Open the slot, look at its history, go back to the first save.
-  await page.keyboard.press('1');
+  await page.keyboard.press('3');
   await expect(page.locator('.menu li').filter({ hasText: 'Earlier versions' })).toContainText('1 KEPT');
   await page.keyboard.press('v');
   await expect(page.getByText('SLOT 03: EARLIER VERSIONS')).toBeVisible();
@@ -304,7 +413,7 @@ test('continue goes from the main directory straight into the latest save', asyn
     await expect(page.getByText('1 save restored from the archive.')).toBeVisible();
   };
   await restore('02', 'older');
-  await page.keyboard.press('1');
+  await page.keyboard.press('2');
   await expect(page.locator('.menu li').first()).toContainText('Load this save');
   await expect(page.locator('.menu li').first().locator('button')).toBeDisabled();
   await page.goto('#/');
@@ -347,12 +456,45 @@ test('continue goes from the main directory straight into the latest save', asyn
   // Any save can be loaded directly from the archives.
   await page.goto('#/saves/fo2');
   await expect(page.locator('.menu li').first()).toContainText('SLOT 02');
-  await page.keyboard.press('1');
+  await page.keyboard.press('2');
   await expect(page.locator('.readout')).toContainText('older');
   await page.waitForTimeout(1500);
   await page.keyboard.press('l');
   await page.waitForURL(/play\.html\?game=fo2&slot=2$/);
   await expect(page.getByText('CONTINUING FROM SAVE SLOT 02')).toBeVisible({ timeout: 60_000 });
+});
+
+test('names the place of a save as the game does, from the game\'s own data', async ({ page }) => {
+  await openConsole(page, 'fo2');
+  await pickFolder(page, await fakeFallout2WithPlaces());
+  await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 60_000 });
+
+  await page.goto('#/saves/fo2');
+  const archive = zipSync({
+    // The third map of the game's list, on its second level; and a map the list does not have.
+    'SAVEGAME/SLOT04/SAVE.DAT': new Uint8Array(fakeSaveDat('Narg', 'under the den', { map: 2, level: 1 })),
+    'SAVEGAME/SLOT06/SAVE.DAT': new Uint8Array(fakeSaveDat('Narg', 'off the map', { map: 40, level: 0 })),
+  });
+  await page.locator('input[accept*="zip"]').setInputFiles({ name: 'saves.zip', mimeType: 'application/zip', buffer: Buffer.from(archive) });
+  await expect(page.getByText('2 saves restored from the archive.')).toBeVisible();
+
+  // The area the map is entered by, then the level: what the game's own list of saves says.
+  const note = page.locator('.menu-note');
+  await expect(note).toContainText('The Den Basement, 0824 hours.');
+  await page.keyboard.press('ArrowDown');
+  // Where the game's data does not say, the name of the map file stands, as before.
+  await expect(note).toContainText('ARTEMPLE, 0824 hours.');
+  await page.keyboard.press('4');
+  await expect(page.locator('.readout')).toContainText('The Den Basement');
+  await expect(page.locator('.readout')).not.toContainText('ARTEMPLE');
+
+  // The same words where a save is offered to continue from.
+  await page.goto('#/');
+  await expect(page.locator('.menu li').first()).toContainText('Continue: Fallout 2');
+  await expect(note).toContainText('"under the den", Narg, The Den Basement, 25 JUL 2241.');
+  await page.goto('#/fo2');
+  await expect(page.locator('.menu li').first()).toContainText('Continue');
+  await expect(note).toContainText('Narg, The Den Basement, 25 JUL 2241.');
 });
 
 /** Loads a made-up game and goes to the start gate of its engine. */
@@ -395,7 +537,7 @@ test('Fallout 2 starts with what its engine adds, and as the original when that 
   await page.goto('#/settings');
   const entry = page.locator('.menu li').filter({ hasText: 'Game improvements' });
   await expect(entry).toContainText('ON');
-  await page.keyboard.press('i');
+  await page.keyboard.press('6');
   await expect(entry).toContainText('OFF');
   await expect(page.locator('.menu-note')).toContainText('Fallout 2 as the original played.');
 
@@ -442,11 +584,11 @@ test('the fast forward speed and the improvements are settings like the others',
   await openConsole(page, 'settings');
   const speed = page.locator('.menu li').filter({ hasText: 'Fast forward' });
   await expect(speed).toContainText('3 TIMES');
-  await page.keyboard.press('f');
+  await page.keyboard.press('7');
   await expect(speed).toContainText('4 TIMES');
-  await page.keyboard.press('f');
+  await page.keyboard.press('7');
   await expect(speed).toContainText('2 TIMES');
-  await page.keyboard.press('i');
+  await page.keyboard.press('6');
   await page.reload();
   await expect(page.locator('.menu li').filter({ hasText: 'Fast forward' })).toContainText('2 TIMES');
   await expect(page.locator('.menu li').filter({ hasText: 'Game improvements' })).toContainText('OFF');

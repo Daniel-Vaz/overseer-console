@@ -23,6 +23,9 @@ export interface SaveHeader {
   gameClock: string;
   /** Map file the save was made on, without extension. */
   map: string;
+  /** The number the game knows that map by, and the level of it the player was on (0 to 2). */
+  mapIndex: number;
+  elevation: number;
   /** 224x133 palette indices, when present. */
   thumbnail?: Uint8Array;
 }
@@ -56,6 +59,8 @@ export function parseSaveHeader(data: Uint8Array): SaveHeader | null {
     gameDate: `${String(day).padStart(2, '0')} ${MONTHS[month - 1] ?? '???'} ${year}`,
     gameClock: String(clock).padStart(4, '0'),
     map: text(data, 0x73, 16).replace(/\.sav$/i, ''),
+    elevation: view.getInt16(0x6f, false),
+    mapIndex: view.getInt16(0x71, false),
     thumbnail: data.length >= thumbnailEnd ? data.subarray(THUMBNAIL_OFFSET, thumbnailEnd) : undefined,
   };
 }

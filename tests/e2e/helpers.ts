@@ -131,8 +131,11 @@ export function junkFolder(): string {
   return root;
 }
 
-/** The start of a SAVE.DAT as both engines write it. */
-export function fakeSaveDat(character: string, description: string): Buffer {
+/**
+ * The start of a SAVE.DAT as both engines write it. `place` is the number of
+ * the map it was made on and the level of it the player stood on.
+ */
+export function fakeSaveDat(character: string, description: string, place: { map: number; level: number } = { map: 0, level: 0 }): Buffer {
   const data = Buffer.alloc(0x83 + 224 * 133 + 128);
   data.write('FALLOUT SAVE FILE', 0, 'latin1');
   data.writeInt16BE(1, 0x18);
@@ -143,6 +146,62 @@ export function fakeSaveDat(character: string, description: string): Buffer {
   data.writeInt16BE(25, 0x67);
   data.writeInt16BE(2241, 0x69);
   data.writeUInt32BE((8 * 60 + 24) * 600, 0x6b);
+  data.writeInt16BE(place.level, 0x6f);
+  data.writeInt16BE(place.map, 0x71);
   data.write('ARTEMPLE.SAV', 0x73, 'latin1');
   return data;
+}
+
+/**
+ * A Fallout 2 folder whose MASTER.DAT says what its places are called: the
+ * list of maps, the areas they are entered by, and the words for both, laid
+ * out as the engine reads them. Three maps; the second and third are in
+ * "The Den", and the third has a basement.
+ */
+export async function fakeFallout2WithPlaces(): Promise<string> {
+  const root = await fakeFallout2Folder(true);
+  const lines = (...text: string[]) => ascii(text.join('\r\n'));
+  const master = dat2({
+    'color.pal': { data: Uint8Array.from({ length: 800 }, (_, i) => i % 64), packed: false },
+    'data\\maps.txt': {
+      data: lines(
+        '; Elevation names are in a separate message file.',
+        '[Map 000]',
+        'lookup_name=Desert Encounter 1',
+        'map_name=desert1',
+        '',
+        '[Map 001]',
+        'lookup_name=Den Entrance',
+        'map_name=denbus1 ; the west side',
+        '',
+        '[Map 002]',
+        'lookup_name=Den Business',
+        'map_name=denbus2',
+        '',
+      ),
+      packed: true,
+    },
+    'data\\city.txt': {
+      data: lines(
+        '[Area 00]',
+        'area_name=Arroyo',
+        'townmap_art_idx=156',
+        'entrance_0=On,130,200,Arroyo Village,-1,-1,0',
+        '',
+        '[Area 01]',
+        'area_name=The Den',
+        'townmap_art_idx=157',
+        'entrance_0=On,140,290,Den Entrance,0,22710,0',
+        'entrance_1=Off,290,160,DEN BUSINESS,-1,-1,0',
+        '',
+      ),
+      packed: false,
+    },
+    'text\\english\\game\\map.msg': {
+      data: lines('{200}{}{Desert}', '{203}{}{West Side}', '{206}{}{East Side}', '{207}{}{Basement}', '{1500}{}{Arroyo}', '{1501}{}{The Den}'),
+      packed: true,
+    },
+  });
+  writeFileSync(join(root, 'master.dat'), Buffer.from(await master.arrayBuffer()));
+  return root;
 }

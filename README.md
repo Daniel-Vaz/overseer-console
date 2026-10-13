@@ -48,18 +48,21 @@ it puts together in the browser from the two games and the conversion's own pack
 - **Saves as in the originals.** Saved games work as they always did, and can be exported to and imported
   from zip files.
 - **A history for every slot.** Saving over a slot keeps what was in it: every slot has earlier versions to
-  roll back to.
+  roll back to. An erased save is kept for a week, and can be put back.
 - **Fallout Et Tu, put together for you.** Hand the console the zip the conversion is downloaded as. It takes
   the files Et Tu needs out of your Fallout and plays it on your Fallout 2: no unpacking, no extraction tool.
 - **Games from a zip.** A game folder can be loaded as one zip of it, which is how a whole game, music
   included, gets onto a device that cannot pick folders.
 - **Fast forward.** F8 runs a game several times as fast, for the long walk across a map and the turns of a
   dozen rats, and back again.
+- **A picture for each game.** The original 640 x 480, widened to the shape of the window, or high resolution:
+  chosen deck by deck, so Fallout Et Tu can have the picture it was laid out for while the originals keep theirs.
 - **Fallout 2 with what its engine adds, or without.** One setting switches on items that light up on a key,
   a wider inventory, companions' own inventories, doors that open as you walk into them and more; switched
   off, the game plays as the original did.
 - **Continue.** One key takes you from the console straight into your latest save.
-- **Save archives.** They show each save's screenshot and character sheet, read from the save file itself.
+- **Save archives.** They show each save's screenshot and character sheet, read from the save file itself, and
+  name the place it was made in as the game does, from the game's own data.
 - **Dropbox link, if you want one.** Carry saves between devices, and load a game from a folder in your own
   Dropbox (the way to get a game with its music onto a phone).
 - **Touch screens.** Tap, drag, press-and-hold and two-finger gestures stand in for the mouse, with
@@ -80,10 +83,10 @@ it puts together in the browser from the two games and the conversion's own pack
 | --- | --- | --- |
 | Engines | `engines/` | Pins an upstream commit of each engine, applies patches (Fallout 1 only), and compiles to WebAssembly inside the official Emscripten container. The Fallout 2 engine's own data folder is packed into `ce.dat` beside it. |
 | Engine glue | `engines/lib/overseer.js` | Linked into both engines. Gives them a clock that can pause and run fast, hands the thread back to the browser during long loops, reads game archives from disk on demand, and reports file changes in batches. |
-| Game data store | `src/lib/storage/` | Imported game files live in the origin private file system (OPFS). Files the engines write (saves, settings) live in IndexedDB and are committed atomically per save. Before a save slot is overwritten its contents go into a history (`history.ts`), with unchanged files stored once. |
+| Game data store | `src/lib/storage/` | Imported game files live in the origin private file system (OPFS). Files the engines write (saves, settings) live in IndexedDB and are committed atomically per save. Before a save slot is overwritten or erased its contents go into a history (`history.ts`), with unchanged files stored once. |
 | Zip and archive tools | `src/lib/zip.ts`, `datpack.ts`, `blobs.ts` | Read files out of a zip where it lies, without unpacking it, and describe a game archive (`.dat`) made of loose files without copying them. To the importer both are files like any other. |
 | Fallout Et Tu | `src/lib/storage/ettu.ts` | Finds the conversion in a selection and plans how to store it: see [Fallout Et Tu](#fallout-et-tu). |
-| Save reader | `src/lib/savefile.ts`, `dat.ts`, `gamefacts.ts` | Reads a save's header, picture and character sheet, and fetches the palette and the names of perks, traits and skills out of the player's own `MASTER.DAT` (both archive formats). |
+| Save reader | `src/lib/savefile.ts`, `dat.ts`, `gamefacts.ts` | Reads a save's header, picture and character sheet, and fetches the palette and the names of perks, traits, skills and places out of the player's own `MASTER.DAT` (both archive formats). |
 | Dropbox link | `src/lib/dropbox/` | Optional. Talks to the player's own Dropbox straight from the browser: linking, saves as one zip per slot, and game files read piece by piece through the same importer as a folder on disk. |
 | Console | `index.html`, `src/launcher/` | The terminal: import, save archives, settings, manual, credits. Svelte. |
 | Vault | `src/launcher/vault/` | The room around the console, where the window is larger than the console is. Painted in the browser, one coarse pixel at a time, from nothing but code: no artwork from the games. `life.ts` decides who walks through, when, and what they do about being poked; `effects.ts` has the things that answer to a click; `pest.ts` is the radroach that comes out onto the screen itself. |

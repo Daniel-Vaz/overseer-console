@@ -12,6 +12,7 @@
   import Game from './screens/Game.svelte';
   import Main from './screens/Main.svelte';
   import Manual from './screens/Manual.svelte';
+  import Picture from './screens/Picture.svelte';
   import Saves from './screens/Saves.svelte';
   import Settings from './screens/Settings.svelte';
   import { sfx } from './sfx';
@@ -31,6 +32,8 @@
   let clock = $state('');
   let body: HTMLElement | undefined = $state();
   let housing: HTMLElement | undefined = $state();
+  /** There is more of the screen below what shows. */
+  let more = $state(false);
 
   const section = $derived(route[0] ?? '');
   const game = $derived<GameId | null>(isGameId(route[0]) ? route[0] : isGameId(route[1]) ? route[1] : null);
@@ -45,7 +48,9 @@
           : section === 'settings'
             ? route[1] === 'dropbox'
               ? 'DROPBOX LINK'
-              : 'TERMINAL SETTINGS'
+              : route[1] === 'picture'
+                ? 'PICTURE'
+                : 'TERMINAL SETTINGS'
             : section === 'manual'
               ? 'OPERATIONS MANUAL'
               : section === 'credits'
@@ -78,6 +83,11 @@
     clock = new Date().toLocaleTimeString([], { hour12: false });
   }
 
+  /** Finds out whether the screen runs on below what shows of it. */
+  function gauge(): void {
+    more = !!body && body.scrollHeight - body.scrollTop - body.clientHeight > 6;
+  }
+
   onMount(() => {
     void sys.refresh();
     tick();
@@ -91,10 +101,32 @@
     // Coming back from a game: saves and timestamps may have changed.
     const onShow = () => void sys.refresh();
     window.addEventListener('pageshow', onShow);
+    // A copy that is running ends with the page. The browser asks before it lets that happen.
+    const onLeave = (event: BeforeUnloadEvent) => {
+      if (sys.busy) event.preventDefault();
+    };
+    window.addEventListener('beforeunload', onLeave);
+
+    // What is on the screen changes, and so does the room it has.
+    let pending = 0;
+    const regauge = () => {
+      cancelAnimationFrame(pending);
+      pending = requestAnimationFrame(gauge);
+    };
+    const watcher = new MutationObserver(regauge);
+    const sizes = new ResizeObserver(regauge);
+    if (body) {
+      watcher.observe(body, { childList: true, subtree: true, characterData: true });
+      sizes.observe(body);
+    }
     return () => {
       clearInterval(timer);
+      cancelAnimationFrame(pending);
+      watcher.disconnect();
+      sizes.disconnect();
       window.removeEventListener('hashchange', onHash);
       window.removeEventListener('pageshow', onShow);
+      window.removeEventListener('beforeunload', onLeave);
     };
   });
 
@@ -188,7 +220,7 @@
             <span>{clock}</span>
           </header>
 
-          <main class="body" bind:this={body} tabindex="-1">
+          <main class="body" bind:this={body} tabindex="-1" onscroll={gauge}>
             {#if !booted}
               <Boot ondone={finishBoot} />
             {:else if section === ''}
@@ -197,6 +229,8 @@
               <Saves {go} {game} />
             {:else if section === 'settings' && route[1] === 'dropbox'}
               <Dropbox {go} />
+            {:else if section === 'settings' && route[1] === 'picture'}
+              <Picture {go} />
             {:else if section === 'settings'}
               <Settings {go} />
             {:else if section === 'manual'}
@@ -213,10 +247,20 @@
             {/if}
           </main>
 
-          <footer class="hints">
-            {#each sys.hints as [key, label] (key)}
-              <span><b>{key}</b> {label}</span>
-            {/each}
+          <footer class="foot">
+            <!-- A screen longer than the tube says so, the way a pager does. -->
+            {#if more}
+              <span class="more" aria-hidden="true">-- MORE --</span>
+            {/if}
+            <!-- What the entry under the cursor does. Under the screen, so that it shows wherever the screen has been scrolled to. -->
+            {#if sys.noted}
+              <p class="menu-note" aria-live="polite">{sys.note}</p>
+            {/if}
+            <div class="hints">
+              {#each sys.hints as [key, label] (key)}
+                <span><b>{key}</b> {label}</span>
+              {/each}
+            </div>
           </footer>
         </div>
 

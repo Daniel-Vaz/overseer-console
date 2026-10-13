@@ -1,14 +1,21 @@
 /** Console preferences, kept in localStorage. */
+import { GAME_IDS, type GameId } from './games';
 
 const KEY = 'overseer-console:settings';
 
+/**
+ * classic: the original 640x480 picture, scaled up.
+ * wide: the game renders at the shape of the window, showing more map.
+ * high: wider and taller (720 lines), showing far more map, smaller.
+ */
+export type Picture = 'classic' | 'wide' | 'high';
+
+/** The pictures a game can be played at, in the order the console steps through them. */
+export const PICTURES: readonly Picture[] = ['classic', 'wide', 'high'];
+
 export interface Settings {
-  /**
-   * classic: the original 640x480 picture, scaled up.
-   * wide: the game renders at the shape of the window, showing more map.
-   * high: wider and taller (720 lines), showing far more map, smaller.
-   */
-  display: 'classic' | 'wide' | 'high';
+  /** The picture each game is played at: every deck has its own. */
+  picture: Record<GameId, Picture>;
   /**
    * fill: as large as the window allows, hard-edged pixels.
    * integer: whole-number zoom only; every pixel the same size, possibly
@@ -56,8 +63,14 @@ export interface Settings {
 /** The speeds fast forward can be set to. */
 export const FAST_FORWARD_SPEEDS = [2, 3, 4];
 
+const isPicture = (value: unknown): value is Picture => PICTURES.includes(value as Picture);
+
+/** The same picture for every game. */
+const everyGame = (picture: Picture): Record<GameId, Picture> =>
+  Object.fromEntries(GAME_IDS.map((game) => [game, picture])) as Record<GameId, Picture>;
+
 export const DEFAULT_SETTINGS: Settings = {
-  display: 'classic',
+  picture: everyGame('classic'),
   scaling: 'fill',
   fullscreen: false,
   skipIntro: false,
@@ -71,14 +84,23 @@ export const DEFAULT_SETTINGS: Settings = {
   touchPointer: 'direct',
 };
 
+const defaults = (): Settings => ({ ...DEFAULT_SETTINGS, picture: { ...DEFAULT_SETTINGS.picture } });
+
 export function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(KEY);
-    if (!raw) return { ...DEFAULT_SETTINGS };
-    const parsed = JSON.parse(raw) as Partial<Settings>;
+    if (!raw) return defaults();
+    // Until the picture became each game's own there was one for all of them, kept as `display`.
+    const { display, ...parsed } = JSON.parse(raw) as Partial<Settings> & { display?: unknown };
     const merged = { ...DEFAULT_SETTINGS, ...parsed };
     // Guard against values from an older or hand-edited entry.
-    if (!['classic', 'wide', 'high'].includes(merged.display)) merged.display = DEFAULT_SETTINGS.display;
+    // A game starts from the picture the player had chosen for all of them, so that nothing changes unasked.
+    const before = isPicture(display) ? display : DEFAULT_SETTINGS.picture.fo1;
+    const chosen = (parsed.picture && typeof parsed.picture === 'object' ? parsed.picture : {}) as Partial<Record<GameId, unknown>>;
+    merged.picture = everyGame(before);
+    for (const game of GAME_IDS) {
+      if (isPicture(chosen[game])) merged.picture[game] = chosen[game];
+    }
     if (!['fill', 'integer', 'smooth'].includes(merged.scaling)) merged.scaling = DEFAULT_SETTINGS.scaling;
     if (merged.audio !== 'buffered' && merged.audio !== 'direct') merged.audio = DEFAULT_SETTINGS.audio;
     if (merged.touchPointer !== 'direct' && merged.touchPointer !== 'trackpad') merged.touchPointer = DEFAULT_SETTINGS.touchPointer;
@@ -88,7 +110,7 @@ export function loadSettings(): Settings {
     merged.cacheMb = Math.min(1024, Math.max(32, Math.round(merged.cacheMb)));
     return merged;
   } catch {
-    return { ...DEFAULT_SETTINGS };
+    return defaults();
   }
 }
 

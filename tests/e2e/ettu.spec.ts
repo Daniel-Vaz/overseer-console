@@ -216,7 +216,8 @@ test('one pick of that folder on the third deck loads the game it runs on first'
 
   // Ejecting the game underneath is allowed, and said to leave the conversion stranded.
   await page.keyboard.press('2');
-  await page.keyboard.press('4');
+  await page.locator('.menu button', { hasText: 'Holodisk' }).click();
+  await page.keyboard.press('e');
   await expect(page.getByText('EJECT THE FALLOUT 2 HOLODISK?')).toBeVisible();
   await expect(page.getByText('Fallout Et Tu in deck C runs on this holodisk, and will not start without it.')).toBeVisible();
   await page.keyboard.press('y');
@@ -241,6 +242,7 @@ test('either game loads from one zip of its folder as well', async ({ page }) =>
   expect((await stored(page, 'fo2')).files).toEqual(['critter.dat', 'data/worldmap.dat', 'master.dat', 'patch000.dat', 'sound/music/01hub.acm']);
 
   // Loaded, it can be replaced the same way; a file that is no zip is refused like a folder that holds no game.
+  await page.locator('.menu button', { hasText: 'Holodisk' }).click();
   await expect(page.locator('.menu li').filter({ hasText: 'Replace holodisk: select a zip of the game folder' })).toBeVisible();
   await zip.setInputFiles({ name: 'notes.zip', mimeType: 'application/zip', buffer: Buffer.from('not a zip at all') });
   await expect(page.getByRole('alert')).toContainText('notes.zip: That file is not a zip archive.');
@@ -256,9 +258,13 @@ test('either game loads from one zip of its folder as well', async ({ page }) =>
 /**
  * The engine itself, on made-up data: both games' archives are real archives
  * with no game in them, so the engine opens everything, finds nothing to
- * show, and hands back to the console. How far it gets says whether it could
- * read what the console put together. The first thing it needs is a font;
- * the only one there is has to come all the way out of Fallout's MASTER.DAT.
+ * show, and gives up. How far it gets says whether it could read what the
+ * console put together. The first thing it needs is a font; the only one
+ * there is has to come all the way out of Fallout's MASTER.DAT.
+ *
+ * Giving up is told on the console's own fault screen, in the engine's
+ * words where it had any: never in a message box of the browser's, and never
+ * by dropping the player back on the deck without a word.
  */
 for (const borrowed of [false, true]) {
   test(`the engine ${borrowed ? 'reads a file the console took out of Fallout for it' : 'is told when a file it needs is nowhere'}`, async ({ page }) => {
@@ -284,7 +290,9 @@ for (const borrowed of [false, true]) {
     await page.waitForURL(/play\.html\?game=ettu$/);
     await expect(page.getByText('PRESS ANY KEY')).toBeVisible({ timeout: 60_000 });
     await page.keyboard.press('Enter');
-    await expect(page.getByRole('heading', { name: 'SIMULATION 03: Fallout Et Tu' })).toBeVisible({ timeout: 60_000 });
+    const fault = page.locator('#terminal-body');
+    await expect(fault).toContainText('System fault', { timeout: 60_000 });
+    await expect(page.locator('#bar-state')).toHaveText('FAULT');
 
     // It opened its own data file, and both mods where the load order names folders.
     const log = said.join('\n');
@@ -292,7 +300,20 @@ for (const borrowed of [false, true]) {
     expect(log).toContain('Loading mod mods/fo1_base');
     expect(log).toContain('Loaded 2 mods from mods/mods_order.txt');
     expect(log).not.toContain('Error opening');
-    if (borrowed) expect(dialogs.filter((text) => /font/i.test(text))).toEqual([]);
-    else expect(dialogs).toContain("Couldn't find/load text fonts");
+    if (borrowed) {
+      // With its font the engine gets further, to a game that is not there, and stops without a word of its own.
+      await expect(fault).not.toContainText(/font/i);
+      await expect(fault).toContainText('Fallout Et Tu stopped by itself before it was up.');
+    } else {
+      await expect(fault).toContainText("Fallout Et Tu stopped. The engine reports: Couldn't find/load text fonts");
+    }
+    // Either way it stopped while starting, and the screen says what that points at.
+    await expect(fault).toContainText('Load the holodisk again from the complete game folder');
+    // The browser's own message box never came up.
+    expect(dialogs).toEqual([]);
+
+    // From there it is one key back to the deck.
+    await page.keyboard.press('c');
+    await expect(page.getByRole('heading', { name: 'SIMULATION 03: Fallout Et Tu' })).toBeVisible();
   });
 }

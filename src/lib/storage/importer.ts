@@ -261,8 +261,11 @@ export async function planImport(sources: SourceFile[], preferred?: GameId, cont
 /** Where the engine keeps what it works out from a mod's own settings files. */
 const DERIVED_SETTINGS = 'data/config/';
 
-/** Copies the planned files into browser storage. */
-export async function runImport(plan: ImportPlan, onProgress?: (p: ImportProgress) => void): Promise<Manifest> {
+/**
+ * Copies the planned files into browser storage. `signal` stops the copy
+ * (see writeInstall): nothing of the game is changed then.
+ */
+export async function runImport(plan: ImportPlan, onProgress?: (p: ImportProgress) => void, signal?: AbortSignal): Promise<Manifest> {
   const manifest = await writeInstall(
     plan.game,
     plan.entries,
@@ -278,6 +281,7 @@ export async function runImport(plan: ImportPlan, onProgress?: (p: ImportProgres
       installConfig: plan.installConfig,
     }),
     onProgress,
+    signal,
   );
 
   // The engine of Fallout 2 writes settings it derives from the files of a

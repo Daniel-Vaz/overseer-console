@@ -1,10 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { FAST_FORWARD_SPEEDS } from '../../lib/settings';
+  import { GAME_IDS } from '../../lib/games';
+  import { FAST_FORWARD_SPEEDS, type Settings } from '../../lib/settings';
   import { formatBytes } from '../../lib/storage/manifest';
   import { requestPersistence, storageStatus } from '../../lib/storage/opfs';
   import Glyph from '../components/Glyph.svelte';
   import Menu from '../components/Menu.svelte';
+  import { PICTURE_NAMES, step } from '../picture';
   import { sfx } from '../sfx';
   import { consoleState as sys } from '../state.svelte';
   import type { MenuItem } from '../types';
@@ -12,6 +14,11 @@
   let { go }: { go: (path: string) => void } = $props();
 
   const CACHE_STEPS = [96, 192, 384, 768];
+  const SCALINGS: readonly Settings['scaling'][] = ['fill', 'integer', 'smooth'];
+  // What a setting belongs to. The list is long; these keep it readable.
+  const GAMES_GROUP = 'The games';
+  const CONSOLE_GROUP = 'This console';
+  const STORAGE_GROUP = 'Storage';
   let persistNote = $state('');
   let selected = $state(0);
 
@@ -19,6 +26,7 @@
     sys.hints = [
       ['↑↓', 'SELECT'],
       ['ENTER', 'CHANGE'],
+      ['<- ->', 'EITHER WAY'],
       ['ESC', 'BACK'],
     ];
   });
@@ -39,22 +47,37 @@
 
   const s = $derived(sys.settings);
 
+  /** A setting that is on or off: ENTER and both arrows flip it. */
+  function toggle(key: 'fullscreen' | 'skipIntro' | 'improvements' | 'crt' | 'sound' | 'vault'): Pick<MenuItem, 'action' | 'adjust'> {
+    const flip = () => sys.update({ [key]: !s[key] });
+    return { action: flip, adjust: flip };
+  }
+
+  /** A setting with a row of values: ENTER and the right arrow step on through them, the left arrow back. */
+  function choice<K extends keyof Settings>(key: K, values: readonly Settings[K][]): Pick<MenuItem, 'action' | 'adjust'> {
+    const move = (direction: 1 | -1 = 1) => sys.update({ [key]: step(values, s[key], direction) } as Partial<Settings>);
+    return { action: () => move(), adjust: move };
+  }
+
+  // The same picture for every game is named once; otherwise each deck's, in the order of the decks.
+  const pictures = $derived.by(() => {
+    const names = GAME_IDS.map((game) => PICTURE_NAMES[s.picture[game]]);
+    return names.every((name) => name === names[0]) ? names[0]! : names.map((name) => name.split(' ')[0]).join(' / ');
+  });
+
   const items = $derived<MenuItem[]>([
     {
       key: '1',
+      group: GAMES_GROUP,
       label: 'Picture',
       icon: 'picture',
-      state: s.display === 'classic' ? 'CLASSIC 4:3' : s.display === 'wide' ? 'WIDE' : 'HIGH RESOLUTION',
-      note:
-        s.display === 'classic'
-          ? 'The original 640 x 480 picture. The most faithful choice.'
-          : s.display === 'wide'
-            ? 'Same zoom as the original, widened to the shape of your window: more of the map is visible.'
-            : 'Half as tall again as the original and as wide as your window: far more of the map, everything on it smaller. The picture Fallout Et Tu was laid out for.',
-      action: () => sys.update({ display: s.display === 'classic' ? 'wide' : s.display === 'wide' ? 'high' : 'classic' }),
+      state: pictures,
+      note: 'Every game has its own picture: the original 640 x 480, widened to your window, or high resolution. Open to choose; each deck offers the same choice.',
+      action: () => go('settings/picture'),
     },
     {
       key: '2',
+      group: GAMES_GROUP,
       label: 'Scaling',
       icon: 'scaling',
       state: s.scaling === 'fill' ? 'FILL WINDOW' : s.scaling === 'integer' ? 'WHOLE PIXELS' : 'SMOOTH',
@@ -64,28 +87,31 @@
           : s.scaling === 'integer'
             ? 'Whole-number zoom only: every pixel exactly the same size, possibly with a black border.'
             : 'As large as the window allows, with pixels blended.',
-      action: () => sys.update({ scaling: s.scaling === 'fill' ? 'integer' : s.scaling === 'integer' ? 'smooth' : 'fill' }),
+      ...choice('scaling', SCALINGS),
     },
     {
       key: '3',
+      group: GAMES_GROUP,
       label: 'Start in fullscreen',
       icon: 'fullscreen',
       state: s.fullscreen ? 'ON' : 'OFF',
       note: 'F11 toggles fullscreen at any time while playing.',
-      action: () => sys.update({ fullscreen: !s.fullscreen }),
+      ...toggle('fullscreen'),
     },
     {
       key: '4',
+      group: GAMES_GROUP,
       label: 'Intro movies',
       icon: 'movies',
       state: s.skipIntro ? 'SKIP' : 'PLAY',
       note: s.skipIntro
         ? 'Games open on their main menu.'
         : 'Games open with their logo and intro movies, as originally. ESC skips a movie.',
-      action: () => sys.update({ skipIntro: !s.skipIntro }),
+      ...toggle('skipIntro'),
     },
     {
       key: '5',
+      group: GAMES_GROUP,
       label: 'Game sound',
       icon: 'audio',
       state: s.audio === 'buffered' ? 'BUFFERED' : 'DIRECT',
@@ -93,10 +119,11 @@
         s.audio === 'buffered'
           ? 'Sound is queued a moment ahead, so brief hiccups of the browser are not heard. Recommended.'
           : 'The lowest delay, but any hiccup of the browser is heard as a click or gap.',
-      action: () => sys.update({ audio: s.audio === 'buffered' ? 'direct' : 'buffered' }),
+      ...choice('audio', ['buffered', 'direct']),
     },
     {
-      key: 'i',
+      key: '6',
+      group: GAMES_GROUP,
       label: 'Game improvements',
       icon: 'holodisk-02',
       state: s.improvements ? 'ON' : 'OFF',
@@ -104,21 +131,23 @@
       note: s.improvements
         ? 'Fallout 2 with what its engine adds: SHIFT lights up what lies on the ground, a wider inventory, doors that open by themselves. The manual lists it all.'
         : 'Fallout 2 as the original played.',
-      action: () => sys.update({ improvements: !s.improvements }),
+      ...toggle('improvements'),
     },
     {
-      key: 'f',
+      key: '7',
+      group: GAMES_GROUP,
       label: 'Fast forward',
       icon: 'play',
       state: `${s.fastForward} TIMES`,
       note: 'F8, or FAST on a touch screen, runs a game this many times as fast until pressed again: for long walks and long turns.',
-      action: () => sys.update({ fastForward: FAST_FORWARD_SPEEDS[(FAST_FORWARD_SPEEDS.indexOf(s.fastForward) + 1) % FAST_FORWARD_SPEEDS.length] ?? 3 }),
+      ...choice('fastForward', FAST_FORWARD_SPEEDS),
     },
     // Only where there is a touch screen to speak of.
     ...(navigator.maxTouchPoints > 0 || 'ontouchstart' in window || matchMedia('(any-pointer: coarse)').matches
       ? [
           {
-            key: 't',
+            key: 'p',
+            group: GAMES_GROUP,
             label: 'Touch pointer',
             icon: s.touchPointer === 'direct' ? 'pointer-finger' : 'pointer-trackpad',
             state: s.touchPointer === 'direct' ? 'FOLLOWS FINGER' : 'TRACKPAD',
@@ -126,46 +155,48 @@
               s.touchPointer === 'direct'
                 ? 'Tap what you want to click; the pointer goes where your finger is.'
                 : 'The picture works like a laptop trackpad: drag to move the pointer, tap anywhere to click. Precise on small screens.',
-            action: () => sys.update({ touchPointer: s.touchPointer === 'direct' ? 'trackpad' : 'direct' }),
+            ...choice('touchPointer', ['direct', 'trackpad']),
           } satisfies MenuItem,
         ]
       : []),
     {
-      key: '6',
+      key: '8',
+      group: CONSOLE_GROUP,
       label: 'Tube effects',
       icon: 'tube',
       state: s.crt ? 'ON' : 'OFF',
       note: 'Scanlines, glow and flicker on this console. Does not affect the games.',
-      action: () => sys.update({ crt: !s.crt }),
+      ...toggle('crt'),
     },
     {
-      key: '7',
+      key: '9',
+      group: CONSOLE_GROUP,
       label: 'Console sounds',
       icon: 'audio',
       state: s.sound ? 'ON' : 'OFF',
       note: 'Clicks and beeps on this console. Does not affect the games.',
-      action: () => sys.update({ sound: !s.sound }),
+      ...toggle('sound'),
     },
     {
       key: 'v',
+      group: CONSOLE_GROUP,
       label: 'Vault around the console',
       state: s.vault ? 'ON' : 'OFF',
       note: 'The vault a large window shows around this console, and what lives in it. Left alone, some of it comes out onto the glass.',
-      action: () => sys.update({ vault: !s.vault }),
+      ...toggle('vault'),
     },
     {
-      key: '8',
+      key: 'm',
+      group: STORAGE_GROUP,
       label: 'Game data kept in memory',
       icon: 'memory',
       state: `${s.cacheMb} MB`,
       note: 'Game files are read from disk as needed and kept in memory up to this size. Lower it on devices with little memory.',
-      action: () => {
-        const next = CACHE_STEPS[(CACHE_STEPS.indexOf(s.cacheMb) + 1) % CACHE_STEPS.length] ?? 192;
-        sys.update({ cacheMb: next });
-      },
+      ...choice('cacheMb', CACHE_STEPS),
     },
     {
-      key: '9',
+      key: 'l',
+      group: STORAGE_GROUP,
       label: 'Seal private storage',
       icon: sys.storage?.persisted ? 'sealed' : 'unsealed',
       state: sys.storage?.persisted ? 'SEALED' : 'NOT SEALED',
@@ -178,6 +209,7 @@
     },
     {
       key: 'd',
+      group: STORAGE_GROUP,
       label: 'Dropbox link',
       icon: 'uplink',
       state: sys.dropbox.linked ? 'LINKED' : 'NOT LINKED',
@@ -191,7 +223,6 @@
 </script>
 
 <h1>Terminal settings</h1>
-<p class="sub">Changes are stored as you make them.</p>
 
 <div class="columns">
   <div>
@@ -211,5 +242,6 @@
         <dd class:amber={!sys.storage.persisted}>{sys.storage.persisted ? 'SEALED' : 'OPEN'}</dd>
       </dl>
     {/if}
+    <p class="dim">Changes are stored as you make them.</p>
   </aside>
 </div>

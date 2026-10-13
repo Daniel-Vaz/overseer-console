@@ -20,7 +20,9 @@ export type WorkerRequest =
   | { id: number; op: 'remove'; dir: string[]; name: string }
   /** The page's answer to a 'read': the bytes, or why there are none. */
   | { id: number; op: 'data'; data: Uint8Array }
-  | { id: number; op: 'no-data'; message: string };
+  | { id: number; op: 'no-data'; message: string }
+  /** The player has had enough of the import with this id: it stops at the next piece. */
+  | { id: number; op: 'stop' };
 
 export type WorkerResponse =
   | { id: number; type: 'progress'; doneBytes: number; totalBytes: number; path: string }
@@ -59,12 +61,23 @@ function writeAll(access: SyncHandle, data: Uint8Array, at: number): void {
 /** Reads the page is being waited on for, by the import that asked. */
 const awaited = new Map<number, { resolve: (data: Uint8Array) => void; reject: (err: Error) => void }>();
 
+/** Imports the player has stopped. */
+const stopped = new Set<number>();
+
+function stoppedError(): Error {
+  const err = new Error('the import was stopped');
+  err.name = 'AbortError';
+  return err;
+}
+
 function sizeOf(entry: ImportEntry): number {
   return 'file' in entry ? entry.file.size : entry.size;
 }
 
 /** `length` bytes of an entry from `offset`, wherever the entry lives. */
 async function read(id: number, entries: ImportEntry[], index: number, offset: number, length: number): Promise<Uint8Array> {
+  // Every piece is asked for here: the one place a stopped import has to be caught.
+  if (stopped.has(id)) throw stoppedError();
   const entry = entries[index]!;
   if (length === 0) return new Uint8Array(0);
   if ('file' in entry) return new Uint8Array(await entry.file.slice(offset, offset + length).arrayBuffer());
@@ -141,10 +154,21 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
     else waiting?.reject(new Error(request.message));
     return;
   }
+  if (request.op === 'stop') {
+    stopped.add(request.id);
+    // A piece the page is still fetching is not waited for.
+    awaited.get(request.id)?.reject(stoppedError());
+    awaited.delete(request.id);
+    return;
+  }
   try {
     if (request.op === 'import') {
-      const files = await importFiles(request.id, request.dir, request.entries);
-      postMessage({ id: request.id, type: 'done', files } satisfies WorkerResponse);
+      try {
+        const files = await importFiles(request.id, request.dir, request.entries);
+        postMessage({ id: request.id, type: 'done', files } satisfies WorkerResponse);
+      } finally {
+        stopped.delete(request.id);
+      }
     } else if (request.op === 'write') {
       const dir = await openDir(request.dir, true);
       const access = await openForWriting(dir, request.name);

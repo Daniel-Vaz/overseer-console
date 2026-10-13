@@ -77,10 +77,38 @@ function getWorker(): Worker {
   return worker;
 }
 
-function call(op: WorkerOp, onProgress?: (p: ImportProgress) => void, read?: PageRead): Promise<ManifestFile[] | undefined> {
+/** What an import that the player stopped ends with. */
+function stoppedError(): DOMException {
+  return new DOMException('the import was stopped', 'AbortError');
+}
+
+/** Whether something failed because the player stopped it, not because anything went wrong. */
+export function wasStopped(err: unknown): boolean {
+  return err instanceof DOMException && err.name === 'AbortError';
+}
+
+function call(op: WorkerOp, onProgress?: (p: ImportProgress) => void, read?: PageRead, signal?: AbortSignal): Promise<ManifestFile[] | undefined> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(stoppedError());
+      return;
+    }
     const id = nextId++;
-    pending.set(id, { resolve, reject, onProgress, read });
+    const stop = () => getWorker().postMessage({ id, op: 'stop' } satisfies WorkerRequest);
+    signal?.addEventListener('abort', stop, { once: true });
+    pending.set(id, {
+      resolve: (files) => {
+        signal?.removeEventListener('abort', stop);
+        resolve(files);
+      },
+      reject: (err) => {
+        signal?.removeEventListener('abort', stop);
+        // Whatever the worker made of being stopped, the page knows why it ended.
+        reject(signal?.aborted ? stoppedError() : err);
+      },
+      onProgress,
+      read,
+    });
     getWorker().postMessage({ ...op, id });
   });
 }
@@ -177,12 +205,16 @@ export async function openInstalled(install: Install, path: string): Promise<Sou
 /**
  * Copies `entries` into a new install directory and makes it current.
  * `describe` receives where each file ended up and returns the manifest.
+ *
+ * `signal` stops the copy: it then ends with an error that wasStopped()
+ * knows, and the game is as it was before.
  */
 export async function writeInstall(
   game: GameId,
   entries: SourceEntry[],
   describe: (install: string, files: ManifestFile[]) => Manifest,
   onProgress?: (p: ImportProgress) => void,
+  signal?: AbortSignal,
 ): Promise<Manifest> {
   const install = `i${Date.now().toString(36)}`;
   const base = ['games', game];
@@ -191,9 +223,21 @@ export async function writeInstall(
   // Files of this device go to the worker as they are. Anything else it asks
   // the page for, a piece at a time.
   const handed = entries.map(({ path, file }): ImportEntry => (file instanceof File ? { path, file } : { path, size: file.size }));
-  const files = await call({ op: 'import', dir: [...base, install], entries: handed }, onProgress, async (entry, offset, length) =>
-    new Uint8Array(await entries[entry]!.file.slice(offset, offset + length).arrayBuffer()),
-  );
+  let files: ManifestFile[] | undefined;
+  try {
+    files = await call(
+      { op: 'import', dir: [...base, install], entries: handed },
+      onProgress,
+      async (entry, offset, length) => new Uint8Array(await entries[entry]!.file.slice(offset, offset + length).arrayBuffer()),
+      signal,
+    );
+    // Stopped in the moment between the last byte and the switch: still stopped.
+    if (signal?.aborted) throw stoppedError();
+  } catch (err) {
+    // Nothing points at what was copied so far; it would only take up room.
+    await call({ op: 'remove', dir: base, name: install }).catch(() => undefined);
+    throw err;
+  }
   const manifest = describe(install, files ?? []);
   const encode = (value: unknown) => new TextEncoder().encode(JSON.stringify(value));
   await call({ op: 'write', dir: [...base, install], name: 'manifest.json', data: encode(manifest) });

@@ -21,10 +21,10 @@
 <div class="prose">
   <h2>What this is</h2>
   <p>
-    Overseer Console runs Fallout and Fallout 2 inside your browser, using the open source Community Edition
-    engines. It does not include the games. You bring your own copy; the console copies its data files into this
-    browser's private storage on this device and plays from there. Nothing is uploaded anywhere, unless you link
-    your own Dropbox and upload saves to it yourself.
+    Overseer Console runs Fallout, Fallout 2 and the conversion Fallout Et Tu inside your browser, using the open
+    source Community Edition engines. It does not include the games. You bring your own copy; the console copies its
+    data files into this browser's private storage on this device and plays from there. Nothing is uploaded
+    anywhere, unless you link your own Dropbox and upload saves to it yourself.
   </p>
 
   <h2>Where the game files are</h2>
@@ -53,6 +53,11 @@
   <p>
     One <span class="hot">zip</span> of that folder does as well, for any of the games: choose it on the game's
     deck, or drop it on the console. It is read where it lies and is not unpacked anywhere.
+  </p>
+  <p>
+    A copy that is under way can be called off with <span class="hot">Stop loading</span>: what was copied is thrown
+    away, and the deck is as it was before. Loading a holodisk again, and ejecting it, are under
+    <span class="hot">Holodisk</span> on the deck of a game that is loaded; saved games are kept either way.
   </p>
 
   <h2>Fallout Et Tu</h2>
@@ -88,8 +93,8 @@
   <p>
     The console loads the mods that <span class="hot">mods\mods_order.txt</span> in the package switches on, and
     takes the settings in its <span class="hot">config</span> folder as they are. To play with a language pack or
-    another choice of options, change those files in a copy of the folder and load that. In Terminal settings,
-    <span class="hot">HIGH RESOLUTION</span> is the picture Et Tu was laid out for.
+    another choice of options, change those files in a copy of the folder and load that. Of the pictures deck C
+    offers, <span class="hot">HIGH RESOLUTION</span> is the one Et Tu was laid out for.
   </p>
 
   <h2>Controls</h2>
@@ -112,6 +117,20 @@
     In fullscreen, Chrome and Edge keep ESC for the game (hold it to leave fullscreen). Firefox and Safari use ESC
     to leave fullscreen, so there the <span class="hot">`</span> key (left of 1) stands in for ESC.
   </p>
+
+  <h2>Picture</h2>
+  <p>
+    Every game is played at a picture of its own, chosen on its deck (all three are side by side under Terminal
+    settings, <span class="hot">Picture</span>). A change takes hold the next time the game is started.
+  </p>
+  <dl class="readout gap">
+    <dt>Classic 4:3</dt>
+    <dd>The original 640 x 480 picture. The most faithful choice, and the lightest</dd>
+    <dt>Wide</dt>
+    <dd>Same zoom as the original, widened to the shape of your window: more of the map is visible</dd>
+    <dt>High resolution</dt>
+    <dd>Half as tall again and as wide as your window: far more of the map, everything on it smaller</dd>
+  </dl>
 
   <h2>Fast forward and improvements</h2>
   <p>
@@ -192,6 +211,10 @@
     archives and choose <span class="hot">Earlier versions</span>. Use it when a save turns out to be a dead end.
   </p>
   <p>
+    Erasing a save takes it out of its slot, not out of reach. For a week it is kept, with its earlier versions,
+    under <span class="hot">Erased saves</span> in the game's archive, and can be put back in its slot from there.
+  </p>
+  <p>
     Clearing this site's data in your browser deletes the game data and the saves. Safari may also clear data of
     sites you have not opened for a week; exporting your saves is the safe habit there.
   </p>
@@ -248,14 +271,18 @@
     <dt>Holodisk rejected</dt>
     <dd>The selection must contain MASTER.DAT. Pick the folder that holds it, not a folder above or below.</dd>
     <dt>Stutter</dt>
-    <dd>Close heavy tabs. In Terminal settings, CLASSIC picture is the lightest.</dd>
+    <dd>Close heavy tabs. Of the pictures on a game's deck, CLASSIC is the lightest.</dd>
     <dt>Et Tu rejected</dt>
     <dd>
       It needs Fallout in deck A while it is loaded, and Fallout 2 in deck B to play. The message names which one
       is missing.
     </dd>
     <dt>System fault</dt>
-    <dd>Restart the simulation. Games you saved earlier are not affected.</dd>
+    <dd>
+      The screen says what the engine reported. A game that stops while it is starting has found fault with its
+      data: load the holodisk again from the complete game folder. Otherwise restart the simulation. Games you saved
+      earlier are not affected.
+    </dd>
     <dt>Dropbox link refused</dt>
     <dd>
       The message names what is missing. Usually it is a permission that was ticked but not submitted, or a code

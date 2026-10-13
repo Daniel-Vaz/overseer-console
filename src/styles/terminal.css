@@ -25,10 +25,19 @@
 
   --glow: 0 0 0.35em rgba(77, 255, 124, 0.55), 0 0 1.1em rgba(77, 255, 124, 0.18);
 
-  /* One character cell. Everything on the tube is sized from it. */
+  /* One character cell where there is no tube to size it by: see .tube. */
   --cell: clamp(16px, 0.78vw + 1.12vh + 4px, 34px);
+  /* The smallest a cell on the tube gets. */
+  --cell-min: 18px;
 
   color-scheme: dark;
+}
+
+/* Read off a screen held in the hand and worked with a finger, it is a little larger. */
+@media (pointer: coarse) {
+  :root {
+    --cell-min: 20px;
+  }
 }
 
 *,
@@ -109,6 +118,17 @@ body {
     0 30px 80px rgba(0, 0, 0, 0.85);
 }
 
+/*
+ * A window taller than it is wide (a tablet held upright, a monitor turned on
+ * its side) has its room below the console, not beside it: the housing may
+ * stand half as tall again as it is wide before the vault takes the rest.
+ */
+@media (max-aspect-ratio: 1/1) {
+  .housing {
+    height: min(100%, max(1020px, 150vw));
+  }
+}
+
 /* Rivets in the four corners of the housing. */
 .housing::before {
   content: '';
@@ -151,6 +171,8 @@ body {
   position: relative;
   min-height: 0;
   padding: clamp(5px, 1.1vmin, 16px);
+  /* The tube is measured, so that what is on it can be sized from it. */
+  container: tube / size;
   border-radius: clamp(10px, 2.6vmin, 38px);
   background: linear-gradient(#0c0d0a, #17181300 30%), #0a0b09;
   box-shadow:
@@ -167,6 +189,14 @@ body {
   background:
     radial-gradient(130% 105% at 50% 46%, var(--tube-lit), var(--tube) 68%, #000 100%);
   isolation: isolate;
+  /*
+   * One character cell: everything on the tube is sized from it, and it from
+   * the tube. However large the window is the tube holds the same page:
+   * thirty-four lines of it, twenty-four of them a screen's own, and never
+   * fewer than some seventy columns. (Where a tube is not measured, as on
+   * the player page, the units fall back to the window, which it fills.)
+   */
+  font-size: clamp(var(--cell-min), min(100cqh / 34, 100cqw / 31), 34px);
 }
 
 .screen {
@@ -485,6 +515,29 @@ button.lamp:focus-visible {
   font-weight: normal;
 }
 
+/* Under the console's screens: what the entry under the cursor does, then the keys. */
+.foot {
+  position: relative;
+  padding-top: 0.4em;
+  border-top: 2px solid var(--phosphor-faint);
+}
+
+.foot .hints {
+  padding-top: 0.15em;
+  border-top: 0;
+}
+
+/* A screen that runs on below the tube says so, the way a pager does. */
+.more {
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  padding: 0 1ch;
+  background: var(--tube);
+  color: var(--phosphor-hot);
+  white-space: nowrap;
+}
+
 .body {
   min-height: 0;
   padding: 0.9em 0 0.6em;
@@ -492,6 +545,10 @@ button.lamp:focus-visible {
   scrollbar-width: thin;
   scrollbar-color: var(--phosphor-dim) transparent;
   overscroll-behavior: contain;
+  /* An entry the keys move to comes to rest clear of the edge. */
+  scroll-padding: 0.4em 0 1.6em;
+  /* Measured in its own columns: a screen lays itself out by how many it has. */
+  container: page / inline-size;
 }
 
 .body:focus {
@@ -706,13 +763,54 @@ kbd {
   white-space: nowrap;
 }
 
+/* Not to be had right now, but still to be read: dimmed and without its glow, never faint. */
 .menu button:disabled {
-  color: var(--phosphor-faint);
+  color: var(--phosphor-dim);
+  text-shadow: none;
   cursor: not-allowed;
 }
 
 .menu button:disabled .state {
-  color: var(--phosphor-faint);
+  color: var(--phosphor-dim);
+  text-shadow: none;
+}
+
+/* An entry that destroys something wears the colour of a fault. */
+.menu button.danger:not(:disabled) .label {
+  color: var(--alert);
+  text-shadow: 0 0 0.4em rgba(255, 106, 85, 0.5);
+}
+
+/* A heading over the entries that belong together in a long list. */
+.menu .group {
+  margin-top: 0.4em;
+  color: var(--phosphor-hot);
+  text-transform: uppercase;
+}
+
+.menu .group:first-child {
+  margin-top: 0;
+}
+
+.menu .group::before {
+  content: '== ';
+  color: var(--phosphor-dim);
+}
+
+.menu .group::after {
+  content: ' ==';
+  color: var(--phosphor-dim);
+}
+
+/* What follows the last group and belongs to none stands a little apart. */
+.menu .group.none {
+  height: 0.4em;
+  margin: 0;
+}
+
+.menu .group.none::before,
+.menu .group.none::after {
+  content: none;
 }
 
 .menu li.selected button:not(:disabled) {
@@ -732,18 +830,30 @@ kbd {
   border-color: var(--tube);
 }
 
+.menu li.selected button.danger:not(:disabled) {
+  background: var(--alert);
+  box-shadow: 0 0 0.9em rgba(255, 106, 85, 0.35);
+}
+
+.menu li.selected button.danger:not(:disabled) .label {
+  color: inherit;
+  text-shadow: none;
+}
+
 .menu li.selected button:disabled {
-  outline: 1px dashed var(--phosphor-faint);
+  outline: 1px dashed var(--phosphor-dim);
 }
 
 .menu button:focus-visible {
   outline: none;
 }
 
-/* What the selected entry does. Fixed height, so the list never jumps. */
+/*
+ * What the selected entry does, on the line under the screen. Two lines
+ * high whatever it says, so that the screen above it never jumps.
+ */
 .menu-note {
-  min-height: 2.3em;
-  margin-top: 0.5em;
+  min-height: 2.24em;
   padding-left: 4ch;
   color: var(--phosphor-dim);
 }
@@ -870,9 +980,11 @@ kbd {
   text-transform: uppercase;
 }
 
-.sheet .sep {
+/* A label and its value are one word: they go to the next line together or not at all. */
+.sheet .pair {
   display: inline-block;
-  width: 1.5ch;
+  margin-right: 1.5ch;
+  white-space: nowrap;
 }
 
 .sheet table {
@@ -1046,16 +1158,43 @@ kbd {
 }
 
 /* ------------------------------------------------------------------ */
+/* Fewer columns: the board goes under what it stands beside           */
+/* ------------------------------------------------------------------ */
+
+/*
+ * A screen lays itself out by the columns it has, whatever the window is
+ * like that gives it them: a list and the board beside it want a hundred or
+ * so. With fewer the board goes under the list, and leaves its picture off.
+ */
+@container page (max-width: 42em) {
+  .columns,
+  .columns.portrait {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .board {
+    margin-top: 1em;
+  }
+
+  .board .art,
+  .board .glyph {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* Small screens: the housing shrinks to a frame                       */
 /* ------------------------------------------------------------------ */
 
+/* Narrow or low: less of the housing shows, and more of the tube. */
 @media (max-width: 720px), (max-height: 520px) {
   :root {
     --cell: clamp(14px, 3.6vw, 20px);
   }
 
   .controls .hazard,
-  .controls .lamp.optional {
+  .controls .lamp.optional,
+  .stamp {
     display: none;
   }
 
@@ -1068,31 +1207,31 @@ kbd {
     height: 3.2em;
   }
 
+  .thumb {
+    max-width: 224px;
+    margin-left: 0;
+  }
+}
+
+/* Low, as a phone held sideways is: every line counts, and the line under the screen keeps one, not two. */
+@media (max-height: 520px) {
+  .menu-note {
+    min-height: 1.12em;
+  }
+}
+
+/* Narrow, as a phone held upright is: too few columns for anything to stand beside anything. */
+@media (max-width: 720px) {
+  /* The cell goes by the width alone; there is height to spare. */
+  .tube {
+    font-size: var(--cell);
+  }
+
   .menu button {
     grid-template-columns: 4ch minmax(0, 1fr) auto;
   }
 
   .menu button .leader {
-    display: none;
-  }
-
-  .columns,
-  .columns.portrait {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .thumb {
-    max-width: 224px;
-    margin-left: 0;
-  }
-
-  .board {
-    margin-top: 1em;
-  }
-
-  .board .art,
-  .board .glyph,
-  .stamp {
     display: none;
   }
 

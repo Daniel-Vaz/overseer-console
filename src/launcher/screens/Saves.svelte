@@ -2,11 +2,11 @@
   import { onMount } from 'svelte';
   import { DropboxError } from '../../lib/dropbox/api';
   import { eraseCloudSave, fetchSave, isSynced, sendSave, surveySaves, type SlotStanding } from '../../lib/dropbox/saves';
-  import { gameFacts, paletteFor, type GameFacts } from '../../lib/gamefacts';
+  import { gameFacts, paletteFor, whereabouts, type GameFacts } from '../../lib/gamefacts';
   import { GAMES, GAME_IDS, type GameId } from '../../lib/games';
   import { parseCharacter, parseSaveHeader, type Character } from '../../lib/savefile';
   import { deleteSave, exportSaves, listSaves, markForContinue, readSaveArchive, type SaveImport, type SaveSlot } from '../../lib/saves';
-  import { listVersions, readVersionSave, restoreVersion, type SaveVersion } from '../../lib/storage/history';
+  import { ERASED_KEPT_MS, listErased, listVersions, readVersionSave, restoreVersion, type ErasedSlot, type SaveVersion } from '../../lib/storage/history';
   import { formatBytes } from '../../lib/storage/manifest';
   import Glyph from '../components/Glyph.svelte';
   import Menu from '../components/Menu.svelte';
@@ -20,8 +20,18 @@
 
   let { go, game }: { go: (path: string) => void; game: GameId | null } = $props();
 
-  // Slot keys: digits first, then letters that no action on this screen uses.
-  const SLOT_KEYS = '123456789abcghjklmnpqrstvw';
+  // Keys for what has no number of its own to go by: digits first, then letters that no action on this screen uses.
+  const LIST_KEYS = '123456789abcghjklmnpqstvw';
+  const SPARE_KEYS = LIST_KEYS.slice(9);
+
+  /**
+   * The key that opens each slot: the slot's own number, as far as one key
+   * can say it. Slots past the ninth get a letter, and past those none.
+   */
+  function slotKeys(numbers: number[]): string[] {
+    let spare = 0;
+    return numbers.map((slot) => (slot >= 1 && slot <= 9 ? String(slot) : (SPARE_KEYS[spare++] ?? `s${slot}`)));
+  }
 
   let slots = $state<SaveSlot[] | null>(null);
   let open = $state<SaveSlot | null>(null);
@@ -30,6 +40,10 @@
   let versions = $state<SaveVersion[] | null>(null);
   let rollback = $state<SaveVersion | null>(null);
   let versionSelected = $state(0);
+  /** Slots that were erased and can still be put back, and whether they are being looked at. */
+  let erased = $state<ErasedSlot[]>([]);
+  let erasedOpen = $state(false);
+  let erasedSelected = $state(0);
   /** Picture and character of the version under the cursor, once read. */
   let preview = $state<{ id: number; thumbnail?: Uint8Array; sheet: Character | null } | null>(null);
   /** What the installed game lends for describing saves: its colours and its names. */
@@ -75,6 +89,8 @@
       versions = null;
     } else if (open) {
       open = null;
+    } else if (erasedOpen) {
+      erasedOpen = false;
     } else {
       return false;
     }
@@ -97,6 +113,9 @@
       slots = [];
       message = { text: `Could not read the save archives: ${err instanceof Error ? err.message : String(err)}`, bad: true };
     }
+    // What was erased is a comfort, not a necessity: the list does without it.
+    erased = await listErased(current).catch(() => []);
+    if (!erased.length) erasedOpen = false;
     void sys.refresh();
   }
 
@@ -107,12 +126,16 @@
     confirm = null;
     versions = null;
     rollback = null;
+    erasedOpen = false;
     message = null;
     void load();
   });
 
+  /** The earlier state of a slot that is under the cursor, in whichever list of them is open. */
+  const looking = $derived(versions ? versions[versionSelected] : erasedOpen ? erased[erasedSelected]?.version : undefined);
+
   $effect(() => {
-    const version = versions?.[versionSelected];
+    const version = looking;
     const current = game;
     if (!version || !current) {
       preview = null;
@@ -132,6 +155,9 @@
 
   /** The slot under the cursor in the list, when the cursor is on a slot. */
   const pointed = $derived(slots?.[selected] ?? null);
+
+  /** Where a save was made, in the game's own words where its data has them. */
+  const where = (save: { map: string; mapIndex: number; elevation: number }) => whereabouts(facts?.places, save);
 
   function slotLabel(slot: number): string {
     return `SLOT ${String(slot).padStart(2, '0')}`;
@@ -191,18 +217,20 @@
     if (!game || !open) return;
     const slot = open.slot;
     const inDropbox = sys.dropbox.linked && isSynced(game, slot);
-    await deleteSave(game, slot);
+    const kept = await deleteSave(game, slot);
     open = null;
     confirm = null;
-    message = { text: `${slotLabel(slot)} erased.` };
+    // What an erased slot held stays in its history for a while.
+    const undo = kept ? ' It can be put back for a week: see Erased saves.' : '';
+    message = { text: `${slotLabel(slot)} erased.${undo}` };
     if (inDropbox) {
       try {
         const there = await eraseCloudSave(game, slot);
         message = {
           text:
             there === 'erased'
-              ? `${slotLabel(slot)} erased, here and in Dropbox.`
-              : `${slotLabel(slot)} erased here. Dropbox holds a different save in that slot, which was left alone.`,
+              ? `${slotLabel(slot)} erased, here and in Dropbox.${undo}`
+              : `${slotLabel(slot)} erased here. Dropbox holds a different save in that slot, which was left alone.${undo}`,
         };
       } catch (err) {
         message = {
@@ -212,6 +240,21 @@
         sys.refreshDropbox();
       }
     }
+    await load();
+  }
+
+  /** Puts an erased slot back as it was, its earlier versions with it. */
+  async function putBack(entry: ErasedSlot): Promise<void> {
+    if (!game) return;
+    try {
+      await restoreVersion(game, entry.slot, entry.version.id);
+      message = { text: `${slotLabel(entry.slot)} put back.` };
+      sfx.done();
+    } catch (err) {
+      message = { text: `The save was not put back: ${err instanceof Error ? err.message : String(err)}`, bad: true };
+      sfx.deny();
+    }
+    erasedSelected = 0;
     await load();
   }
 
@@ -350,77 +393,98 @@
     { key: '0', label: 'Back', action: () => go('') },
   ]);
 
-  const listItems = $derived<MenuItem[]>([
-    ...(slots ?? []).map(
-      (save, index): MenuItem => ({
-        key: SLOT_KEYS[index] ?? '?',
-        label: `${slotLabel(save.slot)}  ${save.valid ? save.description || '(no description)' : 'UNREADABLE'}`,
-        state: save.valid ? `${save.character}${save.sheet?.level ? `, LEVEL ${save.sheet.level}` : ''}  ${save.gameDate}` : '',
-        tone: save.valid ? undefined : 'alert',
-        note: save.valid
-          ? `${save.map}, ${save.gameClock} hours. ${formatBytes(save.bytes)} in ${save.files} files.` +
-            (save.versions ? ` ${plural(save.versions, 'earlier version')} kept.` : '')
-          : undefined,
-        icon: 'save',
-        action: () => {
-          message = null;
-          open = save;
-        },
-      }),
-    ),
-    {
-      key: 'x',
-      label: 'Export all to a zip file',
-      icon: 'export-save',
-      disabled: !slots?.length,
-      note: 'A backup you can keep, move to another browser, or unpack into a desktop install.',
-      action: () => void exportNow(),
-    },
-    {
-      key: 'i',
-      label: 'Import from a zip file',
-      icon: 'import-save',
-      disabled: running,
-      note: running
-        ? 'Close the running simulation first.'
-        : 'Accepts archives exported here, or a zipped SAVEGAME folder from a desktop install.',
-      action: () => zipInput?.click(),
-    },
-    ...(sys.dropbox.linked
-      ? ([
-          {
-            key: 'u',
-            label: 'Upload to Dropbox',
-            icon: 'export-save',
-            disabled: cloudBusy !== null || !slots?.length,
-            note: slots?.length
-              ? 'Sends the saves that are newer here than in your Dropbox. A save that is newer there is never replaced.'
-              : 'There are no saves here to upload.',
-            action: () => void uploadSaves(),
+  const listItems = $derived.by((): MenuItem[] => {
+    const list = slots ?? [];
+    const keys = slotKeys(list.map((save) => save.slot));
+    return [
+      ...list.map(
+        (save, index): MenuItem => ({
+          key: keys[index]!,
+          label: `${slotLabel(save.slot)}  ${save.valid ? save.description || '(no description)' : 'UNREADABLE'}`,
+          state: save.valid ? `${save.character}${save.sheet?.level ? `, LEVEL ${save.sheet.level}` : ''}  ${save.gameDate}` : '',
+          tone: save.valid ? undefined : 'alert',
+          note: save.valid
+            ? `${where(save)}, ${save.gameClock} hours. ${formatBytes(save.bytes)} in ${save.files} files.` +
+              (save.versions ? ` ${plural(save.versions, 'earlier version')} kept.` : '')
+            : undefined,
+          icon: 'save',
+          action: () => {
+            message = null;
+            open = save;
           },
-          {
-            key: 'f',
-            label: 'Fetch from Dropbox',
-            icon: 'import-save',
-            disabled: cloudBusy !== null || running,
-            note: running
-              ? 'Close the running simulation first.'
-              : 'Brings in the saves that are newer in your Dropbox than here. What they replace is kept as an earlier version.',
-            action: () => void fetchSaves(),
-          },
-        ] satisfies MenuItem[])
-      : ([
-          {
-            key: 'u',
-            label: 'Keep saves in your Dropbox',
-            state: 'NOT LINKED',
-            icon: 'uplink',
-            note: 'Optional. Link your own Dropbox to carry saves between devices.',
-            action: () => go('settings/dropbox'),
-          },
-        ] satisfies MenuItem[])),
-    { key: '0', label: 'Back', icon: 'back', action: () => go('saves') },
-  ]);
+        }),
+      ),
+      {
+        key: 'x',
+        label: 'Export all to a zip file',
+        icon: 'export-save',
+        disabled: !list.length,
+        note: 'A backup you can keep, move to another browser, or unpack into a desktop install.',
+        action: () => void exportNow(),
+      },
+      {
+        key: 'i',
+        label: 'Import from a zip file',
+        icon: 'import-save',
+        disabled: running,
+        note: running
+          ? 'Close the running simulation first.'
+          : 'Accepts archives exported here, or a zipped SAVEGAME folder from a desktop install.',
+        action: () => zipInput?.click(),
+      },
+      ...(sys.dropbox.linked
+        ? ([
+            {
+              key: 'u',
+              label: 'Upload to Dropbox',
+              icon: 'export-save',
+              disabled: cloudBusy !== null || !list.length,
+              note: list.length
+                ? 'Sends the saves that are newer here than in your Dropbox. A save that is newer there is never replaced.'
+                : 'There are no saves here to upload.',
+              action: () => void uploadSaves(),
+            },
+            {
+              key: 'f',
+              label: 'Fetch from Dropbox',
+              icon: 'import-save',
+              disabled: cloudBusy !== null || running,
+              note: running
+                ? 'Close the running simulation first.'
+                : 'Brings in the saves that are newer in your Dropbox than here. What they replace is kept as an earlier version.',
+              action: () => void fetchSaves(),
+            },
+          ] satisfies MenuItem[])
+        : ([
+            {
+              key: 'u',
+              label: 'Keep saves in your Dropbox',
+              state: 'NOT LINKED',
+              icon: 'uplink',
+              note: 'Optional. Link your own Dropbox to carry saves between devices.',
+              action: () => go('settings/dropbox'),
+            },
+          ] satisfies MenuItem[])),
+      // Only while there is something to put back.
+      ...(erased.length
+        ? ([
+            {
+              key: 'r',
+              label: 'Erased saves',
+              state: `${erased.length} KEPT`,
+              icon: 'save',
+              note: 'Saves erased within the last week. Any of them can be put back in its slot.',
+              action: () => {
+                message = null;
+                erasedSelected = 0;
+                erasedOpen = true;
+              },
+            },
+          ] satisfies MenuItem[])
+        : []),
+      { key: '0', label: 'Back', icon: 'back', action: () => go('saves') },
+    ];
+  });
 
   const slotItems = $derived<MenuItem[]>([
     {
@@ -451,9 +515,13 @@
     {
       key: 'd',
       label: 'Erase this save',
-      tone: 'alert',
+      danger: !running,
       disabled: running,
-      note: running ? 'Close the running simulation first.' : 'Cannot be undone.',
+      note: running
+        ? 'Close the running simulation first.'
+        : open?.valid
+          ? 'Takes the save out of its slot. It can be put back for a week.'
+          : 'Cannot be undone: the slot holds no save the console can read.',
       action: () => (confirm = 'delete'),
     },
     { key: '0', label: 'Back', action: () => (open = null) },
@@ -464,19 +532,20 @@
     import: 'Replaced when an archive was restored over the slot',
     restore: 'Replaced when the slot was rolled back',
     cloud: 'Replaced by a save fetched from Dropbox',
+    erase: 'Erased',
   } as const;
 
   const versionItems = $derived<MenuItem[]>([
     ...(versions ?? []).map(
       (version, index): MenuItem => ({
-        key: SLOT_KEYS[index] ?? '?',
+        key: LIST_KEYS[index] ?? `v${index}`,
         label: `${stamp(version.id)}  ${version.header.description || '(no description)'}`,
         state: ago(version.id),
         icon: 'save',
         disabled: running,
         note: running
           ? 'Close the running simulation first.'
-          : `${version.header.character}, ${version.header.map}, ${version.header.gameDate}, ${version.header.gameClock} hours. ` +
+          : `${version.header.character}, ${where(version.header)}, ${version.header.gameDate}, ${version.header.gameClock} hours. ` +
             `${formatBytes(version.bytes)}. ${CAUSES[version.cause]}, ${stamp(version.replacedAt)}.`,
         action: () => {
           rollback = version;
@@ -487,8 +556,30 @@
     { key: '0', label: 'Back', icon: 'back', action: () => (versions = null) },
   ]);
 
+  const erasedItems = $derived.by((): MenuItem[] => {
+    const keys = slotKeys(erased.map((entry) => entry.slot));
+    return [
+      ...erased.map(
+        ({ slot, version, earlier }, index): MenuItem => ({
+          key: keys[index]!,
+          label: `${slotLabel(slot)}  ${version.header.description || '(no description)'}`,
+          state: `ERASED ${ago(version.replacedAt)}`,
+          icon: 'save',
+          disabled: running,
+          note: running
+            ? 'Close the running simulation first.'
+            : `${version.header.character}, ${where(version.header)}, ${version.header.gameDate}, ${version.header.gameClock} hours. ` +
+              `${formatBytes(version.bytes)}${earlier ? `, with ${plural(earlier, 'earlier version')}` : ''}. ` +
+              `Kept until ${stamp(version.replacedAt + ERASED_KEPT_MS, false)}.`,
+          action: () => void putBack(erased[index]!),
+        }),
+      ),
+      { key: '0', label: 'Back', icon: 'back', action: () => (erasedOpen = false) },
+    ];
+  });
+
+  // In every one of these ENTER lands on leaving things as they are.
   const rollbackItems: MenuItem[] = [
-    { key: 'y', label: 'Yes, roll back', tone: 'amber', action: () => void rollBack() },
     {
       key: 'n',
       label: 'No, leave the slot as it is',
@@ -497,15 +588,15 @@
         confirm = null;
       },
     },
+    { key: 'y', label: 'Yes, roll back', tone: 'amber', action: () => void rollBack() },
   ];
 
   const deleteItems: MenuItem[] = [
-    { key: 'y', label: 'Yes, erase it', tone: 'alert', action: () => void remove() },
     { key: 'n', label: 'No, keep it', action: () => (confirm = null) },
+    { key: 'y', label: 'Yes, erase it', danger: true, action: () => void remove() },
   ];
 
   const fetchItems: MenuItem[] = [
-    { key: 'y', label: 'Yes, fetch and replace', tone: 'amber', action: () => pendingFetch && void commitFetch(pendingFetch.items, pendingFetch.left) },
     {
       key: 'n',
       label: 'No, cancel',
@@ -514,10 +605,10 @@
         confirm = null;
       },
     },
+    { key: 'y', label: 'Yes, fetch and replace', tone: 'amber', action: () => pendingFetch && void commitFetch(pendingFetch.items, pendingFetch.left) },
   ];
 
   const importItems: MenuItem[] = [
-    { key: 'y', label: 'Yes, replace them', tone: 'alert', action: () => void commitImport() },
     {
       key: 'n',
       label: 'No, cancel',
@@ -526,10 +617,25 @@
         confirm = null;
       },
     },
+    { key: 'y', label: 'Yes, replace them', tone: 'amber', action: () => void commitImport() },
   ];
 </script>
 
 <input class="sr-only" type="file" accept=".zip,application/zip" tabindex="-1" aria-hidden="true" bind:this={zipInput} onchange={pickedArchive} />
+
+<!-- Picture and character of an earlier state of a slot, beside the list it was picked from. -->
+{#snippet earlier(label: string)}
+  {#if preview && looking?.id === preview.id}
+    <aside class="board gap" aria-label={label}>
+      {#if preview.thumbnail && palette}
+        <Thumbnail pixels={preview.thumbnail} {palette} label="The screen when this was saved" />
+      {/if}
+      {#if preview.sheet && game}
+        <Sheet character={preview.sheet} {game} {facts} />
+      {/if}
+    </aside>
+  {/if}
+{/snippet}
 
 {#if !game || !def}
   <h1>Save archives</h1>
@@ -581,8 +687,12 @@
       <div>
         <p class="amber">ERASE {slotLabel(open.slot)} "{open.description}"?</p>
         <p>
-          This cannot be undone. Export it first if you may want it back.
-          {#if open.versions}Its {plural(open.versions, 'earlier version')} {open.versions === 1 ? 'is' : 'are'} erased with it.{/if}
+          {#if open.valid}
+            It is kept for a week under Erased saves{#if open.versions}, with its {plural(open.versions, 'earlier version')},{/if}
+            and can be put back from there.
+          {:else}
+            This cannot be undone: the slot holds no save the console can read.
+          {/if}
           {#if sys.dropbox.linked && isSynced(game, open.slot)}Its copy in your Dropbox is erased as well.{/if}
         </p>
       </div>
@@ -594,7 +704,7 @@
       <div>
         <p class="amber">ROLL {slotLabel(open.slot)} BACK TO THE SAVE OF {stamp(rollback.id)}?</p>
         <p>
-          "{rollback.header.description || 'no description'}": {rollback.header.character}, {rollback.header.map},
+          "{rollback.header.description || 'no description'}": {rollback.header.character}, {where(rollback.header)},
           {rollback.header.gameDate}, {rollback.header.gameClock} hours.
         </p>
         <p>The save now in the slot is kept as an earlier version, so you can change your mind.</p>
@@ -611,16 +721,7 @@
         </p>
         <Menu items={versionItems} label="Earlier versions" bind:selected={versionSelected} />
       </div>
-      {#if preview && versions[versionSelected]?.id === preview.id}
-        <aside class="board gap" aria-label="This version">
-          {#if preview.thumbnail && palette}
-            <Thumbnail pixels={preview.thumbnail} {palette} label="The screen when this version was saved" />
-          {/if}
-          {#if preview.sheet}
-            <Sheet character={preview.sheet} {game} {facts} />
-          {/if}
-        </aside>
-      {/if}
+      {@render earlier('This version')}
     </div>
   {:else if open}
     <div class="columns portrait">
@@ -635,7 +736,7 @@
       <dt>Game date</dt>
       <dd>{open.gameDate}, {open.gameClock} hours</dd>
       <dt>Location</dt>
-      <dd>{open.map}</dd>
+      <dd>{where(open)}</dd>
       <dt>Saved</dt>
       <dd>{open.savedAt ? `${stamp(open.savedAt)} (${ago(open.savedAt)})` : 'UNKNOWN'}</dd>
       <dt>Size</dt>
@@ -655,6 +756,18 @@
         <p class="dim">THE CHARACTER SHEET OF THIS SAVE COULD NOT BE READ.</p>
       {/if}
     </aside>
+    </div>
+  {:else if erasedOpen}
+    <div class="columns portrait">
+      <div>
+        <p class="gap">ERASED SAVES</p>
+        <p class="dim prose">
+          What an erased slot held is kept for a week, with its earlier versions. Choose one to put it back in its
+          slot as it was.
+        </p>
+        <Menu items={erasedItems} label="Erased saves" bind:selected={erasedSelected} />
+      </div>
+      {@render earlier('This save')}
     </div>
   {:else}
     {#if !slots.length}

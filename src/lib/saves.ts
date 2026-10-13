@@ -8,9 +8,9 @@
 import { strFromU8, strToU8, unzipSync, zipSync, type Zippable } from 'fflate';
 import { GAMES, type GameId } from './games';
 import { SAVE_PREFIX, isSaveData, parseCharacter, parseSaveHeader, slotOf, slotPrefix, type Character } from './savefile';
-import { countVersions, deleteVersions, replaceSlot, type VersionCause } from './storage/history';
+import { countVersions, eraseSlot, replaceSlot, type VersionCause } from './storage/history';
 import { pathKey } from './storage/manifest';
-import { clearOverlay, listOverlay, listOverlayKeys, readOverlay, type OverlayChanges, type OverlayEntry } from './storage/overlay';
+import { listOverlay, listOverlayKeys, readOverlay, type OverlayChanges, type OverlayEntry } from './storage/overlay';
 
 export { THUMBNAIL_HEIGHT, THUMBNAIL_WIDTH, parseSaveHeader } from './savefile';
 
@@ -26,6 +26,9 @@ export interface SaveSlot {
   gameClock: string;
   /** Map file the save was made on, without extension. */
   map: string;
+  /** The number the game knows that map by, and the level of it the player was on. */
+  mapIndex: number;
+  elevation: number;
   /** When the save was written (real time), if known. */
   savedAt?: number;
   bytes: number;
@@ -66,6 +69,8 @@ export async function listSaves(game: GameId): Promise<SaveSlot[]> {
       gameDate: header?.gameDate ?? '',
       gameClock: header?.gameClock ?? '',
       map: header?.map ?? '',
+      mapIndex: header?.mapIndex ?? -1,
+      elevation: header?.elevation ?? 0,
       thumbnail: header?.thumbnail,
       sheet: header && main?.data ? parseCharacter(main.data, GAMES[game].engine.id) : null,
       savedAt: main?.mtime,
@@ -85,6 +90,8 @@ export interface SaveBrief {
   gameDate: string;
   gameClock: string;
   map: string;
+  mapIndex: number;
+  elevation: number;
   savedAt: number;
   /** The character's level, when the save could be read that far. */
   level?: number;
@@ -152,10 +159,13 @@ export function latestOf(game: GameId, saves: SaveBrief[]): LatestSave | null {
   return latest;
 }
 
-/** Erases a slot together with its earlier versions. */
-export async function deleteSave(game: GameId, slot: number): Promise<void> {
-  await clearOverlay(game, slotPrefix(slot));
-  await deleteVersions(game, slot);
+/**
+ * Erases a slot. Its history keeps what it held, and its earlier versions,
+ * for a week: until then the save can be put back. False when nothing of it
+ * could be kept.
+ */
+export function deleteSave(game: GameId, slot: number): Promise<boolean> {
+  return eraseSlot(game, slot);
 }
 
 /**

@@ -1,10 +1,18 @@
 /** How the console writes times. */
 
-/** "11 OCT 2026, 21:04" */
+const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+
+const two = (value: number) => String(value).padStart(2, '0');
+
+/**
+ * "11 OCT 2026, 21:04", in the time of the place the console stands in. Set
+ * the way the games write their own dates ("25 JUL 2241"), wherever that is:
+ * the two are shown side by side.
+ */
 export function stamp(timestamp: number, withTime = true): string {
-  const options: Intl.DateTimeFormatOptions = { day: '2-digit', month: 'short', year: 'numeric' };
-  if (withTime) Object.assign(options, { hour: '2-digit', minute: '2-digit', hour12: false });
-  return new Date(timestamp).toLocaleString(undefined, options).toUpperCase();
+  const date = new Date(timestamp);
+  const day = `${two(date.getDate())} ${MONTHS[date.getMonth()]} ${date.getFullYear()}`;
+  return withTime ? `${day}, ${two(date.getHours())}:${two(date.getMinutes())}` : day;
 }
 
 /** "JUST NOW", "12 MIN AGO", "3 HOURS AGO", "2 DAYS AGO", then the date. */

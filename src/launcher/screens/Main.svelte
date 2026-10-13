@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import mark from '../../assets/mark.webp';
+  import { whereabouts } from '../../lib/gamefacts';
   import { GAMES, GAME_IDS } from '../../lib/games';
   import { PROJECT_NAME } from '../../lib/project';
   import { formatBytes } from '../../lib/storage/manifest';
@@ -25,6 +26,11 @@
   const totalSaves = $derived(GAME_IDS.reduce((sum, game) => sum + sys.saves[game], 0));
   const ICONS = { fo1: 'holodisk-01', fo2: 'holodisk-02', ettu: 'gamedata' } as const;
   let selected = $state(0);
+
+  // An unsealed store is worth a word once it holds something a browser short of room could clear.
+  const unsealed = $derived(
+    sys.storage !== null && !sys.storage.persisted && (totalSaves > 0 || GAME_IDS.some((game) => !!sys.installs[game])),
+  );
 
   // The games kept a surprise for whoever held Shift and asked for the credits. So does the console:
   // everything that lives in the vault behind it comes through at once.
@@ -53,7 +59,7 @@
             key: 'c',
             label: `Continue: ${GAMES[resume.game].title}`,
             state: `SLOT ${String(resume.save.slot).padStart(2, '0')}, ${ago(resume.save.savedAt)}`,
-            note: `Straight into your latest save: "${resume.save.description || 'no description'}", ${resume.save.character}${resume.save.level ? ` (level ${resume.save.level})` : ''}, ${resume.save.map}, ${resume.save.gameDate}.`,
+            note: `Straight into your latest save: "${resume.save.description || 'no description'}", ${resume.save.character}${resume.save.level ? ` (level ${resume.save.level})` : ''}, ${whereabouts(sys.places[resume.game], resume.save)}, ${resume.save.gameDate}.`,
             icon: 'play',
             action: () => void launchGame(resume.game, resume.save.slot),
           } satisfies MenuItem,
@@ -90,7 +96,17 @@
       icon: 'save',
       action: () => go('saves'),
     },
-    { key: '5', label: 'Terminal settings', note: 'Picture, sound and storage.', icon: 'settings', action: () => go('settings') },
+    {
+      key: '5',
+      label: 'Terminal settings',
+      state: unsealed ? 'STORAGE NOT SEALED' : undefined,
+      tone: unsealed ? 'amber' : undefined,
+      note: unsealed
+        ? 'Picture, sound and storage. The storage is not sealed: a browser short of disk space may clear the games and saves kept here. Seal it in these settings.'
+        : 'Picture, sound and storage.',
+      icon: 'settings',
+      action: () => go('settings'),
+    },
     {
       key: '6',
       label: 'Operations manual',
@@ -110,7 +126,7 @@
   <img class="mark" src={mark} alt={PROJECT_NAME} width="288" height="288" />
   <div>
     <h1>Main directory</h1>
-    <p class="sub">Fallout and Fallout 2 in this browser, from your own copy of the games.</p>
+    <p class="sub">Fallout, Fallout 2 and Fallout Et Tu in this browser, from your own copy of the games.</p>
   </div>
 </header>
 
@@ -155,7 +171,7 @@
       <dt>Storage</dt>
       <dd>{sys.storage ? formatBytes(sys.storage.usage) : '...'}</dd>
       <dt>Seal</dt>
-      <dd class:amber={sys.storage !== null && !sys.storage.persisted}>{sys.storage?.persisted ? 'SEALED' : 'OPEN'}</dd>
+      <dd class:amber={unsealed}>{sys.storage?.persisted ? 'SEALED' : 'OPEN'}</dd>
     </dl>
   </aside>
 </div>

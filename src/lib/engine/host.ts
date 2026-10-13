@@ -271,7 +271,7 @@ export async function bootEngine(
   hooks.status('MOUNTING GAME DATA');
   const overlay = await listOverlay(game);
   const savedConfig = overlay.find((entry) => entry.key === def.configFile && !entry.deleted && entry.data);
-  const screen = chooseScreen(settings.display, viewport);
+  const screen = chooseScreen(settings.picture[game], viewport);
   const configFiles = buildConfigFiles({
     game,
     manifest: install.manifest,

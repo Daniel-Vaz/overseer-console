@@ -20,9 +20,11 @@ const test = base.extend({
  * The console linked to a Dropbox that is not there: every request to the
  * three Dropbox hosts is answered by tests/fake-dropbox.ts.
  */
-async function standIn(context: BrowserContext, dropbox: FakeDropbox): Promise<void> {
+async function standIn(context: BrowserContext, dropbox: FakeDropbox, line: { downloadMs: number } = { downloadMs: 0 }): Promise<void> {
   await context.route(/^https:\/\/(www\.dropbox\.com|api\.dropboxapi\.com|content\.dropboxapi\.com)\//, async (route) => {
     const request = route.request();
+    // A slow line, where a test wants to act while something is still on its way.
+    if (line.downloadMs && request.url().includes('/files/download')) await new Promise((resolve) => setTimeout(resolve, line.downloadMs));
     const answer = dropbox.handle({ method: request.method(), url: request.url(), headers: request.headers(), body: request.postDataBuffer() });
     await route.fulfill({ status: answer.status, headers: answer.headers, body: typeof answer.body === 'string' ? answer.body : Buffer.from(answer.body) });
   });
@@ -104,7 +106,10 @@ test('links to a Dropbox with an app key and a pasted code, and unlinks again', 
   await expect(page.locator('.menu li').filter({ hasText: 'Dropbox link' })).toContainText('NOT LINKED');
   await page.keyboard.press('d');
   await expect(page.getByRole('heading', { name: 'Dropbox link' })).toBeVisible();
-  await expect(page.getByText('Before the first link')).toBeVisible();
+  // What to do stands above what to fill in.
+  const steps = (await page.getByText('you make a small private app in your own Dropbox').boundingBox())!;
+  const field = (await page.getByLabel('App key').boundingBox())!;
+  expect(steps.y).toBeLessThan(field.y);
   const open = page.locator('.menu li').nth(1).locator('button');
   await expect(open).toBeDisabled();
 
@@ -211,7 +216,7 @@ test('carries saves to another browser through Dropbox', async ({ page, context 
   await expect(slot).toContainText('before the temple');
   // It is the save of that moment, not one made now, and all of it.
   expect(await savedAt(page, '03')).toBe(saved);
-  await page.keyboard.press('1');
+  await page.keyboard.press('3');
   await expect(page.locator('.readout').first()).toContainText('in 2 files');
   await page.keyboard.press('0');
 
@@ -231,7 +236,7 @@ test('carries saves to another browser through Dropbox', async ({ page, context 
   await expect(slot).toContainText('through the temple');
 
   // What it replaced is one roll back away.
-  await page.keyboard.press('1');
+  await page.keyboard.press('3');
   await page.keyboard.press('v');
   await expect(page.locator('.menu li').first()).toContainText('before the temple');
   await expect(page.locator('.menu-note')).toContainText('Replaced by a save fetched from Dropbox');
@@ -291,13 +296,13 @@ test('loads a game from the folder in Dropbox', async ({ page, context }) => {
 
   // The other game is not there, and is not mistaken for this one.
   await page.goto('#/fo1');
-  await page.keyboard.press('d');
+  await page.keyboard.press('3');
   await expect(page.getByText('HOLODISK REJECTED')).toBeVisible();
   await expect(page.getByRole('alert')).toContainText('Fallout was not found in your Dropbox. What is there is Fallout 2.');
 
   await page.goto('#/fo2');
   await expect(page.locator('.menu li').nth(2)).toContainText('Load holodisk from Dropbox');
-  await page.keyboard.press('d');
+  await page.keyboard.press('3');
   await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 60_000 });
   await expect(page.getByRole('status')).toContainText('5 files');
   await expect(page.getByRole('status')).toContainText('Saved games found in the folder were added');
@@ -323,7 +328,8 @@ test('loads a game from the folder in Dropbox', async ({ page, context }) => {
     packed: 4,
   });
 
-  // Loaded, it can be fetched again in place.
+  // Loaded, it can be fetched again in place: with the other ways of loading it, under its holodisk.
+  await page.locator('.menu button', { hasText: 'Holodisk' }).click();
   await expect(page.locator('.menu li').filter({ hasText: 'Replace holodisk from Dropbox' })).toBeVisible();
 });
 
@@ -334,7 +340,8 @@ test('loads Fallout Et Tu from the zip it is kept as in Dropbox', async ({ page,
   await standIn(context, dropbox);
   await linkConsole(page, context, dropbox);
   await page.goto('#/ettu');
-  await page.keyboard.press('d');
+  const fromDropbox = page.locator('.menu button', { hasText: 'Load holodisk from Dropbox' });
+  await fromDropbox.click();
   await expect(page.getByRole('alert')).toContainText('No Fallout Et Tu in the console\'s app folder in your Dropbox. Upload the zip it is downloaded as');
 
   // The package as it is downloaded, from a folder its own tool was run in: nothing to take from Fallout.
@@ -342,7 +349,7 @@ test('loads Fallout Et Tu from the zip it is kept as in Dropbox', async ({ page,
   // A zip that is none is passed over, not held against the one that is.
   dropbox.put('/Games/broken.zip', 'not a zip');
   dropbox.calls.length = 0;
-  await page.keyboard.press('d');
+  await fromDropbox.click();
   await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 60_000 });
   await expect(page.getByRole('status')).toContainText('19 files');
   await expect(page.getByRole('status')).not.toContainText('fallout2-ce.exe');
@@ -361,4 +368,76 @@ test('loads Fallout Et Tu from the zip it is kept as in Dropbox', async ({ page,
   });
   expect(files).toContain('mods/fo1_base');
   expect(files).toContain('fallout1.dat');
+});
+
+test('a game on its way from Dropbox can be called off, and the deck is as it was', async ({ page, context }) => {
+  const dropbox = new FakeDropbox();
+  // Three pieces of the copy (4 MB each): long enough on a slow line to be stopped half way.
+  const master = patterned(12 << 20);
+  master.writeUInt32LE(16, master.length - 8);
+  master.writeUInt32LE(master.length, master.length - 4);
+  const small = Buffer.alloc(4096, 0x2a);
+  small.writeUInt32LE(16, small.length - 8);
+  small.writeUInt32LE(small.length, small.length - 4);
+  dropbox.put('/Games/Fallout 2/master.dat', master);
+  dropbox.put('/Games/Fallout 2/critter.dat', small);
+  dropbox.put('/Games/Fallout 2/patch000.dat', small);
+  dropbox.put('/Games/Fallout 2/sound/music/01hub.acm', Buffer.alloc(2048, 1));
+  const line = { downloadMs: 0 };
+  await standIn(context, dropbox, line);
+  await linkConsole(page, context, dropbox);
+
+  /** Whether the browser would ask before it lets the page go. */
+  const guarded = () =>
+    page.evaluate(() => {
+      const leaving = new Event('beforeunload', { cancelable: true });
+      window.dispatchEvent(leaving);
+      return leaving.defaultPrevented;
+    });
+  /** What the store holds of the game: the names in its folder. */
+  const stored = () =>
+    page.evaluate(async () => {
+      const names: string[] = [];
+      try {
+        const root = await navigator.storage.getDirectory();
+        const game = await (await (await root.getDirectoryHandle('overseer-console')).getDirectoryHandle('games')).getDirectoryHandle('fo2');
+        for await (const name of (game as unknown as { keys(): AsyncIterable<string> }).keys()) names.push(name);
+      } catch {
+        // No folder for the game at all.
+      }
+      return names;
+    });
+
+  await page.goto('#/fo2');
+  expect(await guarded()).toBe(false);
+  line.downloadMs = 800;
+  const fromDropbox = page.locator('.menu button', { hasText: 'Load holodisk from Dropbox' });
+  await fromDropbox.click();
+  await expect(page.getByText('FETCHING HOLODISK FROM DROPBOX INTO PRIVATE STORAGE')).toBeVisible({ timeout: 60_000 });
+  // Closing the tab now would end the copy: the browser is told to ask first.
+  expect(await guarded()).toBe(true);
+
+  // Calling it off is asked about, and ENTER lands on carrying on.
+  await page.keyboard.press('x');
+  await expect(page.getByText('STOP LOADING THE FALLOUT 2 HOLODISK?')).toBeVisible();
+  await expect(page.locator('.menu li.selected')).toContainText('No, carry on');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.menu li.selected')).toContainText('Stop loading');
+  await page.keyboard.press('x');
+  await page.keyboard.press('y');
+
+  await expect(page.getByText('LOADING STOPPED')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText('Nothing was changed: the deck is as it was.')).toBeVisible();
+  await expect(page.getByText('NOT LOADED')).toBeVisible();
+  await expect(page.locator('.menu button').first()).toContainText('Load holodisk');
+  // What had been copied is gone, not left to take up room.
+  expect(await stored()).toEqual([]);
+  expect(await guarded()).toBe(false);
+
+  // Asked again, on a line that keeps up, it loads.
+  line.downloadMs = 0;
+  await fromDropbox.click();
+  await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByRole('status')).toContainText('4 files');
+  expect(await stored()).toEqual(expect.arrayContaining(['current.json']));
 });

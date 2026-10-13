@@ -3,10 +3,12 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { HEADER_SIZE, slotPrefix } from '../../src/lib/savefile';
 import { deleteSave, listSaves } from '../../src/lib/saves';
 import {
+  ERASED_KEPT_MS,
   KEEP_RECENT,
   MAX_VERSIONS,
   commitWithHistory,
   deleteVersions,
+  listErased,
   listVersions,
   readVersionSave,
   replaceSlot,
@@ -196,16 +198,62 @@ describe('save history', () => {
     expect(await blobCount()).toBe(versions.length * 2);
   });
 
-  it('forgets the history of a slot that is erased', async () => {
-    await commitWithHistory('fo2', save(1, 'a', 1000));
-    await commitWithHistory('fo2', save(1, 'b', 2000));
+  it('keeps what an erased slot held, with its history, and puts it back as it was', async () => {
+    await commitWithHistory('fo2', save(1, 'a', 1000, { 'ARTEMPLE.SAV': [1] }));
+    await commitWithHistory('fo2', save(1, 'b', 2000, { 'ARTEMPLE.SAV': [2] }));
     await commitWithHistory('fo2', save(2, 'c', 3000));
     await commitWithHistory('fo2', save(2, 'd', 4000));
-    await deleteSave('fo2', 1);
-    expect(await listVersions('fo2', 1)).toEqual([]);
-    expect(await listVersions('fo2', 2)).toHaveLength(1);
-    expect(await blobCount()).toBe(1);
+    expect(await listErased('fo2')).toEqual([]);
+
+    expect(await deleteSave('fo2', 1)).toBe(true);
     expect((await listSaves('fo2')).map((item) => item.slot)).toEqual([2]);
+    // Nothing of slot 1 was thrown away: what it held, and what it had held before.
+    expect((await listVersions('fo2', 1)).map((version) => [version.header.description, version.cause])).toEqual([
+      ['b', 'erase'],
+      ['a', 'save'],
+    ]);
+    expect(await listVersions('fo2', 2)).toHaveLength(1);
+
+    // Only the slot that holds nothing counts as erased.
+    const erased = await listErased('fo2');
+    expect(erased.map((entry) => [entry.slot, entry.version.header.description, entry.earlier])).toEqual([[1, 'b', 1]]);
+
+    await restoreVersion('fo2', 1, erased[0]!.version.id);
+    expect(await slotDescription(1)).toBe('b');
+    expect((await listOverlay('fo2', slotPrefix(1))).find((entry) => entry.key.endsWith('artemple.sav'))!.data).toEqual(new Uint8Array([2]));
+    expect((await listVersions('fo2', 1)).map((version) => version.header.description)).toEqual(['a']);
+    expect(await listErased('fo2')).toEqual([]);
+  });
+
+  it('forgets an erased slot a week later, for good', async () => {
+    await commitWithHistory('fo2', save(1, 'a', 1000));
+    await commitWithHistory('fo2', save(1, 'b', 2000));
+    await deleteSave('fo2', 1);
+    const erasedAt = (await listErased('fo2'))[0]!.version.replacedAt;
+
+    expect(await listErased('fo2', erasedAt + ERASED_KEPT_MS - HOUR)).toHaveLength(1);
+    expect(await listErased('fo2', erasedAt + ERASED_KEPT_MS + HOUR)).toEqual([]);
+    expect(await listVersions('fo2', 1)).toEqual([]);
+    expect(await blobCount()).toBe(0);
+  });
+
+  it('a slot the game has saved into again is not an erased one', async () => {
+    await commitWithHistory('fo2', save(1, 'a', 1000));
+    await deleteSave('fo2', 1);
+    await commitWithHistory('fo2', save(1, 'new', 5000));
+    expect(await listErased('fo2')).toEqual([]);
+    // What was erased is the new save's history now.
+    expect((await listVersions('fo2', 1)).map((version) => [version.header.description, version.cause])).toEqual([['a', 'erase']]);
+  });
+
+  it('has nothing to put back of a slot that held no readable save', async () => {
+    await commitWithHistory('fo2', {
+      puts: [{ key: 'data/savegame/slot03/save.dat', path: 'data/SAVEGAME/SLOT03/SAVE.DAT', mtime: 1000, data: new Uint8Array(64) }],
+      deletes: [],
+    });
+    expect(await deleteSave('fo2', 3)).toBe(false);
+    expect(await listSaves('fo2')).toEqual([]);
+    expect(await listErased('fo2')).toEqual([]);
   });
 
   it('does not keep a slot that holds no readable save', async () => {

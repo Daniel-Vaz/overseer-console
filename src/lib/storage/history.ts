@@ -5,7 +5,8 @@
  * for saves that turn out to be dead ends hours later. So before a slot is
  * overwritten - by the game, by restoring an archive, by a save fetched from
  * the player's Dropbox, or by rolling back - its previous contents are kept
- * as a version.
+ * as a version. Erasing a slot does the same, and leaves its versions where
+ * they are for a week: an erased save can be put back.
  *
  * A save rewrites dozens of map files of which most did not change, so file
  * contents are stored once per slot under their hash and shared by the
@@ -15,15 +16,15 @@
  * themselves, and a failure to keep a version never stops a save.
  */
 import type { GameId } from '../games';
-import { isSaveData, parseSaveHeader, slotOf, slotPrefix, type SaveHeader } from '../savefile';
-import { commitOverlay, listOverlay, replaceOverlay, type OverlayChanges, type OverlayEntry } from './overlay';
+import { SAVE_PREFIX, isSaveData, parseSaveHeader, slotOf, slotPrefix, type SaveHeader } from '../savefile';
+import { clearOverlay, commitOverlay, listOverlay, listOverlayKeys, replaceOverlay, type OverlayChanges, type OverlayEntry } from './overlay';
 
 const DB_NAME = 'overseer-console-history';
 const DB_VERSION = 1;
 const VERSIONS = 'versions';
 const BLOBS = 'blobs';
 
-export type VersionCause = 'save' | 'import' | 'restore' | 'cloud';
+export type VersionCause = 'save' | 'import' | 'restore' | 'cloud' | 'erase';
 
 interface VersionFile {
   key: string;
@@ -173,15 +174,15 @@ function liveFiles(entries: OverlayEntry[]): OverlayEntry[] {
 }
 
 /**
- * Keeps what a slot holds right now as a version. Does nothing when the slot
- * is empty or does not hold a readable save. Safe to repeat: the same state
- * is the same version.
+ * Keeps what a slot holds right now as a version, and says whether it did:
+ * nothing is kept of a slot that is empty or does not hold a readable save.
+ * Safe to repeat: the same state is the same version.
  */
-async function keepVersion(game: GameId, slot: number, cause: VersionCause, now: number): Promise<void> {
+async function keepVersion(game: GameId, slot: number, cause: VersionCause, now: number): Promise<boolean> {
   const entries = liveFiles(await listOverlay(game, slotPrefix(slot)));
   const main = entries.find((entry) => isSaveData(entry.key));
   const header = main ? parseSaveHeader(main.data!) : null;
-  if (!main || !header) return;
+  if (!main || !header) return false;
 
   const files: VersionFile[] = await Promise.all(
     entries.map(async (entry) => ({
@@ -236,6 +237,7 @@ async function keepVersion(game: GameId, slot: number, cause: VersionCause, now:
     if (!needed.has(hash)) blobs.delete([game, slot, hash]);
   }
   await finished;
+  return true;
 }
 
 /** Slots a batch of changes writes a new SAVE.DAT into. */
@@ -277,6 +279,66 @@ export async function replaceSlot(
 ): Promise<void> {
   await keepVersion(game, slot, cause, Date.now()).catch(historyFailed);
   await replaceOverlay(game, slotPrefix(slot), puts);
+}
+
+// ---------------------------------------------------------------------
+// Erasing a slot, and putting it back
+// ---------------------------------------------------------------------
+
+/** For this long what an erased slot held can still be put back. */
+export const ERASED_KEPT_MS = 7 * 24 * 60 * 60_000;
+
+/**
+ * Erases a slot. What it held is kept as a version and its earlier versions
+ * stay where they are, so that the slot can be put back (see listErased).
+ * False when nothing could be kept: the slot held no readable save, or the
+ * history would not take it.
+ */
+export async function eraseSlot(game: GameId, slot: number): Promise<boolean> {
+  const kept = await keepVersion(game, slot, 'erase', Date.now()).catch((err: unknown) => {
+    historyFailed(err);
+    return false;
+  });
+  await clearOverlay(game, slotPrefix(slot));
+  return kept;
+}
+
+/** A slot that was erased and can still be put back. */
+export interface ErasedSlot {
+  slot: number;
+  /** What it held when it was erased: restoreVersion puts this back. */
+  version: SaveVersion;
+  /** How many earlier versions of the slot come back with it. */
+  earlier: number;
+}
+
+/**
+ * The slots of a game that hold nothing now and have a history: erased ones.
+ * Those erased longer ago than a week are forgotten here, for good.
+ */
+export async function listErased(game: GameId, now = Date.now()): Promise<ErasedSlot[]> {
+  const db = await openDb();
+  const all = (await result(db.transaction(VERSIONS).objectStore(VERSIONS).getAll(rangeFor(game)))) as SaveVersion[];
+  if (!all.length) return [];
+  const holding = new Set((await listOverlayKeys(game, SAVE_PREFIX)).filter(isSaveData).map((key) => slotOf(key)));
+  const bySlot = new Map<number, SaveVersion[]>();
+  for (const version of all) {
+    if (holding.has(version.slot)) continue;
+    const versions = bySlot.get(version.slot);
+    if (versions) versions.push(version);
+    else bySlot.set(version.slot, [version]);
+  }
+
+  const erased: ErasedSlot[] = [];
+  for (const [slot, versions] of bySlot) {
+    const last = versions.reduce((a, b) => (b.replacedAt > a.replacedAt ? b : a));
+    if (now - last.replacedAt > ERASED_KEPT_MS) {
+      await deleteVersions(game, slot).catch(historyFailed);
+      continue;
+    }
+    erased.push({ slot, version: last, earlier: versions.length - 1 });
+  }
+  return erased.sort((a, b) => a.slot - b.slot);
 }
 
 // ---------------------------------------------------------------------
