@@ -23,6 +23,11 @@ export interface Settings {
   crt: boolean;
   /** Key clicks and beeps on the console itself. */
   sound: boolean;
+  /**
+   * The abandoned vault around the console, where the window is large enough
+   * to show any of it, and what comes out of it onto the console's own glass.
+   */
+  vault: boolean;
   /** Megabytes of game data kept in memory once read. */
   cacheMb: number;
   /**
@@ -46,6 +51,7 @@ export const DEFAULT_SETTINGS: Settings = {
   skipIntro: false,
   crt: true,
   sound: true,
+  vault: true,
   cacheMb: 192,
   audio: 'buffered',
   touchPointer: 'direct',
@@ -98,6 +104,23 @@ export function recordLaunch(game: string): void {
   stats.launches = (stats.launches ?? 0) + 1;
   try {
     localStorage.setItem(`${KEY}:stats:${game}`, JSON.stringify(stats));
+  } catch {
+    // See saveSettings.
+  }
+}
+
+/** How many radroaches have met their end on this console. */
+export function loadSquashed(): number {
+  try {
+    return Math.max(0, Math.floor(Number(localStorage.getItem(`${KEY}:squashed`)) || 0));
+  } catch {
+    return 0;
+  }
+}
+
+export function saveSquashed(count: number): void {
+  try {
+    localStorage.setItem(`${KEY}:squashed`, String(count));
   } catch {
     // See saveSettings.
   }

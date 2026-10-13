@@ -25,6 +25,15 @@
   const totalSaves = $derived(sys.saves.fo1 + sys.saves.fo2);
   let selected = $state(0);
 
+  // The games kept a surprise for whoever held Shift and asked for the credits. So does the console:
+  // everything that lives in the vault behind it comes through at once.
+  let shift = false;
+  const noteShift = (event: KeyboardEvent | PointerEvent) => (shift = event.shiftKey);
+  function credits(): void {
+    if (shift) window.dispatchEvent(new CustomEvent('overseer:vault', { detail: 'parade' }));
+    go('credits');
+  }
+
   // The latest save of either game. Listed first, so ENTER alone continues.
   const resume = $derived(sys.continueFrom());
   let listed = false;
@@ -79,11 +88,13 @@
       icon: 'manual',
       action: () => go('manual'),
     },
-    { key: '6', label: 'Credits and legal', note: 'Who made the engines, and the small print.', icon: 'credits', action: () => go('credits') },
+    { key: '6', label: 'Credits and legal', note: 'Who made the engines, and the small print.', icon: 'credits', action: credits },
   ]);
 
   const pointed = $derived(items[selected]);
 </script>
+
+<svelte:window onkeydowncapture={noteShift} onkeyupcapture={noteShift} onpointerdowncapture={noteShift} />
 
 <header class="masthead">
   <img class="mark" src={mark} alt={PROJECT_NAME} width="288" height="288" />

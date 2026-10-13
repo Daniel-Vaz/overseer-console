@@ -69,6 +69,25 @@ body {
     linear-gradient(#0b0c0a, #030403);
 }
 
+/* The vault the console stands in, painted in coarse pixels behind the housing. */
+.vault {
+  position: absolute;
+  top: 0;
+  left: 0;
+  image-rendering: crisp-edges;
+  image-rendering: pixelated;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 1.6s ease-out;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Things in it answer to being pressed; the cursor says which. */
+.vault.showing {
+  pointer-events: auto;
+  opacity: 1;
+}
+
 .housing {
   --pad: clamp(8px, 3vmin, 40px);
   position: relative;
@@ -157,6 +176,28 @@ body {
   grid-template-rows: auto minmax(0, 1fr) auto;
   padding: clamp(10px, 2.2vmin, 34px) clamp(12px, 3vmin, 48px);
   text-shadow: var(--glow);
+}
+
+/* A radroach out on the glass: on top of everything the tube shows, and the one thing on it that can be squashed. */
+.pest {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 6;
+  width: 63px;
+  height: 63px;
+  visibility: hidden;
+  pointer-events: none;
+  cursor: crosshair;
+  image-rendering: crisp-edges;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.8));
+  -webkit-tap-highlight-color: transparent;
+}
+
+.pest.out {
+  visibility: visible;
+  pointer-events: auto;
 }
 
 /* Scanlines, vignette and glass. Sit above the text, ignore the pointer. */
@@ -281,6 +322,19 @@ body {
   white-space: nowrap;
 }
 
+/* The plate has something to say about what was just done to the vault: it flips over, and back when it has said it. */
+.nameplate.speaking {
+  color: #e6d9a4;
+  animation: flap 0.24s ease-out;
+}
+
+@keyframes flap {
+  from {
+    transform: scaleY(0.08);
+    filter: brightness(2.2);
+  }
+}
+
 .hazard {
   flex: 1 1 auto;
   align-self: stretch;
@@ -297,6 +351,23 @@ body {
   align-items: center;
   gap: 0.5em;
   white-space: nowrap;
+}
+
+/* The power lamp is also a button: off and on again. */
+button.lamp {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-shadow: inherit;
+  cursor: pointer;
+}
+
+button.lamp:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 3px;
 }
 
 .lamp::before {
@@ -1066,6 +1137,7 @@ kbd {
   .warm-up .screen,
   .cursor,
   .lamp.busy::before,
+  .nameplate.speaking,
   .art .turning,
   .art.spinning .reel {
     animation: none;

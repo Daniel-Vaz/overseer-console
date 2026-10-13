@@ -1,8 +1,10 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick as settled } from 'svelte';
   import { isGameId, type GameId } from '../lib/games';
   import { sourcesFromDrop } from '../lib/storage/importer';
   import Glyph from './components/Glyph.svelte';
+  import Pest from './components/Pest.svelte';
+  import Vault from './components/Vault.svelte';
   import { isTyping } from './keys';
   import Boot from './screens/Boot.svelte';
   import Credits from './screens/Credits.svelte';
@@ -14,6 +16,7 @@
   import Settings from './screens/Settings.svelte';
   import { sfx } from './sfx';
   import { consoleState as sys } from './state.svelte';
+  import { REMARKS } from './vault/remarks';
 
   const BOOTED_KEY = 'overseer-console:booted';
 
@@ -27,6 +30,7 @@
   let dragging = $state(0);
   let clock = $state('');
   let body: HTMLElement | undefined = $state();
+  let housing: HTMLElement | undefined = $state();
 
   const section = $derived(route[0] ?? '');
   const game = $derived<GameId | null>(isGameId(route[0]) ? route[0] : isGameId(route[1]) ? route[1] : null);
@@ -146,6 +150,19 @@
     sys.update({ [key]: !sys.settings[key] });
     sfx.switch();
   }
+
+  // The tube warms up when the console is switched on; it can be made to do so again. Off and on
+  // again never fixed a water chip, but it is always worth a try, and the vault is on the same circuit.
+  let warming = $state(true);
+  async function cyclePower(): Promise<void> {
+    sfx.switch();
+    sys.remark(REMARKS.power);
+    window.dispatchEvent(new CustomEvent('overseer:vault', { detail: 'dip' }));
+    // The tube has to have been cold for a moment before it can warm up afresh.
+    warming = false;
+    await settled();
+    requestAnimationFrame(() => (warming = true));
+  }
 </script>
 
 <svelte:window
@@ -157,7 +174,10 @@
 />
 
 <div class="room">
-  <div class="housing warm-up" class:crt-on={sys.settings.crt} class:crt-off={!sys.settings.crt}>
+  {#if sys.settings.vault}
+    <Vault {housing} sealed={sys.storage ? sys.storage.persisted : null} />
+  {/if}
+  <div class="housing" class:warm-up={warming} class:crt-on={sys.settings.crt} class:crt-off={!sys.settings.crt} bind:this={housing}>
     <span class="stamp" aria-hidden="true">OVERSEER'S OFFICE &#9670; AUTHORIZED PERSONNEL ONLY</span>
     <div class="tube-well">
       <div class="tube">
@@ -206,12 +226,18 @@
             <span>Release to load holodisk</span>
           </div>
         {/if}
+
+        {#if sys.settings.vault}
+          <Pest />
+        {/if}
       </div>
     </div>
 
     <div class="controls">
-      <span class="nameplate">OVERSEER CONSOLE</span>
-      <span class="lamp on" title="Power">PWR</span>
+      {#key sys.plate}
+        <span class="nameplate" class:speaking={sys.plate !== ''}>{sys.plate || 'OVERSEER CONSOLE'}</span>
+      {/key}
+      <button class="lamp on" type="button" title="Power" onclick={cyclePower}>PWR<span class="sr-only"> off and on again</span></button>
       <span class="lamp amber optional" class:on={sys.busy} class:busy={sys.busy} title="Disk activity">DISK</span>
       <span class="hazard"></span>
       <button class="switch" type="button" aria-pressed={sys.settings.crt} onclick={() => toggle('crt')}>

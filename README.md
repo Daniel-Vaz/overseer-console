@@ -52,6 +52,10 @@ into the browser's private storage on your device and plays from there.
   Dropbox (the way to get a game with its music onto a phone).
 - **Touch screens.** Tap, drag, press-and-hold and two-finger gestures stand in for the mouse, with
   on-screen mouse buttons and a keyboard that appears when a game asks for text.
+- **A vault around it.** On a screen with room to spare the console stands in an abandoned vault:
+  lamps that fail, a pipe that drips, and now and then something that walks past. Most of it answers
+  to being clicked, its great door is shut exactly when the console's storage is sealed, and a console
+  left alone gets a visitor on its glass.
 
 > [!NOTE]
 > This is an unofficial fan project. It is not affiliated with or endorsed by Bethesda Softworks,
@@ -67,6 +71,7 @@ into the browser's private storage on your device and plays from there.
 | Save reader | `src/lib/savefile.ts`, `dat.ts`, `gamefacts.ts` | Reads a save's header, picture and character sheet, and fetches the palette and the names of perks, traits and skills out of the player's own `MASTER.DAT` (both archive formats). |
 | Dropbox link | `src/lib/dropbox/` | Optional. Talks to the player's own Dropbox straight from the browser: linking, saves as one zip per slot, and game files read piece by piece through the same importer as a folder on disk. |
 | Console | `index.html`, `src/launcher/` | The terminal: import, save archives, settings, manual, credits. Svelte. |
+| Vault | `src/launcher/vault/` | The room around the console, where the window is larger than the console is. Painted in the browser, one coarse pixel at a time, from nothing but code: no artwork from the games. `life.ts` decides who walks through, when, and what they do about being poked; `effects.ts` has the things that answer to a click; `pest.ts` is the radroach that comes out onto the screen itself. |
 | Player | `play.html`, `src/player/` | Boots an engine against the stored data. A separate page, so that leaving a game frees its memory. `src/player/touch/` turns fingers into the mouse and keyboard events the engines already listen for. |
 
 A game starts in well under a second because nothing is copied into memory up front: archives are

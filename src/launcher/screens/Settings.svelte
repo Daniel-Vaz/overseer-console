@@ -29,7 +29,11 @@
       ? 'Granted. The browser will not clear this data on its own.'
       : 'Not granted. Browsers decide this themselves; installing the console as an app or visiting often makes it more likely.';
     if (granted) sfx.done();
-    else sfx.deny();
+    else {
+      sfx.deny();
+      // The great door of the vault behind the console tries to shut, and cannot.
+      window.dispatchEvent(new CustomEvent('overseer:vault', { detail: 'jam' }));
+    }
   }
 
   const s = $derived(sys.settings);
@@ -119,6 +123,13 @@
       state: s.sound ? 'ON' : 'OFF',
       note: 'Clicks and beeps on this console. Does not affect the games.',
       action: () => sys.update({ sound: !s.sound }),
+    },
+    {
+      key: 'v',
+      label: 'Vault around the console',
+      state: s.vault ? 'ON' : 'OFF',
+      note: 'The vault a large window shows around this console, and what lives in it. Left alone, some of it comes out onto the glass.',
+      action: () => sys.update({ vault: !s.vault }),
     },
     {
       key: '8',

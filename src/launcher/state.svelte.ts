@@ -5,7 +5,7 @@ import { dropboxGameFiles } from '../lib/dropbox/games';
 import { loadLink } from '../lib/dropbox/link';
 import { GAMES, GAME_IDS, type GameId } from '../lib/games';
 import { briefSaves, latestOf, type LatestSave } from '../lib/saves';
-import { loadSettings, saveSettings, type Settings } from '../lib/settings';
+import { loadSettings, loadSquashed, saveSettings, saveSquashed, type Settings } from '../lib/settings';
 import { ImportError, planImport, runImport, type ImportPlan, type SourceFile } from '../lib/storage/importer';
 import { loadInstall, probeStorage, requestPersistence, storageStatus, storageSupported, type StorageStatus } from '../lib/storage/opfs';
 import { setSoundEnabled } from './sfx';
@@ -54,6 +54,10 @@ class ConsoleState {
   dropbox = $state<DropboxStatus>(dropboxStatus());
   job = $state<ImportJob>({ ...IDLE });
   hints = $state<Hint[]>([]);
+  /** What the nameplate on the housing says for a moment, in place of the console's name. */
+  plate = $state('');
+  private plateTimer = 0;
+  private squashed = loadSquashed();
 
   /** False when the browser cannot keep game data (old browser, private window). */
   supported = $state(storageSupported());
@@ -70,6 +74,20 @@ class ConsoleState {
     this.settings = { ...this.settings, ...patch };
     saveSettings(this.settings);
     setSoundEnabled(this.settings.sound);
+  }
+
+  /** Has the nameplate on the housing say something, briefly. */
+  remark(text: string): void {
+    this.plate = text;
+    clearTimeout(this.plateTimer);
+    this.plateTimer = window.setTimeout(() => (this.plate = ''), 2800);
+  }
+
+  /** Counts one more radroach that has met its end here, and says how many that makes. */
+  squash(): number {
+    this.squashed += 1;
+    saveSquashed(this.squashed);
+    return this.squashed;
   }
 
   /** The link may have been made, dropped or found dead since it was last looked at. */
