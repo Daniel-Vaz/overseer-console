@@ -7,42 +7,44 @@
  */
 import { GAMES, gameForDatFormat, type DatFormat, type GameId } from '../games';
 import { Ini } from '../ini';
+import { ZipError, looksLikeZip, readZip } from '../zip';
+import { findEttu, planEttu } from './ettu';
 import { MANIFEST_VERSION, basename, dirname, pathKey, type Manifest } from './manifest';
 import { writeInstall, type ImportProgress, type SourceBlob } from './opfs';
-import { commitOverlay, countOverlay } from './overlay';
+import { clearOverlay, commitOverlay, countOverlay } from './overlay';
+import { ImportError, isJunk, isLeftoverState, isSave, type ImportContext, type ImportPlan, type SourceFile } from './plan';
 
-export interface SourceFile {
-  /** Path as the browser (or the player's Dropbox) reported it, forward slashes. */
-  path: string;
-  file: SourceBlob;
-}
-
-export class ImportError extends Error {
-  override name = 'ImportError';
-}
-
-export interface ImportPlan {
-  game: GameId;
-  datFormat: DatFormat;
-  /** Folder (inside the selection) the game was found in. */
-  root: string;
-  entries: SourceFile[];
-  dirs: string[];
-  totalBytes: number;
-  skipped: number;
-  /** Saved games found in the install. */
-  saves: SourceFile[];
-  installConfig?: string;
-  language?: string;
-  hasMusic: boolean;
-  warnings: string[];
-}
-
-const JUNK = new Set(['thumbs.db', 'desktop.ini', '.ds_store']);
+export { ImportError, type ImportContext, type ImportPlan, type SourceFile } from './plan';
 
 /** Files picked through an <input type="file">, with or without webkitdirectory. */
 export function sourcesFromFileList(files: FileList | File[]): SourceFile[] {
   return Array.from(files, (file) => ({ path: (file.webkitRelativePath || file.name).replace(/\\/g, '/'), file }));
+}
+
+/**
+ * Looks inside zip archives: each is replaced by the files it holds, as if
+ * its contents had been picked instead. By default that is done for the zips
+ * that were picked or dropped as such, not for ones that happen to lie in a
+ * picked folder, and a file that turns out not to be a zip is an error.
+ * `anywhere` opens every zip, and passes over those it cannot read.
+ */
+export async function openArchives(sources: SourceFile[], anywhere = false): Promise<SourceFile[]> {
+  const out: SourceFile[] = [];
+  for (const source of sources) {
+    if (!looksLikeZip(source.path) || (!anywhere && source.path.includes('/'))) {
+      out.push(source);
+      continue;
+    }
+    try {
+      const inside = dirname(source.path);
+      for (const { path, file } of await readZip(source.file)) out.push({ path: inside ? `${inside}/${path}` : path, file });
+    } catch (err) {
+      if (!(err instanceof ZipError)) throw err;
+      if (!anywhere) throw new ImportError(`${basename(source.path)}: ${err.message}`);
+      out.push(source);
+    }
+  }
+  return out;
 }
 
 /** Files and folders dropped onto the page. Must be called from the drop event. */
@@ -106,43 +108,71 @@ export async function detectDatFormat(file: SourceBlob): Promise<DatFormat | nul
 function wanted(key: string, game: GameId): boolean {
   const parts = key.split('/');
   const name = parts[parts.length - 1] ?? '';
-  if (JUNK.has(name)) return false;
+  if (isJunk(name)) return false;
   if (parts.length === 1) {
     // Game archives, plus the settings file as a reference.
     return name.endsWith('.dat') || name === GAMES[game].configFile;
   }
   const top = parts[0];
   if (top !== 'data' && top !== 'sound' && top !== 'mods') return false;
-  // State of whatever game was last played in the install; the engine
-  // rebuilds it and stale copies only cause trouble.
-  if (/^data\/maps\/[^/]+\.sav$/.test(key)) return false;
-  if (key.startsWith('data/proto/')) return false;
-  return true;
+  return !isLeftoverState(key);
 }
 
-function isSave(key: string): boolean {
-  return /^data\/savegame\/slot\d+\//.test(key);
+export interface Survey {
+  /** Folders holding a MASTER.DAT that is one, with the game it belongs to. */
+  candidates: { root: string; format: DatFormat; depth: number }[];
+  /** How many files are called MASTER.DAT, archives or not. */
+  masters: number;
+  /** The games sold as such that the selection holds. */
+  stock: GameId[];
+  /** Where a copy of Fallout Et Tu lies (see findEttu), or null. */
+  conversion: string | null;
+}
+
+/**
+ * Looks at what a selection holds without deciding anything. A conversion is
+ * wherever its mods are; a game folder is wherever MASTER.DAT is.
+ */
+export async function surveySources(sources: SourceFile[]): Promise<Survey> {
+  const masters = sources.filter((s) => basename(pathKey(s.path)) === 'master.dat');
+  const candidates: Survey['candidates'] = [];
+  for (const master of masters) {
+    const format = await detectDatFormat(master.file);
+    if (format) candidates.push({ root: dirname(master.path), format, depth: master.path.split('/').length });
+  }
+  return {
+    candidates,
+    masters: masters.length,
+    stock: [...new Set(candidates.map((candidate) => gameForDatFormat(candidate.format)))],
+    conversion: findEttu(sources),
+  };
 }
 
 /**
  * Works out what to import. Throws ImportError with a message meant for the
  * user when the selection is not a usable game folder.
+ *
+ * A selection may hold more than one game: both in one folder, or a
+ * conversion installed inside the game it runs on. The one asked for is
+ * taken; the others are named in the plan.
  */
-export async function planImport(sources: SourceFile[], preferred?: GameId): Promise<ImportPlan> {
+export async function planImport(sources: SourceFile[], preferred?: GameId, context: ImportContext = {}): Promise<ImportPlan> {
   if (!sources.length) throw new ImportError('Nothing was selected.');
 
-  // The game folder is wherever master.dat is.
-  const masters = sources.filter((s) => basename(pathKey(s.path)) === 'master.dat');
-  if (!masters.length) {
+  const { candidates, masters, stock, conversion } = await surveySources(sources);
+
+  if (preferred && GAMES[preferred].conversion && conversion === null) {
+    throw new ImportError(
+      `No ${GAMES[preferred].title} in that selection. Pick the zip it is downloaded as, or its folder: the one that holds the MODS folder.`,
+    );
+  }
+  if (conversion !== null && (!candidates.length || (preferred && GAMES[preferred].conversion))) {
+    return { ...(await planEttu(sources, conversion, context)), also: stock };
+  }
+  if (!masters) {
     throw new ImportError(
       'No MASTER.DAT in that selection. Pick the folder the game was installed to: the one that contains MASTER.DAT and CRITTER.DAT.',
     );
-  }
-
-  const candidates: { root: string; format: DatFormat; depth: number }[] = [];
-  for (const master of masters) {
-    const format = await detectDatFormat(master.file);
-    if (format) candidates.push({ root: dirname(master.path), format, depth: master.path.split('/').length });
   }
   if (!candidates.length) {
     throw new ImportError('MASTER.DAT was found but is not a Fallout or Fallout 2 archive. The file may be damaged.');
@@ -216,14 +246,20 @@ export async function planImport(sources: SourceFile[], preferred?: GameId): Pro
     entries,
     dirs: [...dirs].sort(),
     totalBytes,
+    sourceFiles: entries.length,
     skipped,
     saves,
     installConfig,
     language,
     hasMusic,
     warnings,
+    notes: [],
+    also: [...stock.filter((other) => other !== game), ...(conversion === null ? [] : (['ettu'] as const))],
   };
 }
+
+/** Where the engine keeps what it works out from a mod's own settings files. */
+const DERIVED_SETTINGS = 'data/config/';
 
 /** Copies the planned files into browser storage. */
 export async function runImport(plan: ImportPlan, onProgress?: (p: ImportProgress) => void): Promise<Manifest> {
@@ -243,6 +279,11 @@ export async function runImport(plan: ImportPlan, onProgress?: (p: ImportProgres
     }),
     onProgress,
   );
+
+  // The engine of Fallout 2 writes settings it derives from the files of a
+  // mod into the game's data folder, and from then on prefers its copy. That
+  // copy belongs to the holodisk that was just replaced.
+  await clearOverlay(plan.game, DERIVED_SETTINGS);
 
   // Saved games that came with the install become ordinary saves here, unless
   // this browser already holds saves for the game.

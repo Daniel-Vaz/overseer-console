@@ -18,11 +18,12 @@
     sys.hints = [
       ['↑↓', 'SELECT'],
       ['ENTER', 'OPEN'],
-      ['1-6', 'JUMP'],
+      ['1-7', 'JUMP'],
     ];
   });
 
-  const totalSaves = $derived(sys.saves.fo1 + sys.saves.fo2);
+  const totalSaves = $derived(GAME_IDS.reduce((sum, game) => sum + sys.saves[game], 0));
+  const ICONS = { fo1: 'holodisk-01', fo2: 'holodisk-02', ettu: 'gamedata' } as const;
   let selected = $state(0);
 
   // The games kept a surprise for whoever held Shift and asked for the credits. So does the console:
@@ -62,33 +63,42 @@
       const def = GAMES[game];
       const install = sys.installs[game];
       const copying = sys.job.game === game && sys.busy;
+      // A conversion is loaded but idle while the game it runs on is not.
+      const base = def.conversion ? GAMES[def.conversion.base] : null;
+      const stranded = !!install && !sys.playable(game) && base !== null;
       return {
         key: String(index + 1),
         label: `${def.label}: ${def.title} (${def.year})`,
-        state: copying ? 'LOADING...' : install === undefined ? 'CHECKING' : install ? 'READY' : 'NO HOLODISK',
-        tone: install || install === undefined ? undefined : 'amber',
-        note: install ? def.blurb : `Needs your own copy of ${def.title}. Open to load it.`,
-        icon: game === 'fo1' ? 'holodisk-01' : 'holodisk-02',
+        state: copying ? 'LOADING...' : install === undefined ? 'CHECKING' : stranded ? `NEEDS DECK ${base.deck}` : install ? 'READY' : 'NO HOLODISK',
+        tone: (install && !stranded) || install === undefined ? undefined : 'amber',
+        note: stranded
+          ? `Runs on ${base.title}: load it into deck ${base.deck}.`
+          : install
+            ? def.blurb
+            : def.conversion
+              ? `A free conversion, put together from its package and your own ${GAMES[def.conversion.donor].title} and ${base!.title}. Open to load it.`
+              : `Needs your own copy of ${def.title}. Open to load it.`,
+        icon: ICONS[game],
         action: () => go(game),
       };
     }),
     {
-      key: '3',
+      key: '4',
       label: 'Save archives',
       state: totalSaves ? `${totalSaves} ${totalSaves === 1 ? 'SAVE' : 'SAVES'}` : 'EMPTY',
       note: 'Back up, restore or delete saved games.',
       icon: 'save',
       action: () => go('saves'),
     },
-    { key: '4', label: 'Terminal settings', note: 'Picture, sound and storage.', icon: 'settings', action: () => go('settings') },
+    { key: '5', label: 'Terminal settings', note: 'Picture, sound and storage.', icon: 'settings', action: () => go('settings') },
     {
-      key: '5',
+      key: '6',
       label: 'Operations manual',
       note: 'Where the game files are, controls, and what to do when something fails.',
       icon: 'manual',
       action: () => go('manual'),
     },
-    { key: '6', label: 'Credits and legal', note: 'Who made the engines, and the small print.', icon: 'credits', action: credits },
+    { key: '7', label: 'Credits and legal', note: 'Who made the engines, and the small print.', icon: 'credits', action: credits },
   ]);
 
   const pointed = $derived(items[selected]);
@@ -135,7 +145,7 @@
     {/if}
     <dl class="readout">
       {#each GAME_IDS as game (game)}
-        <dt>Deck {game === 'fo1' ? 'A' : 'B'}</dt>
+        <dt>Deck {GAMES[game].deck}</dt>
         <dd class:amber={sys.installs[game] === null}>
           {sys.installs[game] === undefined ? '...' : sys.installs[game] ? GAMES[game].title.toUpperCase() : 'EMPTY'}
         </dd>

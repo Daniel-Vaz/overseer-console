@@ -4,8 +4,9 @@
  * Reading happens on the page (plain File objects, read on demand); every
  * write goes through opfs.worker.ts.
  */
+import { readRange, sourceOf } from '../blobs';
 import type { GameId } from '../games';
-import { STORE_ROOT, type CurrentPointer, type Manifest, type ManifestFile } from './manifest';
+import { STORE_ROOT, pathKey, type CurrentPointer, type Manifest, type ManifestFile } from './manifest';
 import type { ImportEntry, WorkerRequest, WorkerResponse } from './opfs.worker';
 
 type WorkerOp = WorkerRequest extends infer R ? (R extends { id: number } ? Omit<R, 'id'> : never) : never;
@@ -156,6 +157,21 @@ export async function loadInstall(game: GameId): Promise<Install | null> {
 /** Opens a stored file. The File is a handle: nothing is read until asked. */
 export async function openBlob(install: Install, name: string): Promise<File> {
   return (await install.dir.getFileHandle(name)).getFile();
+}
+
+/**
+ * A file of an install by its path in the game folder (any case), wherever
+ * the import put its contents. Null when the install holds no such file.
+ */
+export async function openInstalled(install: Install, path: string): Promise<SourceBlob | null> {
+  const key = pathKey(path);
+  const file = install.manifest.files.find((candidate) => pathKey(candidate.path) === key);
+  if (!file) return null;
+  if (file.blob) return openBlob(install, file.blob);
+  if (!file.pack) return null;
+  const pack = await openBlob(install, 'pack.bin');
+  const [offset] = file.pack;
+  return sourceOf(file.size, install.manifest.importedAt, (start, end) => readRange(pack, offset + start, offset + end));
 }
 
 /**

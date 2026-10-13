@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { FAST_FORWARD_SPEEDS } from '../../lib/settings';
   import { formatBytes } from '../../lib/storage/manifest';
   import { requestPersistence, storageStatus } from '../../lib/storage/opfs';
   import Glyph from '../components/Glyph.svelte';
@@ -43,12 +44,14 @@
       key: '1',
       label: 'Picture',
       icon: 'picture',
-      state: s.display === 'classic' ? 'CLASSIC 4:3' : 'WIDE',
+      state: s.display === 'classic' ? 'CLASSIC 4:3' : s.display === 'wide' ? 'WIDE' : 'HIGH RESOLUTION',
       note:
         s.display === 'classic'
           ? 'The original 640 x 480 picture. The most faithful choice.'
-          : 'Same zoom as the original, widened to the shape of your window: more of the map is visible.',
-      action: () => sys.update({ display: s.display === 'classic' ? 'wide' : 'classic' }),
+          : s.display === 'wide'
+            ? 'Same zoom as the original, widened to the shape of your window: more of the map is visible.'
+            : 'Half as tall again as the original and as wide as your window: far more of the map, everything on it smaller. The picture Fallout Et Tu was laid out for.',
+      action: () => sys.update({ display: s.display === 'classic' ? 'wide' : s.display === 'wide' ? 'high' : 'classic' }),
     },
     {
       key: '2',
@@ -91,6 +94,25 @@
           ? 'Sound is queued a moment ahead, so brief hiccups of the browser are not heard. Recommended.'
           : 'The lowest delay, but any hiccup of the browser is heard as a click or gap.',
       action: () => sys.update({ audio: s.audio === 'buffered' ? 'direct' : 'buffered' }),
+    },
+    {
+      key: 'i',
+      label: 'Game improvements',
+      icon: 'holodisk-02',
+      state: s.improvements ? 'ON' : 'OFF',
+      // Kept to two lines: the list is long, and the manual has the whole of it.
+      note: s.improvements
+        ? 'Fallout 2 with what its engine adds: SHIFT lights up what lies on the ground, a wider inventory, doors that open by themselves. The manual lists it all.'
+        : 'Fallout 2 as the original played.',
+      action: () => sys.update({ improvements: !s.improvements }),
+    },
+    {
+      key: 'f',
+      label: 'Fast forward',
+      icon: 'play',
+      state: `${s.fastForward} TIMES`,
+      note: 'F8, or FAST on a touch screen, runs a game this many times as fast until pressed again: for long walks and long turns.',
+      action: () => sys.update({ fastForward: FAST_FORWARD_SPEEDS[(FAST_FORWARD_SPEEDS.indexOf(s.fastForward) + 1) % FAST_FORWARD_SPEEDS.length] ?? 3 }),
     },
     // Only where there is a touch screen to speak of.
     ...(navigator.maxTouchPoints > 0 || 'ontouchstart' in window || matchMedia('(any-pointer: coarse)').matches

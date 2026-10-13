@@ -80,7 +80,7 @@ inputs_hash() {
     local name="$1"
     {
         echo "${EMSDK_VERSION} ${COMPILE_FLAGS} ${LINK_FLAGS} ${EXTRA_LINK_FLAGS:-}"
-        cat "${ROOT}/engines/build.sh" "${ROOT}/engines/${name}/source.env" "${ROOT}/engines/lib/"*.js
+        cat "${ROOT}/engines/build.sh" "${ROOT}/engines/${name}/source.env" "${ROOT}/engines/lib/"*.js "${ROOT}/engines/lib/"*.py
         cat "${ROOT}/engines/${name}/patches/"*.patch 2>/dev/null || true
     } | sha256sum | cut -c1-16
 }
@@ -163,22 +163,43 @@ build() {
     fi
 
     cp "${build_dir}/${ENGINE_OUTPUT}.js" "${build_dir}/${ENGINE_OUTPUT}.wasm" "${out}/"
+    pack_engine_data "${src}" "${out}"
     write_manifest "${id}" "${out}" "${inputs}"
     # shellcheck disable=SC2086
     write_licenses "${id}" "${src}" "${build_dir}" "${out}" ${ports//,/ }
     log "${id}: $(du -h "${out}/${ENGINE_OUTPUT}.wasm" | cut -f1) wasm -> ${out#"${ROOT}/"}"
 }
 
+# The Fallout 2 engine has a folder of data of its own (files/ce.dat in its
+# source): the pictures and words of what it adds to the game. It looks for
+# them beside the game as an archive called ce.dat. Packed here; the site
+# puts it beside the games that are played with it.
+#   pack_engine_data <src> <out>
+ENGINE_DATA="ce.dat"
+pack_engine_data() {
+    local src="$1" out="$2"
+    rm -f "${out}/${ENGINE_DATA}"
+    [[ -d "${src}/files/${ENGINE_DATA}" ]] || return 0
+    in_container \
+        -v "${src}:/src:ro" \
+        -v "${out}:/out" \
+        -v "${ROOT}/engines/lib:/glue:ro" \
+        "${IMAGE}" python3 /glue/pack-dat.py "/src/files/${ENGINE_DATA}" "/out/${ENGINE_DATA}" ||
+        die "packing ${ENGINE_DATA} failed"
+}
+
 # Describes the build for the site (which file to load, what it was built from).
 write_manifest() {
-    local id="$1" out="$2" inputs="$3" hash
-    hash="$(cat "${out}/${ENGINE_OUTPUT}.js" "${out}/${ENGINE_OUTPUT}.wasm" | sha256sum | cut -c1-16)"
+    local id="$1" out="$2" inputs="$3" hash data=""
+    [[ -f "${out}/${ENGINE_DATA}" ]] && data="${out}/${ENGINE_DATA}"
+    # shellcheck disable=SC2086
+    hash="$(cat "${out}/${ENGINE_OUTPUT}.js" "${out}/${ENGINE_OUTPUT}.wasm" ${data} | sha256sum | cut -c1-16)"
     cat > "${out}/engine.json" <<EOF
 {
   "id": "${id}",
   "script": "${ENGINE_OUTPUT}.js",
   "wasm": "${ENGINE_OUTPUT}.wasm",
-  "wasmBytes": $(stat -c %s "${out}/${ENGINE_OUTPUT}.wasm"),
+  "wasmBytes": $(stat -c %s "${out}/${ENGINE_OUTPUT}.wasm"),$([[ -n "${data}" ]] && printf '\n  "data": "%s",' "${ENGINE_DATA}")
   "hash": "${hash}",
   "inputs": "${inputs}",
   "source": "${ENGINE_REPO%.git}",

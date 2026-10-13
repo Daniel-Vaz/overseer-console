@@ -4,6 +4,8 @@ body.player {
   /* Room taken by the touch deck beside the picture and the keyboard under it. */
   --deck: 0px;
   --keys: 0px;
+  /* And by the deck's row of shortcuts, where that is a row of its own. */
+  --quick: 0px;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -194,6 +196,25 @@ body.player {
   outline: none;
 }
 
+/* A sign in the corner for as long as the game runs fast: otherwise it only looks broken. */
+#fast {
+  position: fixed;
+  top: var(--safe-top);
+  left: calc(var(--deck) + var(--safe-left));
+  z-index: 10;
+  padding: 0.05em 1ch 0.1em;
+  border-bottom-right-radius: 6px;
+  background: rgba(2, 10, 4, 0.72);
+  color: var(--amber);
+  font-size: clamp(13px, 1.7vmin, 18px);
+  letter-spacing: 0.04em;
+  pointer-events: none;
+}
+
+#fast[hidden] {
+  display: none;
+}
+
 #toast {
   position: fixed;
   left: 50%;
@@ -327,12 +348,64 @@ body.touch #handle {
   color: inherit;
 }
 
+/* Shortcuts: keys the games answer to, small enough to sit between the deck's own buttons. */
+.deck-quick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(4px, 1.4vmin, 12px);
+}
+
+.deck-side .deck-quick button {
+  height: calc((var(--deck) - 10px) * 0.56);
+  font-size: clamp(11px, 2.5vmin, 17px);
+  letter-spacing: 0.03em;
+}
+
+.deck-quick button[hidden] {
+  display: none;
+}
+
 /* Held upright there is no room beside the picture: the deck becomes a row under it. */
 @media (orientation: portrait) {
+  body.touch {
+    --quick: calc((var(--deck) - 10px) * 0.56 + clamp(4px, 1.4vmin, 12px));
+  }
+
   #stage {
     right: var(--safe-right);
-    bottom: calc(var(--keys) + var(--deck) + var(--safe-bottom));
+    bottom: calc(var(--keys) + var(--deck) + var(--quick) + var(--safe-bottom));
     left: var(--safe-left);
+  }
+
+  #fast {
+    left: var(--safe-left);
+  }
+
+  /* The shortcuts become a row of their own, above the deck's. */
+  .deck-quick {
+    position: fixed;
+    bottom: calc(var(--keys) + var(--deck) + var(--safe-bottom));
+    flex-direction: row;
+    align-items: flex-start;
+    height: var(--quick);
+  }
+
+  .deck-left .deck-quick {
+    left: calc(var(--safe-left) + clamp(4px, 1.4vmin, 12px));
+  }
+
+  .deck-right .deck-quick {
+    right: calc(var(--safe-right) + clamp(4px, 1.4vmin, 12px));
+  }
+
+  /* Seven of them have to fit across the narrowest phone. */
+  .deck-side .deck-quick button {
+    width: min(calc(var(--deck) - 10px), calc((100vw - 64px) / 7));
+  }
+
+  body.keys-open .deck-quick {
+    bottom: calc(var(--keys) + var(--deck));
   }
 
   /* The picture sits just above the deck, where a hand holding the phone reaches it. */
@@ -341,7 +414,7 @@ body.touch #handle {
   }
 
   body.keys-open #stage {
-    bottom: calc(var(--keys) + var(--deck));
+    bottom: calc(var(--keys) + var(--deck) + var(--quick));
   }
 
   .deck-side {

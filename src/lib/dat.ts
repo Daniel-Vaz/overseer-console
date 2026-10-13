@@ -10,7 +10,12 @@
  * the end, files stored plain or zlib-compressed.
  */
 import { unzlibSync } from 'fflate';
+import { sourceOf } from './blobs';
 import type { DatFormat } from './games';
+import type { SourceBlob } from './storage/opfs';
+
+/** Anything an archive can be read out of: a file on disk, or something read like one. */
+export type DatArchive = Pick<SourceBlob, 'size' | 'slice'>;
 
 export interface DatEntry {
   /** Lower-cased path with forward slashes, as asked for. */
@@ -24,7 +29,7 @@ export interface DatEntry {
   mode: number;
 }
 
-async function bytes(archive: Blob, offset: number, length: number): Promise<Uint8Array> {
+async function bytes(archive: DatArchive, offset: number, length: number): Promise<Uint8Array> {
   return new Uint8Array(await archive.slice(offset, offset + length).arrayBuffer());
 }
 
@@ -37,7 +42,7 @@ const latin1 = (data: Uint8Array, offset: number, length: number): string => {
 const normalise = (path: string): string => path.replace(/\\/g, '/').replace(/^\.\//, '').toLowerCase();
 
 /** Fallout 2: the directory sits at the end, its size in the last 8 bytes. */
-async function findDat2(archive: Blob, wanted: Set<string>): Promise<Map<string, DatEntry>> {
+async function findDat2(archive: DatArchive, wanted: Set<string>): Promise<Map<string, DatEntry>> {
   const found = new Map<string, DatEntry>();
   if (archive.size < 12) return found;
   const tail = new DataView((await bytes(archive, archive.size - 8, 8)).buffer);
@@ -71,7 +76,7 @@ async function findDat2(archive: Blob, wanted: Set<string>): Promise<Map<string,
 }
 
 /** Fallout 1: the directory comes first. Its length is not stored, so it is read in growing pieces. */
-async function findDat1(archive: Blob, wanted: Set<string>): Promise<Map<string, DatEntry>> {
+async function findDat1(archive: DatArchive, wanted: Set<string>): Promise<Map<string, DatEntry>> {
   const found = new Map<string, DatEntry>();
   for (let window = 512 << 10; ; window *= 4) {
     const head = await bytes(archive, 0, Math.min(window, archive.size));
@@ -123,7 +128,7 @@ async function findDat1(archive: Blob, wanted: Set<string>): Promise<Map<string,
 }
 
 /** Looks up files by path (any case, either slash). Missing ones are absent from the result. */
-export function findInDat(archive: Blob, format: DatFormat, paths: string[]): Promise<Map<string, DatEntry>> {
+export function findInDat(archive: DatArchive, format: DatFormat, paths: string[]): Promise<Map<string, DatEntry>> {
   const wanted = new Set(paths.map(normalise));
   return format === 'dat1' ? findDat1(archive, wanted) : findDat2(archive, wanted);
 }
@@ -192,12 +197,12 @@ export function unpackDat1(packed: Uint8Array, size: number, mode: number): Uint
   return out;
 }
 
-/** Largest file this module is willing to unpack; everything it is used for is far smaller. */
+/** Largest file readDatEntry unpacks unless told otherwise; what the console reads for itself is far smaller. */
 const MAX_FILE = 16 << 20;
 
 /** Reads and unpacks one file found by findInDat. */
-export async function readDatEntry(archive: Blob, format: DatFormat, entry: DatEntry): Promise<Uint8Array> {
-  if (entry.size > MAX_FILE || entry.packedSize > MAX_FILE) throw new Error(`${entry.name} is too large to read here`);
+export async function readDatEntry(archive: DatArchive, format: DatFormat, entry: DatEntry, limit = MAX_FILE): Promise<Uint8Array> {
+  if (entry.size > limit || entry.packedSize > limit) throw new Error(`${entry.name} is too large to read here`);
   if (format === 'dat1') {
     // A stored file has no packed size of its own.
     const length = entry.mode === 0x20 ? entry.size : entry.packedSize;
@@ -206,3 +211,23 @@ export async function readDatEntry(archive: Blob, format: DatFormat, entry: DatE
   const packed = await bytes(archive, entry.offset, entry.packedSize);
   return entry.mode ? unzlibSync(packed, { out: new Uint8Array(entry.size) }) : packed.subarray(0, entry.size);
 }
+
+/** No single file in the games is near this size; one that claims more is not read. */
+const MAX_BORROWED_FILE = 512 << 20;
+
+/**
+ * One file of a Fallout 1 archive as something that can be copied elsewhere.
+ * A stored file is read where it lies; a packed one is unpacked when first
+ * read and kept until another one is, since a copy asks for it in pieces.
+ */
+export function dat1EntrySource(archive: DatArchive, entry: DatEntry, lastModified = 0): SourceBlob {
+  if (entry.mode === 0x20) {
+    return sourceOf(entry.size, lastModified, async (start, end) => bytes(archive, entry.offset + start, end - start));
+  }
+  return sourceOf(entry.size, lastModified, async (start, end) => {
+    if (unpacked?.entry !== entry) unpacked = { entry, data: readDatEntry(archive, 'dat1', entry, MAX_BORROWED_FILE) };
+    return (await unpacked.data).slice(start, end);
+  });
+}
+
+let unpacked: { entry: DatEntry; data: Promise<Uint8Array> } | null = null;

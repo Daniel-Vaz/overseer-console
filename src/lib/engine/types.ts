@@ -20,6 +20,10 @@ export interface OverseerStats {
   cachedBlocks: number;
   pausedMs: number;
   paused: boolean;
+  /** How many times as fast as time the engine's clock runs. */
+  speed: number;
+  /** What the engine's clock reads, in milliseconds. */
+  clock: number;
 }
 
 export interface OverseerApi {
@@ -34,6 +38,8 @@ export interface OverseerApi {
   pause(): void;
   resume(): void;
   isPaused(): boolean;
+  /** Fast forward: 1 is the pace of the original. */
+  setSpeed(speed: number): void;
   flush(): Promise<void>;
   onError(handler: (what: string, err: unknown) => void): void;
   stats(): OverseerStats;
@@ -75,6 +81,8 @@ export interface EngineInfo {
   script: string;
   wasm: string;
   wasmBytes: number;
+  /** A data file to put beside the games this engine runs, when the engine has one. */
+  data?: string;
   hash: string;
   source: string;
   commit: string;

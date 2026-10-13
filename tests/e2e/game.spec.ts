@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import type { Page } from '@playwright/test';
 import { unzipSync } from 'fflate';
 import { expect, test } from './fixtures';
+import { statSync } from 'node:fs';
 import { openConsole, pickFolder } from './helpers';
 
 /**
@@ -198,3 +199,57 @@ for (const game of GAMES) {
     await expect(page.getByText('System fault')).toHaveCount(0);
   });
 }
+
+/**
+ * Fallout Et Tu, from the real things: both games and the conversion's package.
+ *   FO1_DIR=... FO2_DIR=... ETTU="/path/to/Fallout1in2.zip" npm run test:e2e
+ * ETTU may also be the Fallout1in2 folder. Decks A and B are loaded first, as a player would.
+ */
+test('Fallout Et Tu: put together from both games and its package, and started', async ({ page }) => {
+  const [fallout, fallout2] = GAMES.map((game) => game.dir);
+  const ettu = process.env.ETTU;
+  test.skip(!fallout || !fallout2 || !ettu, 'set FO1_DIR, FO2_DIR and ETTU (the Et Tu zip or folder) to run this');
+  test.setTimeout(1_800_000);
+  const faults: string[] = [];
+  page.on('pageerror', (error) => faults.push(error.message));
+
+  await openConsole(page, 'fo1', { skipIntro: true });
+  await pickFolder(page, fallout!);
+  await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 300_000 });
+  await page.goto('#/fo2');
+  await pickFolder(page, fallout2!);
+  await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 300_000 });
+
+  await page.goto('#/ettu');
+  if (statSync(ettu!).isDirectory()) await pickFolder(page, ettu!);
+  else await page.locator('input[accept*="zip"]').setInputFiles(ettu!);
+  await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 900_000 });
+  console.log(`Fallout Et Tu: ${(await page.getByRole('status').innerText()).replace(/\s+/g, ' ')}`);
+
+  // Its main menu: a picture, drawn by an engine that keeps running.
+  await launch(page, 'Begin simulation', '1');
+  const firstPicture = await waitForPicture(page, 4000);
+  const stats = await engineStats(page);
+  console.log(`Fallout Et Tu: first picture ${firstPicture} ms after starting, ${stats.blockReads} block reads taking ${Math.round(stats.blockMs)} ms`);
+  const before = stats.sleeps;
+  await pause(page, 1500);
+  expect((await engineStats(page)).sleeps).toBeGreaterThan(before);
+
+  // A new game with the first ready-made character, past the opening movie, onto its first map.
+  const mainMenu = await fingerprint(page);
+  await page.keyboard.press('n');
+  await pause(page, 3500);
+  await page.keyboard.press('t');
+  await pause(page, 4500);
+  await page.keyboard.press('Escape');
+  await pause(page, 9000);
+  expect(await showsPicture(page)).toBe(true);
+  expect(distance(await fingerprint(page), mainMenu)).toBeGreaterThan(12);
+
+  await page.keyboard.press('F9');
+  await expect(page.getByText('Simulation suspended')).toBeVisible();
+  await page.keyboard.press('x');
+  await page.keyboard.press('y');
+  await expect(page.getByRole('heading', { name: /Fallout Et Tu$/ })).toBeVisible();
+  expect(faults).toEqual([]);
+});

@@ -6,8 +6,17 @@ import { loadLink } from '../lib/dropbox/link';
 import { GAMES, GAME_IDS, type GameId } from '../lib/games';
 import { briefSaves, latestOf, type LatestSave } from '../lib/saves';
 import { loadSettings, loadSquashed, saveSettings, saveSquashed, type Settings } from '../lib/settings';
-import { ImportError, planImport, runImport, type ImportPlan, type SourceFile } from '../lib/storage/importer';
-import { loadInstall, probeStorage, requestPersistence, storageStatus, storageSupported, type StorageStatus } from '../lib/storage/opfs';
+import {
+  ImportError,
+  openArchives,
+  planImport,
+  runImport,
+  surveySources,
+  type ImportContext,
+  type ImportPlan,
+  type SourceFile,
+} from '../lib/storage/importer';
+import { loadInstall, openInstalled, probeStorage, requestPersistence, storageStatus, storageSupported, type StorageStatus } from '../lib/storage/opfs';
 import { setSoundEnabled } from './sfx';
 import type { Hint } from './types';
 
@@ -31,6 +40,22 @@ export interface ImportJob {
 
 const IDLE: ImportJob = { phase: 'idle', doneBytes: 0, totalBytes: 0, path: '' };
 
+/** A game found in what the player just picked, beside the one that was loaded from it. */
+export interface Offer {
+  game: GameId;
+  sources: SourceFile[];
+}
+
+const perGame = <T>(value: T): Record<GameId, T> => Object.fromEntries(GAME_IDS.map((game) => [game, value])) as Record<GameId, T>;
+
+/** What planning an import may read from the games already here. */
+const CONTEXT: ImportContext = {
+  async archiveOf(game) {
+    const install = await loadInstall(game);
+    return install ? openInstalled(install, 'master.dat') : null;
+  },
+};
+
 export interface DropboxStatus {
   linked: boolean;
   /** Whose Dropbox it is. */
@@ -45,14 +70,16 @@ function dropboxStatus(): DropboxStatus {
 class ConsoleState {
   settings = $state<Settings>(loadSettings());
   /** undefined: not looked at yet. null: not installed. */
-  installs = $state<Record<GameId, InstallInfo | null | undefined>>({ fo1: undefined, fo2: undefined });
-  saves = $state<Record<GameId, number>>({ fo1: 0, fo2: 0 });
+  installs = $state<Record<GameId, InstallInfo | null | undefined>>(perGame(undefined));
+  saves = $state<Record<GameId, number>>(perGame(0));
   /** The save "continue" would load, per game. */
-  latest = $state<Record<GameId, LatestSave | null>>({ fo1: null, fo2: null });
+  latest = $state<Record<GameId, LatestSave | null>>(perGame(null));
   storage = $state<StorageStatus | null>(null);
   /** Whether this browser is linked to the player's Dropbox. */
   dropbox = $state<DropboxStatus>(dropboxStatus());
   job = $state<ImportJob>({ ...IDLE });
+  /** Another game the last selection held: it can be loaded without picking the folder again. */
+  offer = $state.raw<Offer | null>(null);
   hints = $state<Hint[]>([]);
   /** What the nameplate on the housing says for a moment, in place of the console's name. */
   plate = $state('');
@@ -100,7 +127,7 @@ class ConsoleState {
     this.refreshDropbox();
     this.supported = await probeStorage();
     if (!this.supported) {
-      this.installs = { fo1: null, fo2: null };
+      this.installs = perGame(null);
       return;
     }
     await Promise.all(
@@ -126,9 +153,25 @@ class ConsoleState {
     this.storage = await storageStatus().catch(() => null);
   }
 
-  /** Imports whatever the user picked or dropped. */
+  /**
+   * Whether a game can be started: its data is here, and so is the game it
+   * runs on when it is a conversion.
+   */
+  playable(game: GameId): boolean {
+    const base = GAMES[game].conversion?.base;
+    return !!this.installs[game] && (!base || !!this.installs[base]);
+  }
+
+  /** Imports whatever the user picked or dropped: folders, loose files, or a zip of either. */
   importFrom(sources: SourceFile[], preferred?: GameId): Promise<GameId | null> {
-    return this.importWith(async () => sources, preferred);
+    return this.importWith(() => openArchives(sources), preferred);
+  }
+
+  /** Loads the game that was found beside the last one, from the same selection. */
+  importOffered(): Promise<GameId | null> {
+    const offer = this.offer;
+    if (!offer) return Promise.resolve(null);
+    return this.importWith(async () => offer.sources, offer.game);
   }
 
   /**
@@ -143,27 +186,22 @@ class ConsoleState {
   private async importWith(find: () => Promise<SourceFile[]>, preferred?: GameId, remote = false): Promise<GameId | null> {
     if (this.busy) return null;
     this.job = { ...IDLE, phase: 'reading', game: preferred, remote };
+    this.offer = null;
     try {
-      const plan = await planImport(await find(), preferred);
+      const sources = await find();
+      const survey = await surveySources(sources);
+      const plan = await this.plan(sources, survey, preferred, remote);
       if (remote && preferred && plan.game !== preferred) {
         throw new ImportError(`${GAMES[preferred].title} was not found in your Dropbox. What is there is ${GAMES[plan.game].title}.`);
       }
-      const status = await storageStatus().catch(() => null);
-      if (status && status.quota > 0 && status.quota - status.usage < plan.totalBytes * 1.05) {
-        throw new ImportError(
-          'Not enough browser storage is available for this game. Free some disk space, or remove the other game first.',
-        );
-      }
-      this.job = { phase: 'copying', game: plan.game, remote, plan, doneBytes: 0, totalBytes: plan.totalBytes, path: '' };
-      await runImport(plan, (progress) => {
-        this.job.doneBytes = progress.doneBytes;
-        this.job.totalBytes = progress.totalBytes;
-        if (progress.path) this.job.path = progress.path;
-      });
+      await this.copy(plan, remote);
       // Best effort: ask the browser to keep this data when disk space runs low.
       // Not awaited: Firefox answers only after the user responds to a prompt.
       void requestPersistence().then(() => this.refresh());
       this.job = { ...this.job, phase: 'done', doneBytes: plan.totalBytes };
+      // A conversion in the folder that was just picked can be loaded from it without a second pick.
+      const beside = remote ? undefined : plan.also.find((game) => GAMES[game].conversion);
+      if (beside) this.offer = { game: beside, sources };
       await this.refresh();
       return plan.game;
     } catch (err) {
@@ -179,19 +217,68 @@ class ConsoleState {
     }
   }
 
+  /**
+   * Plans the import of what was asked for. A conversion is put together
+   * from two games: where the selection holds one of them that is not loaded
+   * yet (the conversion sits in the folder of the game it runs on), that one
+   * is loaded first, from the same pick.
+   */
+  private async plan(sources: SourceFile[], survey: Awaited<ReturnType<typeof surveySources>>, preferred: GameId | undefined, remote: boolean): Promise<ImportPlan> {
+    const conversion = preferred ? GAMES[preferred].conversion : undefined;
+    // (Not from Dropbox: nobody wants a second game downloaded by surprise.)
+    if (!conversion || survey.conversion === null || remote) return planImport(sources, preferred, CONTEXT);
+
+    const here = (game: GameId) => !this.installs[game] && survey.stock.includes(game);
+    // After loading another game the console is back to reading this one.
+    const resume = () => (this.job = { ...IDLE, phase: 'reading', game: preferred, remote });
+    if (here(conversion.base)) {
+      await this.copy(await planImport(sources, conversion.base, CONTEXT), remote);
+      resume();
+    }
+    try {
+      return await planImport(sources, preferred, CONTEXT);
+    } catch (err) {
+      // What it needs of the other game is not at hand, and that game is in the selection as well.
+      if (!(err instanceof ImportError) || !here(conversion.donor)) throw err;
+      await this.copy(await planImport(sources, conversion.donor, CONTEXT), remote);
+      resume();
+      return planImport(sources, preferred, CONTEXT);
+    }
+  }
+
+  /** Copies a planned import into storage, showing its progress. */
+  private async copy(plan: ImportPlan, remote: boolean): Promise<void> {
+    const status = await storageStatus().catch(() => null);
+    if (status && status.quota > 0 && status.quota - status.usage < plan.totalBytes * 1.05) {
+      throw new ImportError(
+        `Not enough browser storage is available for ${GAMES[plan.game].title}. Free some disk space, or eject a game you are not playing.`,
+      );
+    }
+    this.job = { phase: 'copying', game: plan.game, remote, plan, doneBytes: 0, totalBytes: plan.totalBytes, path: '' };
+    await runImport(plan, (progress) => {
+      this.job.doneBytes = progress.doneBytes;
+      this.job.totalBytes = progress.totalBytes;
+      if (progress.path) this.job.path = progress.path;
+    });
+    await this.refresh();
+  }
+
   /** The save to continue from: the latest one of a game that can be played. */
   continueFrom(only?: GameId): { game: GameId; save: LatestSave } | null {
     let best: { game: GameId; save: LatestSave } | null = null;
     for (const game of only ? [only] : GAME_IDS) {
       const save = this.latest[game];
-      if (!save || !this.installs[game]) continue;
+      if (!save || !this.playable(game)) continue;
       if (!best || save.touchedAt > best.save.touchedAt) best = { game, save };
     }
     return best;
   }
 
   clearJob(): void {
-    if (!this.busy) this.job = { ...IDLE };
+    if (!this.busy) {
+      this.job = { ...IDLE };
+      this.offer = null;
+    }
   }
 }
 

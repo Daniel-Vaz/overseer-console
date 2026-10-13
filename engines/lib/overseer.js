@@ -6,8 +6,10 @@
  * whole archives from disk and assume files they wrote are safe. A browser tab
  * offers none of that, so this file provides it underneath the C library:
  *
- *   1. A clock that can stop. Game time freezes while the tab is hidden or the
- *      host pauses the engine, and stalls of the page are hidden from it.
+ *   1. A clock that can stop, and that can run fast. Game time freezes while
+ *      the tab is hidden or the host pauses the engine, stalls of the page are
+ *      hidden from it, and the host can have it pass several times as quickly
+ *      as time does: everything in the game then happens that much sooner.
  *   2. A watchdog that hands the thread back to the browser whenever the
  *      engine has kept it for longer than a slice. Rendering, input and audio
  *      share that thread; without this any long loop freezes all three.
@@ -44,6 +46,10 @@ addToLibrary({
     paused: false,
     pauseStart: 0,
     pausedMs: 0,
+    // How fast the engine's clock runs, and what it and the real one read when that was last changed.
+    speed: 1,
+    speedBase: 0,
+    speedSince: 0,
     lastYield: 0,
     ticksOrigin: null,
     waiters: [],
@@ -72,9 +78,25 @@ addToLibrary({
     // Clock
     // ------------------------------------------------------------------
 
-    // Milliseconds of time the engine has been allowed to see.
-    now() {
+    // Milliseconds for which the engine has been allowed to run.
+    real() {
       return (OVERSEER.paused ? OVERSEER.pauseStart : performance.now()) - OVERSEER.pausedMs;
+    },
+
+    // Milliseconds of time the engine has been allowed to see: the same,
+    // except for as long as its clock was made to run at another speed.
+    now() {
+      return OVERSEER.speedBase + (OVERSEER.real() - OVERSEER.speedSince) * OVERSEER.speed;
+    },
+
+    // Has the engine's clock run `speed` times as fast as time from here on.
+    // What it has shown so far stays as it is: the clock never jumps.
+    setSpeed(speed) {
+      if (!(speed > 0)) return;
+      var real = OVERSEER.real();
+      OVERSEER.speedBase += (real - OVERSEER.speedSince) * OVERSEER.speed;
+      OVERSEER.speedSince = real;
+      OVERSEER.speed = Math.min(16, Math.max(0.1, speed));
     },
 
     pause() {
@@ -124,7 +146,7 @@ addToLibrary({
         // Time the engine spent computing since it last had the thread.
         OVERSEER.counters.busyMs += performance.now() - OVERSEER.resumedAt;
         start((value) => {
-          OVERSEER.lastYield = OVERSEER.now();
+          OVERSEER.lastYield = OVERSEER.real();
           OVERSEER.resumedAt = performance.now();
           wakeUp(value);
         });
@@ -171,8 +193,9 @@ addToLibrary({
       }, ms);
     },
 
+    // The browser is due its turn after a slice of real time, however fast the engine's clock runs.
     dueForYield() {
-      return OVERSEER.now() - OVERSEER.lastYield >= OVERSEER.config.sliceMs;
+      return OVERSEER.real() - OVERSEER.lastYield >= OVERSEER.config.sliceMs;
     },
 
     fail(what, err) {
@@ -643,7 +666,7 @@ addToLibrary({
 
         // Arms the watchdog. Call right before callMain().
         start() {
-          OVERSEER.lastYield = OVERSEER.now();
+          OVERSEER.lastYield = OVERSEER.real();
           OVERSEER.resumedAt = performance.now();
           OVERSEER.armed = true;
         },
@@ -654,6 +677,9 @@ addToLibrary({
         pause: () => OVERSEER.pause(),
         resume: () => OVERSEER.resume(),
         isPaused: () => OVERSEER.paused,
+
+        // Fast forward: 1 is the pace of the original, 3 three times that.
+        setSpeed: (speed) => OVERSEER.setSpeed(speed),
 
         // Asks the file system to hand pending changes to the host now.
         flush: () => new Promise((resolve, reject) => {
@@ -670,6 +696,9 @@ addToLibrary({
           cachedBlocks: OVERSEER.lru.size,
           pausedMs: OVERSEER.pausedMs,
           paused: OVERSEER.paused,
+          speed: OVERSEER.speed,
+          // What the engine's clock reads, in milliseconds.
+          clock: OVERSEER.now(),
         }),
       };
     },
@@ -681,10 +710,11 @@ addToLibrary({
   emscripten_get_now: () => OVERSEER.now(),
 
   // Sleeping is how the engine paces its frames, and where it stays put while
-  // the host has it paused.
+  // the host has it paused. It asks in its own time: with its clock running
+  // fast, a sleep is over that much sooner.
   emscripten_sleep__deps: ['$OVERSEER'],
   emscripten_sleep__async: true,
-  emscripten_sleep: (ms) => OVERSEER.suspend((wake) => OVERSEER.timer(ms, wake)),
+  emscripten_sleep: (ms) => OVERSEER.suspend((wake) => OVERSEER.timer(ms / OVERSEER.speed, wake)),
 
   // The engines are compiled with -DSDL_GetTicks=overseer_ticks, so every
   // look at the clock passes through here. It is the one call that all of the

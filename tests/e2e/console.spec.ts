@@ -1,13 +1,14 @@
 import { expect, test } from './fixtures';
 import { zipSync } from 'fflate';
-import { fakeFallout2Folder, fakeSaveDat, junkFolder, openConsole, pickFolder } from './helpers';
+import type { Page } from '@playwright/test';
+import { fakeFallout1Folder, fakeFallout2Folder, fakeSaveDat, junkFolder, openConsole, pickFolder } from './helpers';
 
 test('plays the power-on sequence once, then shows the main directory', async ({ page }) => {
   await page.goto('');
   await expect(page.getByText('POWER-ON SELF TEST')).toBeVisible();
   await expect(page.getByText('PRIVATE STORAGE')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Main directory' })).toBeVisible();
-  await expect(page.locator('.menu button')).toHaveCount(6);
+  await expect(page.locator('.menu button')).toHaveCount(7);
 
   // Not again in the same session.
   await page.reload();
@@ -55,12 +56,12 @@ test('the status board has a picture for every entry, and each one loads', async
   await page.keyboard.press('Home');
   await expect(page.locator('.menu li').first()).toContainText('NO HOLODISK');
   await expect(glyph).toHaveClass(/amber/);
-  await page.keyboard.press('4');
+  await page.keyboard.press('5');
   await expect(page.getByRole('heading', { name: 'Terminal settings' })).toBeVisible();
   await walk();
 
-  // Six entries on the main directory; ten more on the settings, where the two sounds share one.
-  expect(pictures.size).toBeGreaterThanOrEqual(16);
+  // Seven entries on the main directory; ten more on the settings, where the two sounds share one.
+  expect(pictures.size).toBeGreaterThanOrEqual(17);
   for (const picture of pictures) {
     const url = new URL(/url\(["']?(.+?)["']?\)/.exec(picture)![1]!, page.url()).href;
     const response = await page.request.get(url);
@@ -82,21 +83,24 @@ test('is fully usable from the keyboard and remembers settings', async ({ page }
 
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
   await expect(page.locator('.menu li.selected')).toContainText('Save archives');
   await page.keyboard.press('Enter');
   await expect(page.getByRole('heading', { name: 'Save archives' })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(page.getByRole('heading', { name: 'Main directory' })).toBeVisible();
 
-  await page.keyboard.press('4');
+  await page.keyboard.press('5');
   await expect(page.getByRole('heading', { name: 'Terminal settings' })).toBeVisible();
   const picture = page.locator('.menu li').first();
   await expect(picture).toContainText('CLASSIC');
   await page.keyboard.press('1');
   await expect(picture).toContainText('WIDE');
+  await page.keyboard.press('1');
+  await expect(picture).toContainText('HIGH RESOLUTION');
 
   await page.reload();
-  await expect(page.locator('.menu li').first()).toContainText('WIDE');
+  await expect(page.locator('.menu li').first()).toContainText('HIGH RESOLUTION');
 });
 
 test('the switches on the housing turn the tube effects and sounds off', async ({ page }) => {
@@ -132,7 +136,7 @@ test('rejects a folder that is not a game and says why', async ({ page }) => {
 
 test('imports a game folder into browser storage, and ejects it again', async ({ page }) => {
   await openConsole(page, 'fo2');
-  await pickFolder(page, fakeFallout2Folder());
+  await pickFolder(page, await fakeFallout2Folder());
 
   await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 60_000 });
   // master.dat, critter.dat, patch000.dat, one music file, one data file; no exe, no manual.
@@ -264,7 +268,7 @@ test('the player sends you back to the console when there is nothing to play', a
 
 test('the player boots an engine against stored data, and a second tab is refused', async ({ page, context }) => {
   await openConsole(page, 'fo2');
-  await pickFolder(page, fakeFallout2Folder());
+  await pickFolder(page, await fakeFallout2Folder());
   await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 60_000 });
   await page.waitForTimeout(1500);
   await page.keyboard.press('1');
@@ -304,11 +308,11 @@ test('continue goes from the main directory straight into the latest save', asyn
   await expect(page.locator('.menu li').first()).toContainText('Load this save');
   await expect(page.locator('.menu li').first().locator('button')).toBeDisabled();
   await page.goto('#/');
-  await expect(page.locator('.menu button')).toHaveCount(6);
+  await expect(page.locator('.menu button')).toHaveCount(7);
   await expect(page.getByText('Continue:')).toHaveCount(0);
 
   await page.goto('#/fo2');
-  await pickFolder(page, fakeFallout2Folder());
+  await pickFolder(page, await fakeFallout2Folder());
   await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 60_000 });
   await page.goto('#/saves/fo2');
   await page.waitForTimeout(20); // a later save
@@ -351,6 +355,103 @@ test('continue goes from the main directory straight into the latest save', asyn
   await expect(page.getByText('CONTINUING FROM SAVE SLOT 02')).toBeVisible({ timeout: 60_000 });
 });
 
+/** Loads a made-up game and goes to the start gate of its engine. */
+async function toTheGate(page: Page, game: 'fo1' | 'fo2', folder: string): Promise<void> {
+  await page.goto(`#/${game}`);
+  if (!(await page.locator('.menu button', { hasText: 'Begin simulation' }).count())) {
+    await pickFolder(page, folder);
+    await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 60_000 });
+  }
+  await page.waitForTimeout(1500);
+  await page.keyboard.press('1');
+  await page.waitForURL(/play\.html/);
+  await expect(page.getByText('PRESS ANY KEY')).toBeVisible({ timeout: 60_000 });
+}
+
+test('Fallout 2 starts with what its engine adds, and as the original when that is switched off', async ({ page }) => {
+  const game = () =>
+    page.evaluate(() => {
+      const { FS } = (window as unknown as { overseerEngine: { module: { FS: { analyzePath(path: string): { exists: boolean }; readFile(path: string): Uint8Array } } } }).overseerEngine.module;
+      const read = (path: string) => (FS.analyzePath(path).exists ? new TextDecoder().decode(FS.readFile(path)) : null);
+      return { engineData: FS.analyzePath('/game/ce.dat').exists, lights: read('/game/mods/sfall-mods.ini'), config: read('/game/fallout2.cfg') ?? '' };
+    });
+  const folder = await fakeFallout2Folder();
+
+  await openConsole(page);
+  await toTheGate(page, 'fo2', folder);
+  const improved = await game();
+  // The engine's own pictures and words, the key that lights things up, and its settings.
+  expect(improved.engineData).toBe(true);
+  expect(improved.lights).toContain('[Highlighting]');
+  expect(improved.lights).toContain('Key=42');
+  expect(improved.config).toContain('inventory_columns=2');
+  expect(improved.config).toContain('auto_open_doors=1');
+  expect(improved.config).toContain('extend_ap_bar=1');
+  await expect(page.locator('#terminal-hints')).toContainText('F8 FAST FORWARD IN GAME');
+
+  // Back at the console before going anywhere else: leaving the player page is a navigation of its own.
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('heading', { name: 'SIMULATION 02: Fallout 2' })).toBeVisible();
+  await page.goto('#/settings');
+  const entry = page.locator('.menu li').filter({ hasText: 'Game improvements' });
+  await expect(entry).toContainText('ON');
+  await page.keyboard.press('i');
+  await expect(entry).toContainText('OFF');
+  await expect(page.locator('.menu-note')).toContainText('Fallout 2 as the original played.');
+
+  await toTheGate(page, 'fo2', folder);
+  const original = await game();
+  expect(original.engineData).toBe(false);
+  expect(original.lights).toBeNull();
+  expect(original.config).toContain('inventory_columns=1');
+  expect(original.config).toContain('auto_open_doors=0');
+});
+
+test('fast forward runs the clock of either engine several times as fast, and a suspended game stays suspended', async ({ page }) => {
+  /** How fast the engine's clock runs against the page's own, measured over a moment. */
+  const pace = (ms: number) =>
+    page.evaluate(async (wait) => {
+      const stats = () => (window as unknown as { overseerEngine: { module: { overseer: { stats(): { clock: number } } } } }).overseerEngine.module.overseer.stats();
+      const from = { clock: stats().clock, real: performance.now() };
+      await new Promise((resolve) => setTimeout(resolve, wait));
+      return (stats().clock - from.clock) / (performance.now() - from.real);
+    }, ms);
+  const engine = (call: string, value?: number) =>
+    page.evaluate(([name, argument]) => (window as unknown as { overseerEngine: Record<string, (value?: number) => void> }).overseerEngine[name as string]!(argument as number | undefined), [call, value] as const);
+
+  await openConsole(page);
+  for (const [game, folder] of [['fo2', await fakeFallout2Folder()], ['fo1', await fakeFallout1Folder()]] as const) {
+    await toTheGate(page, game, folder);
+    expect(await pace(300), `${game} at its own pace`).toBeCloseTo(1, 1);
+    await engine('setSpeed', 3);
+    const fast = await pace(300);
+    expect(fast, `${game} fast`).toBeGreaterThan(2.7);
+    expect(fast, `${game} fast`).toBeLessThan(3.3);
+    // Suspended, the clock stands still whatever its speed; back at its own pace it carries on from where it was.
+    await engine('pause');
+    expect(await pace(200), `${game} suspended`).toBe(0);
+    await engine('resume');
+    await engine('setSpeed', 1);
+    expect(await pace(300), `${game} back at its own pace`).toBeCloseTo(1, 1);
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('heading', { name: /SIMULATION 0\d/ })).toBeVisible();
+  }
+});
+
+test('the fast forward speed and the improvements are settings like the others', async ({ page }) => {
+  await openConsole(page, 'settings');
+  const speed = page.locator('.menu li').filter({ hasText: 'Fast forward' });
+  await expect(speed).toContainText('3 TIMES');
+  await page.keyboard.press('f');
+  await expect(speed).toContainText('4 TIMES');
+  await page.keyboard.press('f');
+  await expect(speed).toContainText('2 TIMES');
+  await page.keyboard.press('i');
+  await page.reload();
+  await expect(page.locator('.menu li').filter({ hasText: 'Fast forward' })).toContainText('2 TIMES');
+  await expect(page.locator('.menu li').filter({ hasText: 'Game improvements' })).toContainText('OFF');
+});
+
 test('credits name the engines, their licence and that the builds are modified', async ({ page }) => {
   await openConsole(page, 'credits');
   await expect(page.getByRole('link', { name: 'Fallout 2 Community Edition' })).toBeVisible();
@@ -380,7 +481,7 @@ test('keeps working without a network connection once visited', async ({ page, c
   await context.setOffline(true);
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Main directory' })).toBeVisible();
-  await page.keyboard.press('5');
+  await page.keyboard.press('6');
   await expect(page.getByRole('heading', { name: 'Operations manual' })).toBeVisible();
 
   // The player page is available offline as well (and finds no game to run).

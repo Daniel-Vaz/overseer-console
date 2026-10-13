@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { GameFacts } from '../../lib/gamefacts';
-  import type { GameId } from '../../lib/games';
+  import { GAMES, type GameId } from '../../lib/games';
   import { SKILL_NAMES, SPECIAL_NAMES, traitNames, type Character } from '../../lib/savefile';
 
   // What a save says about its character. Names come from the player's own
@@ -8,7 +8,9 @@
   let { character, game, facts }: { character: Character; game: GameId; facts: GameFacts | null } = $props();
 
   const skills = $derived(facts?.skills.length ? facts.skills : SKILL_NAMES);
-  const traits = $derived(facts?.traits.length ? facts.traits : traitNames(game));
+  // What things are called follows the world the game is set in, not the engine it runs on.
+  const world = $derived(GAMES[game].world);
+  const traits = $derived(facts?.traits.length ? facts.traits : traitNames(world));
 
   /** "Awareness, Toughness x2", or just how many when the game's names are not at hand. */
   const perks = $derived.by(() => {
@@ -55,10 +57,10 @@
     <p><b>Perks</b> {perks}</p>
   {/if}
   <p>
-    <b>{game === 'fo1' ? 'Reputation' : 'Karma'}</b> {number(character.karma)}
+    <b>{world === 'fo1' ? 'Reputation' : 'Karma'}</b> {number(character.karma)}
     <span class="sep"></span>
     <b>Kills</b> {number(character.kills)}
     <span class="sep"></span>
-    <b>{game === 'fo1' ? 'Caps' : 'Money'}</b> {number(character.money)}
+    <b>{world === 'fo1' ? 'Caps' : 'Money'}</b> {number(character.money)}
   </p>
 </div>

@@ -6,7 +6,7 @@
  * see it.
  */
 import { DEFAULT_TUNING, Gestures, type GestureTuning, type MouseButton, type PointerMode } from './gestures';
-import { ESCAPE_KEY, Keyboard, sendKey } from './keyboard';
+import { ESCAPE_KEY, Keyboard, SHORTCUT_KEYS, sendKey } from './keyboard';
 import { SyntheticMouse } from './mouse';
 
 export interface TouchHost {
@@ -21,6 +21,8 @@ export interface TouchHost {
   /** Whether the game is waiting for text (a save's description, a name). Undefined when the engine cannot tell. */
   wantsText(): boolean | undefined;
   openMenu(): void;
+  /** Fast forward, on or off. */
+  toggleFast(): void;
   /** The deck or the keyboard appeared or went: the picture has to be fitted again. */
   layoutChanged(): void;
 }
@@ -117,6 +119,19 @@ export class TouchControls {
     this.tuning.scrollStepY = Math.max(12, 24 * scale);
   }
 
+  /** Shows on the deck whether the game is running fast. */
+  setFast(on: boolean): void {
+    const button = this.host.deck.querySelector('[data-act="fast"]');
+    button?.classList.toggle('armed', on);
+    button?.setAttribute('aria-pressed', String(on));
+  }
+
+  /** Offers the shortcut for a key, or takes it away: not every game answers to every one. */
+  offerKey(code: string, offered: boolean): void {
+    const button = this.host.deck.querySelector<HTMLElement>(`[data-key="${code}"]`);
+    if (button) button.hidden = !offered;
+  }
+
   /** Lets go of everything: the game is being paused or left. */
   releaseAll(): void {
     this.gestures.cancel();
@@ -149,11 +164,11 @@ export class TouchControls {
   }
 
   private onDeckDown(event: PointerEvent): void {
-    const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('button[data-act]') : null;
+    const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('button[data-act], button[data-key]') : null;
     if (!button) return;
     // No focus change, no delayed click, no text selection.
     event.preventDefault();
-    const act = button.dataset.act!;
+    const act = button.dataset.act;
     if (act === 'menu') {
       this.host.openMenu();
       return;
@@ -163,11 +178,21 @@ export class TouchControls {
       return;
     }
     if (!this.host.playing()) return;
+    if (act === 'fast') {
+      this.host.toggleFast();
+      return;
+    }
 
+    // A shortcut is a key of the keyboard: down for as long as the button is.
+    const shortcut = SHORTCUT_KEYS[button.dataset.key ?? ''];
+    if (!act && !shortcut) return;
     button.setPointerCapture?.(event.pointerId);
     button.classList.add('down');
     let release: () => void;
-    if (act === 'esc') {
+    if (shortcut) {
+      sendKey('keydown', shortcut);
+      release = () => sendKey('keyup', shortcut);
+    } else if (act === 'esc') {
       sendKey('keydown', ESCAPE_KEY);
       release = () => sendKey('keyup', ESCAPE_KEY);
     } else {

@@ -122,7 +122,12 @@ export interface Character {
   traits?: number[];
 }
 
-type Game = 'fo1' | 'fo2';
+/**
+ * Which engine wrote a save: the two lay the file out differently. A game is
+ * saved in the layout of the engine it runs on, whatever world it is set in.
+ */
+export type SaveLayout = 'fo1' | 'fo2';
+type Game = SaveLayout;
 
 const LAYOUT = {
   fo1: {

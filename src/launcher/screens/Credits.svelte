@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import type { EngineInfo } from '../../lib/engine/types';
-  import { GAMES, GAME_IDS, type GameId } from '../../lib/games';
+  import { GAMES, GAME_IDS, type EngineId } from '../../lib/games';
   import { REPO_URL } from '../../lib/project';
   import Menu from '../components/Menu.svelte';
   import { consoleState as sys } from '../state.svelte';
@@ -10,18 +10,22 @@
   let { go }: { go: (path: string) => void } = $props();
 
   const base = import.meta.env.BASE_URL;
-  let engines = $state<Partial<Record<GameId, EngineInfo>>>({});
+  let engines = $state<Partial<Record<EngineId, EngineInfo>>>({});
+  // One build per engine; a conversion plays on the build of the game it runs on.
+  const ENGINE_GAMES = GAME_IDS.filter((game) => !GAMES[game].conversion);
+  const CONVERSIONS = GAME_IDS.filter((game) => GAMES[game].conversion);
 
   onMount(() => {
     sys.hints = [
       ['PGUP/PGDN', 'SCROLL'],
       ['ESC', 'BACK'],
     ];
-    for (const game of GAME_IDS) {
-      fetch(`${base}engines/${game}/engine.json`)
+    for (const game of ENGINE_GAMES) {
+      const engine = GAMES[game].engine.id;
+      fetch(`${base}engines/${engine}/engine.json`)
         .then((response) => (response.ok ? (response.json() as Promise<EngineInfo>) : null))
         .then((info) => {
-          if (info) engines[game] = info;
+          if (info) engines[engine] = info;
         })
         .catch(() => undefined);
     }
@@ -40,16 +44,16 @@
     front end for their work.
   </p>
   <dl class="readout gap">
-    {#each GAME_IDS as game (game)}
-      {@const info = engines[game]}
+    {#each ENGINE_GAMES as game (game)}
+      {@const info = engines[GAMES[game].engine.id]}
       <dt>{GAMES[game].title}</dt>
       <dd>
         <a href={GAMES[game].engine.project} target="_blank" rel="noopener">{GAMES[game].engine.name}</a>
         {#if info}
           at commit <a href={`${info.source}/commit/${info.commit}`} target="_blank" rel="noopener">{info.commit.slice(0, 7)}</a>,
           built with Emscripten {info.emsdk}.
-          <a href={`${base}engines/${game}/LICENSE.txt`} target="_blank" rel="noopener">License</a>,
-          <a href={`${base}engines/${game}/THIRD-PARTY.txt`} target="_blank" rel="noopener">third-party notices</a>.
+          <a href={`${base}engines/${GAMES[game].engine.id}/LICENSE.txt`} target="_blank" rel="noopener">License</a>,
+          <a href={`${base}engines/${GAMES[game].engine.id}/THIRD-PARTY.txt`} target="_blank" rel="noopener">third-party notices</a>.
         {/if}
       </dd>
     {/each}
@@ -68,6 +72,19 @@
     on-demand file reading and save persistence. The patches and build scripts are in the
     <a href={REPO_URL} target="_blank" rel="noopener">console's repository</a>.
   </p>
+
+  <h2>The conversion</h2>
+  {#each CONVERSIONS as game (game)}
+    {@const conversion = GAMES[game].conversion!}
+    <p>
+      <a href={conversion.project} target="_blank" rel="noopener">{GAMES[game].title}</a> is the work of
+      <span class="hot">Lexx, Wipe, Mayck and Ghosthack</span>, and of the many more its own credits name:
+      {GAMES[conversion.donor].title} rebuilt as a game for the engine of {GAMES[conversion.base].title}. It is
+      theirs, it is free, and none of it is hosted here: you download its package from them, and the console puts it
+      together in this browser from that and from your own copies of the two games. It plays on the
+      {GAMES[game].engine.name} build above.
+    </p>
+  {/each}
 
   <h2>With thanks to</h2>
   <dl class="readout gap">

@@ -39,7 +39,7 @@ test('the console can be worked with a finger', async ({ page }) => {
 
 test('on a phone the start gate asks for a tap and makes room for the touch deck', async ({ page }) => {
   await openConsole(page, 'fo2');
-  await pickFolder(page, fakeFallout2Folder());
+  await pickFolder(page, await fakeFallout2Folder());
   await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 60_000 });
   await pause(page, 1500);
   await page.locator('.menu button', { hasText: 'Begin simulation' }).tap();
@@ -54,6 +54,15 @@ test('on a phone the start gate asks for a tap and makes room for the touch deck
   const stage = (await page.locator('#stage').boundingBox())!;
   expect(stage.x).toBeGreaterThan(50);
   expect(stage.x + stage.width).toBeLessThan(844 - 50);
+  // Between the deck's own buttons sit the shortcuts: keys of the game, fast forward, and the
+  // one that lights up what lies on the ground, which this game has. None of them hangs off the screen.
+  const shortcuts = page.locator('#deck .deck-quick button:visible');
+  await expect(shortcuts).toHaveText(['INV', 'MAP', 'PIP', 'FAST', 'LIGHT', 'SKILL', 'TURN']);
+  for (const box of await shortcuts.evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().toJSON() as DOMRect))) {
+    expect(box.top).toBeGreaterThanOrEqual(0);
+    expect(box.bottom).toBeLessThanOrEqual(390);
+    expect(box.height).toBeGreaterThan(20);
+  }
 
   await page.getByRole('button', { name: 'Back to console' }).tap();
   await expect(page.getByRole('heading', { name: 'SIMULATION 02: Fallout 2' })).toBeVisible();

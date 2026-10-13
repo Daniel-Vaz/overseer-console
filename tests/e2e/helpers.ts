@@ -1,7 +1,10 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { errors, type Page } from '@playwright/test';
+import { zipSync } from 'fflate';
+import { ascii, dat2 } from '../archives';
+import { ettuFiles, fallout1Master, type EttuOptions } from '../ettu';
 
 /** Opens the console on a route with the power-on sequence already seen. */
 export async function openConsole(page: Page, route = '', settings: Record<string, unknown> = {}): Promise<void> {
@@ -41,21 +44,83 @@ function fakeDat2(size: number): Buffer {
 /**
  * Writes a folder laid out like a Fallout 2 install, filled with made-up
  * bytes. Enough for the import pipeline; the engine cannot run it.
+ *
+ * With `archives` its three .dat files are real archives holding next to
+ * nothing: the engine opens them, and then finds no game in them.
  */
-export function fakeFallout2Folder(): string {
+export async function fakeFallout2Folder(archives = false): Promise<string> {
   const root = join(mkdtempSync(join(tmpdir(), 'overseer-e2e-')), 'Fallout 2');
   mkdirSync(join(root, 'sound', 'music'), { recursive: true });
   mkdirSync(join(root, 'data'), { recursive: true });
   mkdirSync(join(root, 'Manual'), { recursive: true });
-  writeFileSync(join(root, 'master.dat'), fakeDat2(3 << 20)); // large: stored as its own file
-  writeFileSync(join(root, 'critter.dat'), fakeDat2(4096)); // small: goes into the pack
-  writeFileSync(join(root, 'patch000.dat'), fakeDat2(4096));
+  const archive = async (name: string) => Buffer.from(await dat2({ [`made-up\\${name}.txt`]: { data: ascii(name), packed: false } }).arrayBuffer());
+  writeFileSync(join(root, 'master.dat'), archives ? await archive('master') : fakeDat2(3 << 20)); // large: stored as its own file
+  writeFileSync(join(root, 'critter.dat'), archives ? await archive('critter') : fakeDat2(4096)); // small: goes into the pack
+  writeFileSync(join(root, 'patch000.dat'), archives ? await archive('patch') : fakeDat2(4096));
   writeFileSync(join(root, 'fallout2.cfg'), '[system]\r\nlanguage=english\r\n');
   writeFileSync(join(root, 'fallout2.exe'), 'not a program');
   writeFileSync(join(root, 'sound', 'music', '01hub.acm'), Buffer.alloc(2048, 1));
   writeFileSync(join(root, 'data', 'worldmap.dat'), Buffer.alloc(512, 2));
   writeFileSync(join(root, 'Manual', 'manual.txt'), 'read me');
   return root;
+}
+
+/** A Fallout 1 style archive: a small big-endian count, then fixed header words. */
+function fakeDat1(size: number): Buffer {
+  const data = Buffer.alloc(size, 0x2a);
+  data.writeUInt32BE(0x30, 0);
+  data.writeUInt32BE(0x5e, 4);
+  data.writeUInt32BE(0, 8);
+  return data;
+}
+
+/**
+ * A folder laid out like a Fallout install. Its MASTER.DAT is a real, small
+ * archive holding the files Fallout Et Tu borrows from the game.
+ */
+export async function fakeFallout1Folder(): Promise<string> {
+  const root = join(mkdtempSync(join(tmpdir(), 'overseer-e2e-')), 'Fallout');
+  mkdirSync(join(root, 'DATA', 'SOUND', 'MUSIC'), { recursive: true });
+  writeFileSync(join(root, 'MASTER.DAT'), Buffer.from(await fallout1Master().arrayBuffer()));
+  writeFileSync(join(root, 'CRITTER.DAT'), fakeDat1(4096));
+  writeFileSync(join(root, 'FALLOUTW.EXE'), 'not a program');
+  writeFileSync(join(root, 'DATA', 'SOUND', 'MUSIC', '01HUB.ACM'), Buffer.alloc(2048, 1));
+  return root;
+}
+
+/** Writes the made-up Fallout Et Tu package into `root`, as its folder is laid out on a desktop. */
+function writeEttu(root: string, options: EttuOptions): void {
+  for (const [path, data] of Object.entries(ettuFiles(options))) {
+    mkdirSync(dirname(join(root, path)), { recursive: true });
+    writeFileSync(join(root, path), data);
+  }
+}
+
+/** Fallout Et Tu as the zip it is downloaded as. */
+export function fakeEttuZip(options: EttuOptions = {}): { name: string; mimeType: string; buffer: Buffer } {
+  const files = Object.fromEntries(Object.entries(ettuFiles(options)).map(([path, data]) => [`Fallout1in2/${path}`, data]));
+  return { name: 'Fallout1in2.zip', mimeType: 'application/zip', buffer: Buffer.from(zipSync(files, { level: 6 })) };
+}
+
+/** A Fallout 2 folder with Fallout Et Tu installed inside it, its own tool already run. */
+export async function fakeFallout2WithEttu(): Promise<string> {
+  const root = await fakeFallout2Folder();
+  writeEttu(join(root, 'Fallout1in2'), { extracted: true, forEngine: true });
+  return root;
+}
+
+/** A folder as one zip, the way it is carried to a device that cannot pick folders. */
+export function zipFolder(folder: string, name: string): { name: string; mimeType: string; buffer: Buffer } {
+  const files: Record<string, Uint8Array> = {};
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir)) {
+      const path = join(dir, entry);
+      if (statSync(path).isDirectory()) walk(path);
+      else files[`${name}/${relative(folder, path).replace(/\\/g, '/')}`] = new Uint8Array(readFileSync(path));
+    }
+  };
+  walk(folder);
+  return { name: `${name}.zip`, mimeType: 'application/zip', buffer: Buffer.from(zipSync(files, { level: 6 })) };
 }
 
 /** A folder that is not a game. */

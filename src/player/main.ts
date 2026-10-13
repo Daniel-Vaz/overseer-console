@@ -13,6 +13,7 @@ import faultIcon from '../assets/icons/fault.png';
 import rotateIcon from '../assets/icons/rotate.png';
 import suspendedIcon from '../assets/icons/suspended.png';
 import warningIcon from '../assets/icons/warning.png';
+import { wantsEngineData } from '../lib/engine/config';
 import { bootEngine, NoInstallError, StorageUnavailableError, type Engine } from '../lib/engine/host';
 import { GAMES, isGameId, type GameId } from '../lib/games';
 import { loadSettings, recordLaunch, saveSettings } from '../lib/settings';
@@ -31,6 +32,7 @@ const barTitle = $('bar-title');
 const barState = $('bar-state');
 const handle = $<HTMLButtonElement>('handle');
 const toastEl = $('toast');
+const fastEl = $('fast');
 
 const settings = loadSettings();
 if (settings.audio === 'buffered') installAudioBridge();
@@ -50,10 +52,14 @@ let startedAt = 0;
 let textInputReset = false;
 let keyboardLocked = false;
 let hiddenPause = false;
+/** Fast forward is on: the game's clock runs several times as fast as time. */
+let fast = false;
 let confirmingExit = false;
 /** What the suspended screen shows: the menu itself, or the touch help. */
 let menuView: 'menu' | 'touch' = 'menu';
 const engineLog: string[] = [];
+/** Whether holding Shift lights up what lies on the ground in this game. */
+let lights = false;
 
 // ---------------------------------------------------------------------
 // The terminal overlay
@@ -172,6 +178,7 @@ const touch = new TouchControls(
       return module._SDL_IsTextInputActive() !== 0;
     },
     openMenu: () => openMenu(),
+    toggleFast: () => setFast(!fast),
     layoutChanged: () => fit(),
   },
   settings.touchPointer,
@@ -304,6 +311,20 @@ function stayAwake(awake: boolean): void {
   }
 }
 
+/**
+ * Fast forward: everything in the game happens several times as quickly, for
+ * the long walk across a map and the turns of a dozen rats. Sound keeps its
+ * own pace, so speech and movies are better watched without it.
+ */
+function setFast(on: boolean): void {
+  if (!engine || (phase !== 'running' && phase !== 'menu')) return;
+  fast = on;
+  engine.setSpeed(on ? settings.fastForward : 1);
+  fastEl.textContent = `FAST FORWARD x${settings.fastForward}`;
+  fastEl.hidden = !on;
+  touch.setFast(on);
+}
+
 function suspendEngine(): void {
   // No button may stay down while the game cannot see it come up.
   touch.releaseAll();
@@ -337,7 +358,7 @@ function begin(): void {
   }
   fit();
   stayAwake(true);
-  if (!touch.visible) toast('F9 CONSOLE MENU   F11 FULLSCREEN', 4500);
+  if (!touch.visible) toast('F8 FAST FORWARD   F9 CONSOLE MENU   F11 FULLSCREEN', 4500);
   else if (!touchHelpSeen()) openTouchHelp();
 }
 
@@ -363,6 +384,9 @@ function openTouchHelp(): void {
     ['2 fingers', 'Drag to scroll. Tap to switch the cursor'],
     ['CLICK', 'Clicks where the pointer is: drag to aim, then press it'],
     ['CURSOR', 'Switches the cursor between walking and using'],
+    ['INV, MAP...', 'The small buttons: inventory, map, Pip-Boy, skilldex, end of turn'],
+    ...(lights ? ([['LIGHT', 'Hold it to light up what lies on the ground']] as const) : []),
+    ['FAST', 'Fast forward, on and off'],
     ['KEYS', 'Keyboard. Comes up by itself when the game wants text'],
     ['ESC, MENU', 'Skip or close. Pause, this help, leave the game'],
   ] as const) {
@@ -416,6 +440,8 @@ function openMenu(confirmExit = false): void {
     ['F4 / F5', 'Save / load game'],
     ['F6 / F7', 'Quick save / quick load'],
     ['ESC', 'Game options'],
+    ...(lights ? ([['SHIFT', 'Hold to light up what lies on the ground']] as const) : []),
+    ['F8', `Fast forward, on and off (${settings.fastForward} times the speed)`],
     ['F9', 'This menu'],
     ['F11', 'Fullscreen'],
   ] as const) {
@@ -523,11 +549,12 @@ function onKey(event: KeyboardEvent): void {
   const down = event.type === 'keydown';
 
   if (phase === 'running') {
-    if (event.code === 'F9' || event.code === 'F11') {
+    if (event.code === 'F8' || event.code === 'F9' || event.code === 'F11') {
       event.preventDefault();
       event.stopImmediatePropagation();
       if (down && !event.repeat) {
-        if (event.code === 'F9') openMenu();
+        if (event.code === 'F8') setFast(!fast);
+        else if (event.code === 'F9') openMenu();
         else void toggleFullscreen();
       }
     } else if (event.code === 'Backquote' && document.fullscreenElement && !keyboardLocked) {
@@ -602,6 +629,9 @@ async function main(): Promise<void> {
   }
   const game = requested;
   const def = GAMES[game];
+  // Lighting up what lies on the ground comes with the engine's additions, where a game has them.
+  lights = wantsEngineData(game, settings.improvements);
+  touch.offerKey('ShiftLeft', lights);
   document.title = `${def.title} - Overseer Console`;
   barTitle.textContent = `OVERSEER CONSOLE // ${def.label}`;
   showTerminal({ state: 'BOOT' });
@@ -675,6 +705,7 @@ async function main(): Promise<void> {
     setHints([
       ['ANY KEY', 'BEGIN'],
       ['ESC', 'BACK TO CONSOLE'],
+      ['F8', 'FAST FORWARD IN GAME'],
       ['F9', 'CONSOLE MENU IN GAME'],
     ]);
   }

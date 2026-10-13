@@ -6,7 +6,7 @@
  * a slot are kept by storage/history.ts.
  */
 import { strFromU8, strToU8, unzipSync, zipSync, type Zippable } from 'fflate';
-import type { GameId } from './games';
+import { GAMES, type GameId } from './games';
 import { SAVE_PREFIX, isSaveData, parseCharacter, parseSaveHeader, slotOf, slotPrefix, type Character } from './savefile';
 import { countVersions, deleteVersions, replaceSlot, type VersionCause } from './storage/history';
 import { pathKey } from './storage/manifest';
@@ -67,7 +67,7 @@ export async function listSaves(game: GameId): Promise<SaveSlot[]> {
       gameClock: header?.gameClock ?? '',
       map: header?.map ?? '',
       thumbnail: header?.thumbnail,
-      sheet: header && main?.data ? parseCharacter(main.data, game) : null,
+      sheet: header && main?.data ? parseCharacter(main.data, GAMES[game].engine.id) : null,
       savedAt: main?.mtime,
       bytes: entries.reduce((sum, entry) => sum + (entry.data?.length ?? 0), 0),
       files: entries.length,
@@ -101,7 +101,7 @@ export async function briefSaves(game: GameId): Promise<SaveBrief[]> {
     const header = entry ? parseSaveHeader(entry.data!) : null;
     if (!entry || !header) continue;
     const { thumbnail: _thumbnail, ...summary } = header;
-    briefs.push({ slot: slotOf(entry.key)!, savedAt: entry.mtime, level: parseCharacter(entry.data!, game)?.level, ...summary });
+    briefs.push({ slot: slotOf(entry.key)!, savedAt: entry.mtime, level: parseCharacter(entry.data!, GAMES[game].engine.id)?.level, ...summary });
   }
   return briefs.sort((a, b) => a.slot - b.slot);
 }
@@ -184,7 +184,7 @@ function zipEntries(game: GameId, entries: OverlayEntry[], withTimes = false): U
     info.times[`${slotOf(entry.key)}/${entry.key.replace(/^data\/savegame\/slot\d+\//, '')}`] = entry.mtime;
   }
   files['README.txt'] = strToU8(
-    `Saved games exported from Overseer Console (${game === 'fo1' ? 'Fallout' : 'Fallout 2'}).\r\n` +
+    `Saved games exported from Overseer Console (${GAMES[game].title}).\r\n` +
       'To use them in a desktop install, copy the SLOTnn folders into the game\'s data\\SAVEGAME folder.\r\n',
   );
   if (withTimes) files[ARCHIVE_INFO] = strToU8(JSON.stringify(info));

@@ -6,7 +6,7 @@
  * ones come from a single packed read, and whatever the engine wrote before
  * (saves, settings) is layered on top from the overlay.
  */
-import { GAMES, type GameId } from '../games';
+import { GAMES, type EngineId, type GameId } from '../games';
 import type { Settings } from '../settings';
 import { pathKey } from '../storage/manifest';
 import { StorageUnavailableError, loadInstall, openBlob, type Install } from '../storage/opfs';
@@ -14,7 +14,7 @@ import { StorageUnavailableError, loadInstall, openBlob, type Install } from '..
 export { StorageUnavailableError };
 import { commitWithHistory } from '../storage/history';
 import { listOverlay, type OverlayEntry } from '../storage/overlay';
-import { CLASSIC_SCREEN, buildConfigFiles, wideScreen, type ScreenSize } from './config';
+import { baseFiles, baseFolder, buildConfigFiles, chooseScreen, wantsEngineData, type ScreenSize } from './config';
 import type { EngineFactory, EngineInfo, EngineModule, PersistBatch } from './types';
 
 const GAME_ROOT = '/game';
@@ -24,6 +24,23 @@ const REQUIRED_DIRS = ['data/SAVEGAME', 'data/MAPS', 'data/proto/items', 'data/p
 
 export class NoInstallError extends Error {
   override name = 'NoInstallError';
+}
+
+/** What a game is started from: its own install, and that of the game it runs on when it is a conversion. */
+export interface Installed {
+  install: Install;
+  base?: Install;
+}
+
+/** Looks up what `game` needs to start. Throws NoInstallError naming what is not in this browser. */
+export async function loadInstalled(game: GameId): Promise<Installed> {
+  const def = GAMES[game];
+  const install = await loadInstall(game);
+  if (!install) throw new NoInstallError(`${def.title} has not been imported in this browser.`);
+  if (!def.conversion) return { install };
+  const base = await loadInstall(def.conversion.base);
+  if (!base) throw new NoInstallError(`${def.title} runs on ${GAMES[def.conversion.base].title}, which has not been imported in this browser.`);
+  return { install, base };
 }
 
 export interface BootHooks {
@@ -55,15 +72,17 @@ export interface Engine {
   start(): void;
   pause(): void;
   resume(): void;
+  /** Fast forward: how many times as fast as the original the game runs. 1 is the original's pace. */
+  setSpeed(speed: number): void;
   audioContext(): AudioContext | undefined;
 }
 
-function engineBase(game: GameId): string {
-  return `${import.meta.env.BASE_URL}engines/${game}/`;
+function engineBase(engine: EngineId): string {
+  return `${import.meta.env.BASE_URL}engines/${engine}/`;
 }
 
-async function fetchEngineInfo(game: GameId): Promise<EngineInfo> {
-  const response = await fetch(`${engineBase(game)}engine.json`, { cache: 'no-cache' });
+async function fetchEngineInfo(engine: EngineId): Promise<EngineInfo> {
+  const response = await fetch(`${engineBase(engine)}engine.json`, { cache: 'no-cache' });
   if (!response.ok) throw new Error(`engine description not found (HTTP ${response.status})`);
   return (await response.json()) as EngineInfo;
 }
@@ -76,6 +95,13 @@ function loadScript(url: string): Promise<void> {
     script.onerror = () => reject(new Error(`could not load ${url}`));
     document.head.appendChild(script);
   });
+}
+
+/** Fetches the data file that goes with an engine build: small, and the same for every game the engine runs. */
+async function fetchEngineData(url: string, name: string): Promise<{ name: string; data: Uint8Array }> {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`engine data download failed (HTTP ${response.status})`);
+  return { name, data: new Uint8Array(await response.arrayBuffer()) };
 }
 
 /**
@@ -114,16 +140,48 @@ async function downloadEngine(
   return binary;
 }
 
-export function chooseScreen(settings: Settings, viewport: { width: number; height: number }): ScreenSize {
-  if (settings.display !== 'wide') return CLASSIC_SCREEN;
-  return wideScreen(viewport.width, viewport.height);
+/**
+ * Puts stored files where the engine will look for them, below `root`.
+ * `wanted` picks among the install's files, by lower-cased path.
+ */
+async function place(module: EngineModule, install: Install, root: string, wanted: (key: string) => boolean): Promise<void> {
+  const ov = module.overseer;
+  const { manifest } = install;
+
+  // Small files: one read for all of them, unless only a small part of them is asked for.
+  const packed = manifest.files.filter((f) => f.pack && wanted(pathKey(f.path)));
+  if (packed.length) {
+    const pack = await openBlob(install, 'pack.bin');
+    const asked = packed.reduce((sum, file) => sum + file.pack![1], 0);
+    const whole = asked * 4 < pack.size ? null : new Uint8Array(await pack.arrayBuffer());
+    for (const file of packed) {
+      const [offset, length] = file.pack!;
+      const data = whole ? whole.subarray(offset, offset + length) : new Uint8Array(await pack.slice(offset, offset + length).arrayBuffer());
+      ov.writeFile(`${root}/${file.path}`, data, manifest.importedAt);
+    }
+  }
+
+  // Large files: opened, not read.
+  const large = manifest.files.filter((f) => f.blob && wanted(pathKey(f.path)));
+  const handles = await Promise.all(large.map((f) => openBlob(install, f.blob!)));
+  large.forEach((file, i) => {
+    const blob = handles[i]!;
+    if (blob.size !== file.size) {
+      throw new Error(`${file.path} is damaged in browser storage (${blob.size} of ${file.size} bytes). Import the game again.`);
+    }
+    ov.addLazyFile(`${root}/${file.path}`, file.size, (offset, length) =>
+      blob.slice(offset, offset + length).arrayBuffer().then((buffer) => new Uint8Array(buffer)),
+    );
+  });
 }
 
 async function populate(
   module: EngineModule,
-  install: Install,
+  game: GameId,
+  { install, base }: Installed,
   overlay: OverlayEntry[],
   configFiles: Record<string, string>,
+  engineData: { name: string; data: Uint8Array } | null,
 ): Promise<void> {
   const ov = module.overseer;
   const { manifest } = install;
@@ -131,31 +189,17 @@ async function populate(
   const generated = new Set(Object.keys(configFiles).map(pathKey));
 
   for (const dir of [...manifest.dirs, ...REQUIRED_DIRS]) ov.mkdir(`${GAME_ROOT}/${dir}`);
+  await place(module, install, GAME_ROOT, (key) => !changed.has(key) && !generated.has(key));
 
-  // Small files: one read for all of them.
-  const packed = manifest.files.filter((f) => f.pack);
-  if (packed.length) {
-    const pack = new Uint8Array(await (await openBlob(install, 'pack.bin')).arrayBuffer());
-    for (const file of packed) {
-      const key = pathKey(file.path);
-      if (changed.has(key) || generated.has(key)) continue;
-      const [offset, length] = file.pack!;
-      ov.writeFile(`${GAME_ROOT}/${file.path}`, pack.subarray(offset, offset + length), manifest.importedAt);
-    }
+  // A conversion plays from the archives of the game it runs on.
+  const conversion = GAMES[game].conversion;
+  if (conversion && base) {
+    const borrowed = new Set(baseFiles(conversion.base, base.manifest).map(pathKey));
+    await place(module, base, `${GAME_ROOT}/${baseFolder(conversion.base)}`, (key) => borrowed.has(key));
   }
 
-  // Large files: opened, not read.
-  const large = manifest.files.filter((f) => f.blob && !changed.has(pathKey(f.path)));
-  const handles = await Promise.all(large.map((f) => openBlob(install, f.blob!)));
-  large.forEach((file, i) => {
-    const blob = handles[i]!;
-    if (blob.size !== file.size) {
-      throw new Error(`${file.path} is damaged in browser storage (${blob.size} of ${file.size} bytes). Import the game again.`);
-    }
-    ov.addLazyFile(`${GAME_ROOT}/${file.path}`, file.size, (offset, length) =>
-      blob.slice(offset, offset + length).arrayBuffer().then((buffer) => new Uint8Array(buffer)),
-    );
-  });
+  // What the engine adds to the games comes with its own pictures and words.
+  if (engineData) ov.writeFile(`${GAME_ROOT}/${engineData.name}`, engineData.data);
 
   // What the game wrote in earlier sessions.
   for (const entry of overlay) {
@@ -180,18 +224,19 @@ export async function bootEngine(
   const def = GAMES[game];
 
   hooks.status('LOCATING HOLOTAPE');
-  const install = await loadInstall(game);
-  if (!install) throw new NoInstallError(`${def.title} has not been imported in this browser.`);
+  const installed = await loadInstalled(game);
+  const { install } = installed;
 
   hooks.status('READING ENGINE DESCRIPTOR');
-  const info = await fetchEngineInfo(game);
-  const base = engineBase(game);
+  const info = await fetchEngineInfo(def.engine.id);
+  const base = engineBase(def.engine.id);
   const version = `?v=${info.hash}`;
 
   hooks.status(`LOADING ${def.engine.name.toUpperCase()}`);
-  const [wasmBinary] = await Promise.all([
+  const [wasmBinary, , engineData] = await Promise.all([
     downloadEngine(`${base}${info.wasm}${version}`, info.wasmBytes, hooks.progress),
     loadScript(`${base}${info.script}${version}`),
+    wantsEngineData(game, settings.improvements) && info.data ? fetchEngineData(`${base}${info.data}${version}`, info.data) : null,
   ]);
   const factory = (window as unknown as Record<string, EngineFactory | undefined>)[def.engine.factory];
   if (!factory) throw new Error('the engine script did not define its entry point');
@@ -226,16 +271,18 @@ export async function bootEngine(
   hooks.status('MOUNTING GAME DATA');
   const overlay = await listOverlay(game);
   const savedConfig = overlay.find((entry) => entry.key === def.configFile && !entry.deleted && entry.data);
-  const screen = chooseScreen(settings, viewport);
+  const screen = chooseScreen(settings.display, viewport);
   const configFiles = buildConfigFiles({
     game,
     manifest: install.manifest,
+    base: installed.base?.manifest,
     savedConfig: savedConfig ? new TextDecoder().decode(savedConfig.data) : undefined,
     screen,
     // Someone who asked for their save does not want the opening movies first.
     skipIntro: settings.skipIntro || options.loadSlot !== undefined,
+    improvements: settings.improvements,
   });
-  await populate(module, install, overlay, configFiles);
+  await populate(module, game, installed, overlay, configFiles, engineData);
   module.FS.chdir(GAME_ROOT);
   hooks.status('SIMULATION READY');
 
@@ -251,6 +298,7 @@ export async function bootEngine(
     },
     pause: () => ov.pause(),
     resume: () => ov.resume(),
+    setSpeed: (speed) => ov.setSpeed(speed),
     audioContext: () => module.SDL2?.audioContext,
   };
 }

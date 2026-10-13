@@ -7,7 +7,7 @@
 <h1 align="center">Overseer Console</h1>
 
 <p align="center">
-  Play <b>Fallout</b> and <b>Fallout 2</b> in your browser, from your own copy of the games.
+  Play <b>Fallout</b>, <b>Fallout 2</b> and <b>Fallout Et Tu</b> in your browser, from your own copy of the games.
 </p>
 
 <p align="center">
@@ -18,6 +18,7 @@
 <p align="center">
   <a href="#features">Features</a> ·
   <a href="#how-it-works">How it works</a> ·
+  <a href="#fallout-et-tu">Fallout Et Tu</a> ·
   <a href="#dropbox-link">Dropbox link</a> ·
   <a href="#developing">Developing</a> ·
   <a href="#deploying">Deploying</a> ·
@@ -34,7 +35,9 @@ Overseer Console is a static web page styled as a vault terminal. It runs the op
 [Fallout Community Edition](https://github.com/alexbatalov/fallout1-ce) and
 [Fallout 2 Community Edition](https://github.com/fallout2-ce/fallout2-ce) engines, compiled to
 WebAssembly. You point it at the folder a store installed the game to; it copies the data files
-into the browser's private storage on your device and plays from there.
+into the browser's private storage on your device and plays from there. It also plays
+[Fallout Et Tu](https://github.com/rotators/Fo1in2), the first game rebuilt for the engine of the second, which
+it puts together in the browser from the two games and the conversion's own package.
 
 ## Features
 
@@ -46,12 +49,22 @@ into the browser's private storage on your device and plays from there.
   from zip files.
 - **A history for every slot.** Saving over a slot keeps what was in it: every slot has earlier versions to
   roll back to.
+- **Fallout Et Tu, put together for you.** Hand the console the zip the conversion is downloaded as. It takes
+  the files Et Tu needs out of your Fallout and plays it on your Fallout 2: no unpacking, no extraction tool.
+- **Games from a zip.** A game folder can be loaded as one zip of it, which is how a whole game, music
+  included, gets onto a device that cannot pick folders.
+- **Fast forward.** F8 runs a game several times as fast, for the long walk across a map and the turns of a
+  dozen rats, and back again.
+- **Fallout 2 with what its engine adds, or without.** One setting switches on items that light up on a key,
+  a wider inventory, companions' own inventories, doors that open as you walk into them and more; switched
+  off, the game plays as the original did.
 - **Continue.** One key takes you from the console straight into your latest save.
 - **Save archives.** They show each save's screenshot and character sheet, read from the save file itself.
 - **Dropbox link, if you want one.** Carry saves between devices, and load a game from a folder in your own
   Dropbox (the way to get a game with its music onto a phone).
 - **Touch screens.** Tap, drag, press-and-hold and two-finger gestures stand in for the mouse, with
-  on-screen mouse buttons and a keyboard that appears when a game asks for text.
+  on-screen mouse buttons, one-tap shortcuts for the inventory, map, Pip-Boy, skilldex and the end of a
+  turn, and a keyboard that appears when a game asks for text.
 - **A vault around it.** On a screen with room to spare the console stands in an abandoned vault:
   lamps that fail, a pipe that drips, and now and then something that walks past. Most of it answers
   to being clicked, its great door is shut exactly when the console's storage is sealed, and a console
@@ -65,9 +78,11 @@ into the browser's private storage on your device and plays from there.
 
 | Part | Where | What it does |
 | --- | --- | --- |
-| Engines | `engines/` | Pins an upstream commit of each engine, applies patches (Fallout 1 only), and compiles to WebAssembly inside the official Emscripten container. |
-| Engine glue | `engines/lib/overseer.js` | Linked into both engines. Gives them a clock that can pause, hands the thread back to the browser during long loops, reads game archives from disk on demand, and reports file changes in batches. |
+| Engines | `engines/` | Pins an upstream commit of each engine, applies patches (Fallout 1 only), and compiles to WebAssembly inside the official Emscripten container. The Fallout 2 engine's own data folder is packed into `ce.dat` beside it. |
+| Engine glue | `engines/lib/overseer.js` | Linked into both engines. Gives them a clock that can pause and run fast, hands the thread back to the browser during long loops, reads game archives from disk on demand, and reports file changes in batches. |
 | Game data store | `src/lib/storage/` | Imported game files live in the origin private file system (OPFS). Files the engines write (saves, settings) live in IndexedDB and are committed atomically per save. Before a save slot is overwritten its contents go into a history (`history.ts`), with unchanged files stored once. |
+| Zip and archive tools | `src/lib/zip.ts`, `datpack.ts`, `blobs.ts` | Read files out of a zip where it lies, without unpacking it, and describe a game archive (`.dat`) made of loose files without copying them. To the importer both are files like any other. |
+| Fallout Et Tu | `src/lib/storage/ettu.ts` | Finds the conversion in a selection and plans how to store it: see [Fallout Et Tu](#fallout-et-tu). |
 | Save reader | `src/lib/savefile.ts`, `dat.ts`, `gamefacts.ts` | Reads a save's header, picture and character sheet, and fetches the palette and the names of perks, traits and skills out of the player's own `MASTER.DAT` (both archive formats). |
 | Dropbox link | `src/lib/dropbox/` | Optional. Talks to the player's own Dropbox straight from the browser: linking, saves as one zip per slot, and game files read piece by piece through the same importer as a folder on disk. |
 | Console | `index.html`, `src/launcher/` | The terminal: import, save archives, settings, manual, credits. Svelte. |
@@ -76,6 +91,30 @@ into the browser's private storage on your device and plays from there.
 
 A game starts in well under a second because nothing is copied into memory up front: archives are
 read in 1 MB blocks as the engine asks for them, with a bounded cache.
+
+## Fallout Et Tu
+
+[Fallout Et Tu](https://github.com/rotators/Fo1in2) is the first Fallout rebuilt, by fans, as a game for the
+engine of Fallout 2. It is free, and none of it is hosted here. Deck C of the console puts it together from:
+
+- **its package**: the zip it is downloaded as, a `Fallout1in2` folder, or the Fallout 2 folder that folder sits in;
+- **Fallout 2** in deck B, whose engine and archives it plays on;
+- **Fallout** in deck A, from whose `MASTER.DAT` the files named in the package's `undat_files.txt` are copied
+  (speech, movies, map tiles). This is what the package's UNDAT tool does on a desktop. A folder that tool was
+  already run in needs no deck A.
+
+The package is some sixteen thousand loose files once complete, and the engine and the console's storage are
+both built for a few large archives. So the console stores each mod folder that `mods/mods_order.txt` switches on
+as one archive (`mods/<name>`, which the engine opens wherever it would open a folder), and the bulk of the data
+folder, with what was borrowed from Fallout, as another (`fallout1.dat`, given to the engine as the second of its
+two patch locations). Music and settings files, which are read by plain path, stay files. At start-up Fallout 2's
+`master.dat` and `critter.dat` appear in a folder of their own beside them.
+
+> [!NOTE]
+> Et Tu on the Community Edition engine is recent work by both projects, and its developers do not yet call it
+> finished. A package made for this engine holds `fallout2-ce.exe`; the console warns when the one you load does
+> not. The console's own tests cover everything up to the engine opening what was put together. Playing the real
+> thing is covered by the tests that need your copies (see [Developing](#developing)).
 
 ## Dropbox link
 
@@ -98,6 +137,7 @@ not a secret. After that:
   into a desktop install.
 - **Games.** Put the folder a game is installed in anywhere inside `Apps/<app>/`, using Dropbox's own app
   or website, and choose *Load holodisk from Dropbox* on the game's deck. The console only reads there.
+  Fallout Et Tu is best kept there as the zip it is downloaded as: a folder is thousands of small downloads.
 
 Both folders can be changed on the Dropbox link screen.
 
@@ -131,6 +171,10 @@ copies are:
 ```sh
 FO1_DIR="/path/to/Fallout" FO2_DIR="/path/to/Fallout 2" npm run test:e2e
 ```
+
+With both of those and `ETTU="/path/to/Fallout1in2.zip"` (or its folder) the same file puts Fallout Et Tu
+together from the real things and starts it. `tests/e2e/ettu.spec.ts` does as much as made-up data allows,
+up to the engine opening the archives the console made.
 
 `tests/e2e/touch.spec.ts` plays them again with fingers only, on a phone-sized screen.
 
@@ -176,6 +220,9 @@ The site is served from `/<repository name>/`; the workflow passes that to the b
 `BASE_PATH`.
 
 ## Credits
+
+[Fallout Et Tu](https://github.com/rotators/Fo1in2) is the work of Lexx, Wipe, Mayck and Ghosthack, and of
+the many more its own credits name. Nothing of it is included here.
 
 The engines are the work of [alexbatalov](https://github.com/alexbatalov) and the contributors to
 [fallout1-ce](https://github.com/alexbatalov/fallout1-ce) and

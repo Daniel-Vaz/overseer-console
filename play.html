@@ -23,6 +23,9 @@
       <svg viewBox="0 0 14 12" aria-hidden="true"><path d="M0 0h14v2H0zM0 5h14v2H0zM0 10h14v2H0z" /></svg>
     </button>
 
+    <!-- Shown for as long as the game is running fast. -->
+    <div id="fast" hidden role="status"></div>
+
     <!-- Touch play: buttons beside the picture, and a keyboard. Hidden until the page is touched. -->
     <div id="deck" hidden>
       <div class="deck-side deck-left">
@@ -39,10 +42,22 @@
           </svg>
           <small>KEYS</small>
         </button>
+        <!-- Shortcuts: keys the games answer to, each a tap away. -->
+        <div class="deck-quick">
+          <button type="button" data-key="KeyI" aria-label="Inventory">INV</button>
+          <button type="button" data-key="Tab" aria-label="Map of this place">MAP</button>
+          <button type="button" data-key="KeyP" aria-label="Pip-Boy">PIP</button>
+        </div>
         <span class="deck-gap"></span>
         <button type="button" data-act="esc" aria-label="Escape key">ESC</button>
       </div>
       <div class="deck-side deck-right">
+        <div class="deck-quick">
+          <button type="button" data-act="fast" aria-label="Fast forward" aria-pressed="false">FAST</button>
+          <button type="button" data-key="ShiftLeft" hidden aria-label="Hold to light up what lies on the ground">LIGHT</button>
+          <button type="button" data-key="KeyS" aria-label="Skilldex">SKILL</button>
+          <button type="button" data-key="Space" aria-label="End your turn in combat">TURN</button>
+        </div>
         <span class="deck-gap"></span>
         <button type="button" data-act="left" aria-label="Left mouse button: click where the pointer is">
           <svg viewBox="0 0 24 32" aria-hidden="true">

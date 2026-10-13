@@ -8,8 +8,7 @@
  */
 import { findInDat, readDatEntry } from './dat';
 import { GAMES, GAME_IDS, type GameId } from './games';
-import { pathKey } from './storage/manifest';
-import { loadInstall, openBlob } from './storage/opfs';
+import { loadInstall, openInstalled } from './storage/opfs';
 
 const KEY = 'overseer-console:facts';
 
@@ -34,7 +33,7 @@ interface StoredFacts {
 
 const PALETTE = 'color.pal';
 const TEXT = { perks: 'text/english/game/perk.msg', traits: 'text/english/game/trait.msg', skills: 'text/english/game/skill.msg' };
-/** Message number of the first name in each file, and how many names follow it. */
+/** Message number of the first name in each file, and how many names follow it: as many as the engine has slots for. */
 const NAMES = {
   perks: { first: 101, count: { fo1: 64, fo2: 119 } },
   traits: { first: 100, count: { fo1: 16, fo2: 16 } },
@@ -97,10 +96,11 @@ function remember(game: GameId, facts: GameFacts): void {
 async function readFacts(game: GameId): Promise<GameFacts | null> {
   const install = await loadInstall(game);
   if (!install) return null;
-  const master = install.manifest.files.find((file) => pathKey(file.path) === 'master.dat');
-  if (!master?.blob) return null;
-  const archive = await openBlob(install, master.blob);
-  const format = GAMES[game].datFormat;
+  // A conversion keeps its own words in its own archive, not in the MASTER.DAT it runs on.
+  const def = GAMES[game];
+  const archive = await openInstalled(install, def.factsArchive);
+  if (!archive) return null;
+  const format = def.datFormat;
   const found = await findInDat(archive, format, [PALETTE, ...Object.values(TEXT)]);
 
   const paletteEntry = found.get(PALETTE);
@@ -111,7 +111,7 @@ async function readFacts(game: GameId): Promise<GameFacts | null> {
     const entry = found.get(TEXT[kind]);
     if (!entry) return [];
     try {
-      return messageNames(await readDatEntry(archive, format, entry), NAMES[kind].first, NAMES[kind].count[game]);
+      return messageNames(await readDatEntry(archive, format, entry), NAMES[kind].first, NAMES[kind].count[def.engine.id]);
     } catch {
       return [];
     }

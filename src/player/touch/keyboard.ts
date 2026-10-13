@@ -78,6 +78,14 @@ export function sendKey(type: 'keydown' | 'keyup', key: Pick<Key, 'code' | 'key'
 /** A full press of a key that is not on the panel (the deck's ESC, for one). */
 export const ESCAPE_KEY: Pick<Key, 'code' | 'key' | 'keyCode'> = ESC;
 
+/**
+ * The keys behind the deck's shortcut buttons, by code: inventory, Pip-Boy,
+ * skilldex, the map, the end of a turn, and Shift, which is held.
+ */
+export const SHORTCUT_KEYS: Record<string, Pick<Key, 'code' | 'key' | 'keyCode'>> = Object.fromEntries(
+  [letter('i'), letter('p'), letter('s'), TAB, SPACE, SHIFT_KEY].map((key) => [key.code, key]),
+);
+
 export class Keyboard {
   private layer = 0;
   private shift = false;

@@ -6,8 +6,9 @@ export interface Settings {
   /**
    * classic: the original 640x480 picture, scaled up.
    * wide: the game renders at the shape of the window, showing more map.
+   * high: wider and taller (720 lines), showing far more map, smaller.
    */
-  display: 'classic' | 'wide';
+  display: 'classic' | 'wide' | 'high';
   /**
    * fill: as large as the window allows, hard-edged pixels.
    * integer: whole-number zoom only; every pixel the same size, possibly
@@ -19,6 +20,14 @@ export interface Settings {
   fullscreen: boolean;
   /** Go straight to the game's main menu instead of playing its intro movies. */
   skipIntro: boolean;
+  /**
+   * Fallout 2 with what its engine adds to the original (items lit up on a
+   * key, a wider inventory, doors that open as you walk into them...), or as
+   * the original played. The other games are not changed by it.
+   */
+  improvements: boolean;
+  /** How many times as fast as normal a game runs while fast forward is on. */
+  fastForward: number;
   /** Scanlines, glow and flicker on the console itself. */
   crt: boolean;
   /** Key clicks and beeps on the console itself. */
@@ -44,11 +53,16 @@ export interface Settings {
   touchPointer: 'direct' | 'trackpad';
 }
 
+/** The speeds fast forward can be set to. */
+export const FAST_FORWARD_SPEEDS = [2, 3, 4];
+
 export const DEFAULT_SETTINGS: Settings = {
   display: 'classic',
   scaling: 'fill',
   fullscreen: false,
   skipIntro: false,
+  improvements: true,
+  fastForward: 3,
   crt: true,
   sound: true,
   vault: true,
@@ -64,10 +78,12 @@ export function loadSettings(): Settings {
     const parsed = JSON.parse(raw) as Partial<Settings>;
     const merged = { ...DEFAULT_SETTINGS, ...parsed };
     // Guard against values from an older or hand-edited entry.
-    if (merged.display !== 'classic' && merged.display !== 'wide') merged.display = DEFAULT_SETTINGS.display;
+    if (!['classic', 'wide', 'high'].includes(merged.display)) merged.display = DEFAULT_SETTINGS.display;
     if (!['fill', 'integer', 'smooth'].includes(merged.scaling)) merged.scaling = DEFAULT_SETTINGS.scaling;
     if (merged.audio !== 'buffered' && merged.audio !== 'direct') merged.audio = DEFAULT_SETTINGS.audio;
     if (merged.touchPointer !== 'direct' && merged.touchPointer !== 'trackpad') merged.touchPointer = DEFAULT_SETTINGS.touchPointer;
+    if (!FAST_FORWARD_SPEEDS.includes(merged.fastForward)) merged.fastForward = DEFAULT_SETTINGS.fastForward;
+    if (typeof merged.improvements !== 'boolean') merged.improvements = DEFAULT_SETTINGS.improvements;
     if (!Number.isFinite(merged.cacheMb)) merged.cacheMb = DEFAULT_SETTINGS.cacheMb;
     merged.cacheMb = Math.min(1024, Math.max(32, Math.round(merged.cacheMb)));
     return merged;

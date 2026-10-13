@@ -5,9 +5,11 @@
  * app or website; the console only ever reads it. To the importer a file
  * there is like a file on disk, except that reading it is a download.
  */
+import { buffered } from '../blobs';
 import { GAMES, type GameId } from '../games';
-import { ImportError, type SourceFile } from '../storage/importer';
+import { ImportError, openArchives, type SourceFile } from '../storage/importer';
 import type { SourceBlob } from '../storage/opfs';
+import { looksLikeZip } from '../zip';
 import { DropboxError, download, fromDropboxTime, listFiles } from './api';
 import { loadConfig, showFolder } from './link';
 
@@ -52,16 +54,34 @@ export async function dropboxGameFiles(game: GameId): Promise<SourceFile[]> {
     }
     throw err;
   }
-  const sources = files.map((file) => ({
-    // Relative to the folder that was listed.
-    path: file.path_display.slice(folder.length + 1),
-    file: new DropboxBlob(file.id ?? file.path_lower, file.size, fromDropboxTime(file.client_modified)),
-  }));
-  if (!sources.some((source) => /(^|\/)master\.dat$/i.test(source.path))) {
+  const listed = files.map((file): SourceFile => {
+    const blob = new DropboxBlob(file.id ?? file.path_lower, file.size, fromDropboxTime(file.client_modified));
+    return {
+      // Relative to the folder that was listed.
+      path: file.path_display.slice(folder.length + 1),
+      // A zip is walked through file by file: read ahead, or every one of them is a request.
+      file: looksLikeZip(file.name) ? buffered(blob) : blob,
+    };
+  });
+
+  const def = GAMES[game];
+  if (def.conversion) {
+    // A conversion is kept there as the zip it is downloaded as, or as its folder.
+    // The zip is the one to have: a folder is thousands of small downloads.
+    const zipped = listed.some((source) => looksLikeZip(source.path));
+    if (!zipped && !listed.some((source) => /(^|\/)mods\/mods_order\.txt$/i.test(source.path))) {
+      throw new ImportError(
+        `No ${def.title} in ${where} in your Dropbox. Upload the zip it is downloaded as there, wait until Dropbox has finished, then try again.`,
+      );
+    }
+    return zipped ? openArchives(listed, true) : listed;
+  }
+
+  if (!listed.some((source) => /(^|\/)master\.dat$/i.test(source.path))) {
     throw new ImportError(
-      `No MASTER.DAT in ${where} in your Dropbox. Upload the folder ${GAMES[game].title} is installed in ` +
+      `No MASTER.DAT in ${where} in your Dropbox. Upload the folder ${def.title} is installed in ` +
         '(the one that contains MASTER.DAT and CRITTER.DAT) there, wait until Dropbox has finished, then try again.',
     );
   }
-  return sources;
+  return listed;
 }

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { GAMES, GAME_IDS } from '../../lib/games';
+  import { GAMES, GAME_IDS, type GameId } from '../../lib/games';
   import { sfx } from '../sfx';
   import { consoleState as sys } from '../state.svelte';
 
@@ -16,10 +16,10 @@
   let greeting = $state(false);
   let finished = false;
 
-  function deck(game: 'fo1' | 'fo2'): Line {
+  function deck(game: GameId): Line {
     const install = sys.installs[game];
     return {
-      label: `HOLODISK DECK ${game === 'fo1' ? 'A' : 'B'}`,
+      label: `HOLODISK DECK ${GAMES[game].deck}`,
       value: install ? `${GAMES[game].title.toUpperCase()} LOADED` : 'EMPTY',
       tone: install ? undefined : 'amber',
     };

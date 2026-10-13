@@ -2,7 +2,7 @@ import type { BrowserContext, Page } from '@playwright/test';
 import { zipSync } from 'fflate';
 import { FakeDropbox } from '../fake-dropbox';
 import { expect, test as base } from './fixtures';
-import { fakeSaveDat, openConsole } from './helpers';
+import { fakeEttuZip, fakeSaveDat, openConsole } from './helpers';
 
 /**
  * WebKit sends the requests of a page that a service worker controls straight
@@ -98,8 +98,8 @@ test('links to a Dropbox with an app key and a pasted code, and unlinks again', 
 
   // The settings lead there, and so does the deck of a game that is not loaded.
   await openConsole(page, 'fo2');
-  await expect(page.locator('.menu li').nth(1)).toContainText('Load holodisk from Dropbox');
-  await expect(page.locator('.menu li').nth(1)).toContainText('NOT LINKED');
+  await expect(page.locator('.menu li').nth(2)).toContainText('Load holodisk from Dropbox');
+  await expect(page.locator('.menu li').nth(2)).toContainText('NOT LINKED');
   await page.goto('#/settings');
   await expect(page.locator('.menu li').filter({ hasText: 'Dropbox link' })).toContainText('NOT LINKED');
   await page.keyboard.press('d');
@@ -296,7 +296,7 @@ test('loads a game from the folder in Dropbox', async ({ page, context }) => {
   await expect(page.getByRole('alert')).toContainText('Fallout was not found in your Dropbox. What is there is Fallout 2.');
 
   await page.goto('#/fo2');
-  await expect(page.locator('.menu li').nth(1)).toContainText('Load holodisk from Dropbox');
+  await expect(page.locator('.menu li').nth(2)).toContainText('Load holodisk from Dropbox');
   await page.keyboard.press('d');
   await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 60_000 });
   await expect(page.getByRole('status')).toContainText('5 files');
@@ -325,4 +325,40 @@ test('loads a game from the folder in Dropbox', async ({ page, context }) => {
 
   // Loaded, it can be fetched again in place.
   await expect(page.locator('.menu li').filter({ hasText: 'Replace holodisk from Dropbox' })).toBeVisible();
+});
+
+test('loads Fallout Et Tu from the zip it is kept as in Dropbox', async ({ page, context }) => {
+  const dropbox = new FakeDropbox();
+  // Not there yet: the console says what to put there.
+  dropbox.put('/Games/notes.txt', 'nothing to play');
+  await standIn(context, dropbox);
+  await linkConsole(page, context, dropbox);
+  await page.goto('#/ettu');
+  await page.keyboard.press('d');
+  await expect(page.getByRole('alert')).toContainText('No Fallout Et Tu in the console\'s app folder in your Dropbox. Upload the zip it is downloaded as');
+
+  // The package as it is downloaded, from a folder its own tool was run in: nothing to take from Fallout.
+  dropbox.put('/Games/Fallout1in2.zip', fakeEttuZip({ extracted: true, forEngine: true }).buffer);
+  // A zip that is none is passed over, not held against the one that is.
+  dropbox.put('/Games/broken.zip', 'not a zip');
+  dropbox.calls.length = 0;
+  await page.keyboard.press('d');
+  await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByRole('status')).toContainText('19 files');
+  await expect(page.getByRole('status')).not.toContainText('fallout2-ce.exe');
+
+  // Read ahead, not file by file: some forty files came out of the zip in a handful of downloads.
+  const downloads = dropbox.calls.filter((call) => call.includes('download')).length;
+  expect(downloads).toBeGreaterThan(0);
+  expect(downloads).toBeLessThan(12);
+
+  const files = await page.evaluate(async () => {
+    const root = await navigator.storage.getDirectory();
+    const game = await (await (await root.getDirectoryHandle('overseer-console')).getDirectoryHandle('games')).getDirectoryHandle('ettu');
+    const current = JSON.parse(await (await (await game.getFileHandle('current.json')).getFile()).text());
+    const manifest = JSON.parse(await (await (await (await game.getDirectoryHandle(current.install)).getFileHandle('manifest.json')).getFile()).text());
+    return (manifest.files as { path: string }[]).map((file) => file.path).sort();
+  });
+  expect(files).toContain('mods/fo1_base');
+  expect(files).toContain('fallout1.dat');
 });

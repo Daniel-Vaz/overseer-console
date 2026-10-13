@@ -122,7 +122,7 @@
     void readVersionSave(version)
       .then((data) => {
         if (stale || !data) return;
-        preview = { id: version.id, thumbnail: parseSaveHeader(data)?.thumbnail, sheet: parseCharacter(data, current) };
+        preview = { id: version.id, thumbnail: parseSaveHeader(data)?.thumbnail, sheet: parseCharacter(data, GAMES[current].engine.id) };
       })
       .catch(() => undefined);
     return () => {
@@ -427,12 +427,14 @@
       key: 'l',
       label: 'Load this save',
       icon: 'play',
-      disabled: !open?.valid || !game || !sys.installs[game] || running,
+      disabled: !open?.valid || !game || !sys.playable(game) || running,
       note: running
         ? 'The simulation is already running in another tab or window.'
         : game && !sys.installs[game]
           ? 'Load the holodisk first: the game data is not in this browser.'
-          : 'Starts the game and goes straight into this save.',
+          : game && !sys.playable(game)
+            ? `Load ${GAMES[GAMES[game].conversion!.base].title} first: this game runs on it.`
+            : 'Starts the game and goes straight into this save.',
       action: () => game && open && void launchGame(game, open.slot),
     },
     {

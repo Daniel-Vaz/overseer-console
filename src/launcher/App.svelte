@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick as settled } from 'svelte';
-  import { isGameId, type GameId } from '../lib/games';
+  import { GAMES, isGameId, type GameId } from '../lib/games';
   import { sourcesFromDrop } from '../lib/storage/importer';
   import Glyph from './components/Glyph.svelte';
   import Pest from './components/Pest.svelte';
@@ -51,7 +51,7 @@
               : section === 'credits'
                 ? 'CREDITS AND LEGAL'
                 : game
-                  ? `HOLODISK DECK ${game === 'fo1' ? 'A' : 'B'}`
+                  ? `HOLODISK DECK ${GAMES[game].deck}`
                   : 'UNKNOWN',
   );
 

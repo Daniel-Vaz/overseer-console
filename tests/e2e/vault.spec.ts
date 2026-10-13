@@ -121,7 +121,7 @@ test('a window larger than the console shows the vault around it, and things com
   await page.waitForTimeout(4000);
   expect(faults).toEqual([]);
   // The console in front of it all works as before.
-  await page.keyboard.press('5');
+  await page.keyboard.press('6');
   await expect(page.getByRole('heading', { name: 'Operations manual' })).toBeVisible();
 
   // With no room to show, it is not painted at all.
@@ -273,7 +273,7 @@ test('holding Shift and asking for the credits brings the whole cast through', a
   // Without Shift the credits are just the credits.
   await page.keyboard.press('Escape');
   await expect(page.locator('.nameplate')).toHaveText('OVERSEER CONSOLE', { timeout: 8000 });
-  await page.keyboard.press('6');
+  await page.keyboard.press('7');
   await expect(page.getByRole('heading', { name: 'Credits and legal' })).toBeVisible();
   await page.waitForTimeout(500);
   await expect(page.locator('.nameplate')).toHaveText('OVERSEER CONSOLE');
@@ -325,7 +325,7 @@ test('the power lamp is a button: off and on again, on a screen of any size', as
   await expect(page.locator('.nameplate')).toHaveText('OFF AND ON AGAIN');
   // The tube has warmed up again, and the console is where it was.
   await expect(housing).toHaveClass(/warm-up/);
-  await expect(page.locator('.menu button')).toHaveCount(6);
-  await page.keyboard.press('4');
+  await expect(page.locator('.menu button')).toHaveCount(7);
+  await page.keyboard.press('5');
   await expect(page.getByRole('heading', { name: 'Terminal settings' })).toBeVisible();
 });
