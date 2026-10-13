@@ -60,6 +60,9 @@ export interface Doorway {
   lit: Mood;
 }
 
+/** How far from the edge of the window something on the wall has to end, to be seen whole. */
+const EDGE = 3;
+
 /** The wall monitor: its casing, and the glass inside it. */
 export const MONITOR = { width: 42, height: 32, screen: { x: 4, y: 4, width: 34, height: 24 } };
 
@@ -169,14 +172,18 @@ export function arrange(width: number, height: number, console: Box, anniversary
     lamps.push({ x, y: floor - 14, reach: 46, ink: 0xd9903c, mood: 'steady', shape: 'down', span: 4 });
   }
 
-  // Between the pipes and the lamps of the topmost doors the wall is bare.
+  // Between the pipes and the lamps of the topmost doors the wall is bare. What hangs or is written
+  // there is all or nothing: half of it at the edge of the window reads as something gone wrong.
   const bare = (decks.at(-1) ?? floor) - DOOR_HEIGHT - 14 - CEILING;
-  const scale = bare >= 44 ? 2 : 1;
-  const graffiti = bare >= 22 ? { x: left - 8 - 27 * scale, y: CEILING + Math.min(8, Math.floor((bare - 18 * scale) / 2)), scale } : null;
+  const written = (size: number) => left - 8 - 27 * size >= EDGE;
+  const scale = bare >= 44 && written(2) ? 2 : 1;
+  const graffiti = bare >= 22 && written(scale) ? { x: left - 8 - 27 * scale, y: CEILING + Math.min(8, Math.floor((bare - 18 * scale) / 2)), scale } : null;
   // A tube over the words that cannot make up its mind, so that they are there one moment and gone the next.
   if (graffiti) lamps.push({ x: graffiti.x + 14 * scale, y: graffiti.y - 6, reach: 34 + 22 * scale, ink: TUBE, mood: 'failing', shape: 'down', span: 14 });
-  // The monitor hangs from the big pipe, in front of the smaller ones.
-  const monitor = bare >= 14 ? { x: right + 16, y: 27 } : null;
+  // The monitor hangs from the big pipe, in front of the smaller ones: a little way from the console
+  // where the wall is wide enough, closer to it where it is not, and not at all where it would not fit.
+  const hung = Math.min(right + 16, width - MONITOR.width - EDGE);
+  const monitor = bare >= 14 && hung >= right + 6 ? { x: hung, y: 27 } : null;
   if (monitor) lamps.push({ x: monitor.x + MONITOR.width / 2, y: monitor.y + MONITOR.height / 2, reach: 58, ink: 0xbfe6d2, mood: 'screen', shape: 'round' });
   // What a case full of promise does for the place once somebody opens it; and the daylight at the far end of the way out.
   lamps.push({ x: crates + 15, y: floor - 14, reach: 48, ink: 0xb9f08a, mood: 'garden', shape: 'round' });

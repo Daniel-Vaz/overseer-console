@@ -59,6 +59,40 @@ describe('the room', () => {
     expect(layout.monitor!.x + MONITOR.width).toBeLessThanOrEqual(layout.width);
   });
 
+  it('hangs nothing on the wall that the window would cut in half', () => {
+    // A console of the usual size, with every margin from the narrowest that shows the room at all.
+    let monitors = 0;
+    let words = 0;
+    for (const height of [300, 360, 480]) {
+      for (let margin = 14; margin <= 90; margin++) {
+        const layout = arrange(500 + 2 * margin, height, { x: margin, y: 5, width: 500, height: height - 10 });
+        const right = layout.console.x + layout.console.width;
+        if (layout.monitor) {
+          monitors++;
+          expect(layout.monitor.x, `monitor, margin ${margin}`).toBeGreaterThan(right);
+          expect(layout.monitor.x + MONITOR.width, `monitor, margin ${margin}`).toBeLessThan(layout.width);
+          // Its light comes with it, and only with it.
+          expect(layout.lamps.filter((lamp) => lamp.mood === 'screen')).toHaveLength(1);
+        } else {
+          expect(layout.lamps.some((lamp) => lamp.mood === 'screen'), `no monitor, margin ${margin}`).toBe(false);
+        }
+        if (layout.graffiti) {
+          words++;
+          expect(layout.graffiti.x, `words, margin ${margin}`).toBeGreaterThan(0);
+          expect(layout.graffiti.x + 27 * layout.graffiti.scale, `words, margin ${margin}`).toBeLessThanOrEqual(layout.console.x);
+        }
+      }
+    }
+    // Both are there where there is room, and neither where there is none.
+    expect(monitors).toBeGreaterThan(50);
+    expect(words).toBeGreaterThan(50);
+    expect(arrange(528, 360, { x: 14, y: 5, width: 500, height: 350 }).monitor).toBeNull();
+    expect(arrange(528, 360, { x: 14, y: 5, width: 500, height: 350 }).graffiti).toBeNull();
+    // A wall a little too narrow for the usual place still takes the monitor, nearer the console.
+    const snug = arrange(604, 360, { x: 52, y: 5, width: 500, height: 350 });
+    expect(snug.monitor).toEqual({ x: 604 - MONITOR.width - 3, y: 27 });
+  });
+
   it('has a gallery for every storey the window has room for', () => {
     expect(room(640, 250).decks).toHaveLength(0);
     expect(room(640, 360).decks).toHaveLength(1);
