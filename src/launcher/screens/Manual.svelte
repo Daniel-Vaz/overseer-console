@@ -93,8 +93,8 @@
   <p>
     The console loads the mods that <span class="hot">mods\mods_order.txt</span> in the package switches on, and
     takes the settings in its <span class="hot">config</span> folder as they are. To play with a language pack or
-    another choice of options, change those files in a copy of the folder and load that. Of the pictures deck C
-    offers, <span class="hot">HIGH RESOLUTION</span> is the one Et Tu was laid out for.
+    another choice of options, change those files in a copy of the folder and load that. Et Tu starts at
+    <span class="hot">HIGH RESOLUTION</span>, the picture it was laid out for; deck C has the others.
   </p>
 
   <h2>Controls</h2>
@@ -121,7 +121,8 @@
   <h2>Picture</h2>
   <p>
     Every game is played at a picture of its own, chosen on its deck (all three are side by side under Terminal
-    settings, <span class="hot">Picture</span>). A change takes hold the next time the game is started.
+    settings, <span class="hot">Picture</span>). Fallout and Fallout 2 start at the original picture, Fallout Et Tu
+    at high resolution. A change takes hold the next time the game is started.
   </p>
   <dl class="readout gap">
     <dt>Classic 4:3</dt>

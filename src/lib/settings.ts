@@ -69,8 +69,12 @@ const isPicture = (value: unknown): value is Picture => PICTURES.includes(value 
 const everyGame = (picture: Picture): Record<GameId, Picture> =>
   Object.fromEntries(GAME_IDS.map((game) => [game, picture])) as Record<GameId, Picture>;
 
+/** Where the one picture for all games stood until a player moved it, while there was only that one. */
+const ONE_FOR_ALL: Picture = 'classic';
+
 export const DEFAULT_SETTINGS: Settings = {
-  picture: everyGame('classic'),
+  // The two originals start at the picture they were drawn for, Fallout Et Tu at the one it is laid out for.
+  picture: { ...everyGame('classic'), ettu: 'high' },
   scaling: 'fill',
   fullscreen: false,
   skipIntro: false,
@@ -94,10 +98,12 @@ export function loadSettings(): Settings {
     const { display, ...parsed } = JSON.parse(raw) as Partial<Settings> & { display?: unknown };
     const merged = { ...DEFAULT_SETTINGS, ...parsed };
     // Guard against values from an older or hand-edited entry.
-    // A game starts from the picture the player had chosen for all of them, so that nothing changes unasked.
-    const before = isPicture(display) ? display : DEFAULT_SETTINGS.picture.fo1;
+    // A picture the player had chosen for all games is each game's now, so that nothing changes unasked.
+    // The original picture is where that setting stood untouched, and is not taken for a choice: each
+    // game then starts as it does for a new player.
+    const before = isPicture(display) && display !== ONE_FOR_ALL ? everyGame(display) : DEFAULT_SETTINGS.picture;
     const chosen = (parsed.picture && typeof parsed.picture === 'object' ? parsed.picture : {}) as Partial<Record<GameId, unknown>>;
-    merged.picture = everyGame(before);
+    merged.picture = { ...before };
     for (const game of GAME_IDS) {
       if (isPicture(chosen[game])) merged.picture[game] = chosen[game];
     }

@@ -117,6 +117,8 @@ test('puts Fallout Et Tu together from its zip and the two games, and starts its
   await page.goto('#/ettu');
   await expect(page.locator('.readout').first()).toContainText('FALLOUT 2, DECK B: LOADED');
   await expect(begin.locator('button')).toBeEnabled();
+  // Nobody chose a picture here: Et Tu starts at the one it is laid out for.
+  await expect(page.locator('.menu li').filter({ hasText: 'Picture' })).toContainText('HIGH RESOLUTION');
   await page.waitForTimeout(1500);
   await page.keyboard.press('1');
   await page.waitForURL(/play\.html\?game=ettu$/);
@@ -158,6 +160,9 @@ test('puts Fallout Et Tu together from its zip and the two games, and starts its
   expect(game.config).toContain('music_path2=fo2\\sound\\music\\');
   // What the package's own settings file says about the player is kept.
   expect(game.config).toContain('text_base_delay=3.5');
+  // Half as tall again as the original, and as wide as the window's shape allows.
+  expect(game.config).toContain('resolution_x=1152');
+  expect(game.config).toContain('resolution_y=720');
 
   // Its saves are its own.
   await page.keyboard.press('Escape');

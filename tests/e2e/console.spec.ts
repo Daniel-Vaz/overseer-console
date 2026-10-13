@@ -111,6 +111,24 @@ test('is fully usable from the keyboard and remembers settings', async ({ page }
   await expect(page.locator('.menu li').filter({ hasText: 'Scaling' })).toContainText('WHOLE PIXELS');
 });
 
+test('a game starts at the picture it was made for, until the player chooses another', async ({ page }) => {
+  await openConsole(page, 'settings');
+  await expect(page.locator('.menu li').filter({ hasText: 'Picture' })).toContainText('CLASSIC / CLASSIC / HIGH');
+  await page.keyboard.press('1');
+  const decks = page.locator('.menu li');
+  await expect(decks.nth(0)).toContainText('CLASSIC 4:3');
+  await expect(decks.nth(1)).toContainText('CLASSIC 4:3');
+  await expect(decks.nth(2)).toContainText('HIGH RESOLUTION');
+
+  // The original picture is there for Et Tu too, and stays chosen.
+  await page.keyboard.press('3');
+  await expect(decks.nth(2)).toContainText('CLASSIC 4:3');
+  await page.reload();
+  await expect(decks.nth(2)).toContainText('CLASSIC 4:3');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.menu li').filter({ hasText: 'Picture' })).toContainText('CLASSIC 4:3');
+});
+
 test('every game has a picture of its own', async ({ page }) => {
   // A player who had chosen one picture for all games, before each had its own, keeps it for each.
   await openConsole(page, 'settings', { display: 'wide' });

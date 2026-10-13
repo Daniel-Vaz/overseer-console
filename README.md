@@ -56,7 +56,8 @@ it puts together in the browser from the two games and the conversion's own pack
 - **Fast forward.** F8 runs a game several times as fast, for the long walk across a map and the turns of a
   dozen rats, and back again.
 - **A picture for each game.** The original 640 x 480, widened to the shape of the window, or high resolution:
-  chosen deck by deck, so Fallout Et Tu can have the picture it was laid out for while the originals keep theirs.
+  chosen deck by deck. Fallout Et Tu starts at the high resolution it was laid out for, the two originals at the
+  picture they were drawn for.
 - **Fallout 2 with what its engine adds, or without.** One setting switches on items that light up on a key,
   a wider inventory, companions' own inventories, doors that open as you walk into them and more; switched
   off, the game plays as the original did.
