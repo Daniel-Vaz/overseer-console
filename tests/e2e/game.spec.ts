@@ -75,7 +75,7 @@ function distance(a: number[], b: number[]): number {
 }
 
 for (const game of GAMES) {
-  test(`${game.title}: import, play, save, leave, and continue from the save`, async ({ page }) => {
+  test(`${game.title}: import, play, save, leave, continue from the save, and quit`, async ({ page }) => {
     test.skip(!game.dir, `set ${game.id.toUpperCase()}_DIR to your ${game.title} folder to run this`);
     const faults: string[] = [];
     page.on('pageerror', (error) => faults.push(error.message));
@@ -195,8 +195,16 @@ for (const game of GAMES) {
     await pause(page, 1000);
     expect((await engineStats(page)).sleeps).toBeGreaterThan(before);
 
+    // Quitting through the game's own menus: to its main menu, and from there out of the game, back to the console.
+    await page.keyboard.press('F10');
+    await pause(page, 1500);
+    await page.keyboard.press('y');
+    await expect.poll(async () => distance(await fingerprint(page), mainMenu), { timeout: 30_000, intervals: [1000] }).toBeLessThan(6);
+    await page.keyboard.press('e');
+    await expect(page.getByRole('heading', { name: new RegExp(`${game.title}$`) })).toBeVisible({ timeout: 30_000 });
+    expect(page.url()).not.toContain('play.html');
+
     expect(faults).toEqual([]);
-    await expect(page.getByText('System fault')).toHaveCount(0);
   });
 }
 
@@ -205,7 +213,7 @@ for (const game of GAMES) {
  *   FO1_DIR=... FO2_DIR=... ETTU="/path/to/Fallout1in2.zip" npm run test:e2e
  * ETTU may also be the Fallout1in2 folder. Decks A and B are loaded first, as a player would.
  */
-test('Fallout Et Tu: put together from both games and its package, and started', async ({ page }) => {
+test('Fallout Et Tu: put together from both games and its package, started, and quit', async ({ page }) => {
   const [fallout, fallout2] = GAMES.map((game) => game.dir);
   const ettu = process.env.ETTU;
   test.skip(!fallout || !fallout2 || !ettu, 'set FO1_DIR, FO2_DIR and ETTU (the Et Tu zip or folder) to run this');
@@ -246,10 +254,12 @@ test('Fallout Et Tu: put together from both games and its package, and started',
   expect(await showsPicture(page)).toBe(true);
   expect(distance(await fingerprint(page), mainMenu)).toBeGreaterThan(12);
 
-  await page.keyboard.press('F9');
-  await expect(page.getByText('Simulation suspended')).toBeVisible();
-  await page.keyboard.press('x');
+  // Quitting through the game's own menus goes back to the console.
+  await page.keyboard.press('F10');
+  await pause(page, 1500);
   await page.keyboard.press('y');
-  await expect(page.getByRole('heading', { name: /Fallout Et Tu$/ })).toBeVisible();
+  await expect.poll(async () => distance(await fingerprint(page), mainMenu), { timeout: 30_000, intervals: [1000] }).toBeLessThan(6);
+  await page.keyboard.press('e');
+  await expect(page.getByRole('heading', { name: /Fallout Et Tu$/ })).toBeVisible({ timeout: 30_000 });
   expect(faults).toEqual([]);
 });

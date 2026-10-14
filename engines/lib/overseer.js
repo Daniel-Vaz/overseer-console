@@ -71,6 +71,20 @@ addToLibrary({
         runtimeKeepalivePop();
         if (job) OVERSEER.wake(job.fn, job.at, 0);
       };
+      // The engines' own waits on a promise (EM_ASYNC_JS: storing a save or
+      // the settings) resume from that promise, where nothing notices main
+      // returning. The Fallout 2 engine stores its settings last when the
+      // player quits, and the page never heard that the game had ended. Such
+      // waits resume like the glue's own instead. A wait that failed has
+      // been reported; the engine is not left hanging on it.
+      Asyncify.handleAsync = (startAsync) => Asyncify.handleSleep((wakeUp) => {
+        startAsync().then(
+          (value) => OVERSEER.run(() => wakeUp(value)),
+          (err) => {
+            OVERSEER.fail('an engine call that waits failed', err);
+            OVERSEER.run(() => wakeUp(0));
+          });
+      });
       Module['overseer'] = OVERSEER.api();
     },
 
