@@ -1218,6 +1218,16 @@ kbd {
   .menu-note {
     min-height: 1.12em;
   }
+
+  /* A reminder to back up says what it must in its one amber line; the keys it names are on the screen. */
+  .reminder {
+    padding-block: 0.2em;
+  }
+
+  .reminder > .glyph,
+  .reminder .why {
+    display: none;
+  }
 }
 
 /* Narrow, as a phone held upright is: too few columns for anything to stand beside anything. */

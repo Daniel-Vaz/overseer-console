@@ -47,6 +47,10 @@ it puts together in the browser from the two games and the conversion's own pack
   saves you choose to upload go to a folder in your Dropbox and nowhere else.
 - **Saves as in the originals.** Saved games work as they always did, and can be exported to and imported
   from zip files.
+- **Autosave.** Every ten minutes of play (or five, fifteen, thirty, or never) a game is saved by itself, in turn
+  in slots 8, 9 and 10. The first seven are the player's own, and so is any save made by hand in the last three.
+- **A reminder to back up.** Each game's deck and archive say when its saves last left the browser, to a zip file or
+  to Dropbox, and say it in amber while that has never happened.
 - **A history for every slot.** Saving over a slot keeps what was in it: every slot has earlier versions to
   roll back to. An erased save is kept for a week, and can be put back.
 - **Fallout Et Tu, put together for you.** Hand the console the zip the conversion is downloaded as. It takes
@@ -82,8 +86,8 @@ it puts together in the browser from the two games and the conversion's own pack
 
 | Part | Where | What it does |
 | --- | --- | --- |
-| Engines | `engines/` | Pins an upstream commit of each engine, applies patches (Fallout 1 only), and compiles to WebAssembly inside the official Emscripten container. The Fallout 2 engine's own data folder is packed into `ce.dat` beside it. |
-| Engine glue | `engines/lib/overseer.js` | Linked into both engines. Gives them a clock that can pause and run fast, hands the thread back to the browser during long loops, reads game archives from disk on demand, and reports file changes in batches. |
+| Engines | `engines/` | Pins an upstream commit of each engine, applies patches, and compiles to WebAssembly inside the official Emscripten container. The Fallout 2 engine's own data folder is packed into `ce.dat` beside it. |
+| Engine glue | `engines/lib/overseer.js` | Linked into both engines. Gives them a clock that can pause and run fast, hands the thread back to the browser during long loops, reads game archives from disk on demand, reports file changes in batches, and passes on the page's requests for an autosave. |
 | Game data store | `src/lib/storage/` | Imported game files live in the origin private file system (OPFS). Files the engines write (saves, settings) live in IndexedDB and are committed atomically per save. Before a save slot is overwritten or erased its contents go into a history (`history.ts`), with unchanged files stored once. |
 | Zip and archive tools | `src/lib/zip.ts`, `datpack.ts`, `blobs.ts` | Read files out of a zip where it lies, without unpacking it, and describe a game archive (`.dat`) made of loose files without copying them. To the importer both are files like any other. |
 | Fallout Et Tu | `src/lib/storage/ettu.ts` | Finds the conversion in a selection and plans how to store it: see [Fallout Et Tu](#fallout-et-tu). |

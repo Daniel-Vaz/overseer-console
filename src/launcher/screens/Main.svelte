@@ -24,6 +24,10 @@
   });
 
   const totalSaves = $derived(GAME_IDS.reduce((sum, game) => sum + sys.saves[game], 0));
+  // Saves that have never left this browser are worth a word: a browser short of room may clear them.
+  const unexported = $derived(sys.unexported);
+  // The game whose saves went out longest ago speaks for all of them.
+  const exportedAt = $derived(Math.min(...GAME_IDS.filter((game) => sys.saves[game]).map((game) => sys.exported[game]?.at ?? 0)));
   const ICONS = { fo1: 'holodisk-01', fo2: 'holodisk-02', ettu: 'gamedata' } as const;
   let selected = $state(0);
 
@@ -91,8 +95,11 @@
     {
       key: '4',
       label: 'Save archives',
-      state: totalSaves ? `${totalSaves} ${totalSaves === 1 ? 'SAVE' : 'SAVES'}` : 'EMPTY',
-      note: 'Back up, restore or delete saved games.',
+      state: totalSaves ? `${totalSaves} ${totalSaves === 1 ? 'SAVE' : 'SAVES'}${unexported.length ? ', NEVER EXPORTED' : ''}` : 'EMPTY',
+      tone: unexported.length ? 'amber' : undefined,
+      note: unexported.length
+        ? `Back up, restore or delete saved games. Those of ${unexported.map((game) => GAMES[game].title).join(' and ')} have never been exported: they are only in this browser's storage, which the browser may clear.`
+        : 'Back up, restore or delete saved games.',
       icon: 'save',
       action: () => go('saves'),
     },
@@ -168,6 +175,10 @@
       {/each}
       <dt>Archives</dt>
       <dd>{totalSaves} {totalSaves === 1 ? 'SAVE' : 'SAVES'}</dd>
+      {#if totalSaves}
+        <dt>Exported</dt>
+        <dd class:amber={unexported.length > 0}>{unexported.length ? 'NEVER' : ago(exportedAt)}</dd>
+      {/if}
       <dt>Storage</dt>
       <dd>{sys.storage ? formatBytes(sys.storage.usage) : '...'}</dd>
       <dt>Seal</dt>

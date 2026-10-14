@@ -9,7 +9,7 @@
   import Deck from '../components/Deck.svelte';
   import Glyph from '../components/Glyph.svelte';
   import Menu from '../components/Menu.svelte';
-  import { ago, stamp } from '../format';
+  import { ago, exportedState, stamp } from '../format';
   import { launchGame } from '../launch';
   import { PICTURE_NAMES, PICTURE_NOTES, nextPicture } from '../picture';
   import { sfx } from '../sfx';
@@ -253,8 +253,11 @@
       },
       {
         label: 'Save archives',
-        state: sys.saves[game] ? `${sys.saves[game]} ${sys.saves[game] === 1 ? 'SAVE' : 'SAVES'}` : 'EMPTY',
-        note: 'Back up, restore or delete saved games.',
+        state: sys.saves[game] ? `${sys.saves[game]} ${sys.saves[game] === 1 ? 'SAVE' : 'SAVES'}${sys.exported[game] ? '' : ', NEVER EXPORTED'}` : 'EMPTY',
+        tone: sys.unexported.includes(game) ? 'amber' : undefined,
+        note: sys.unexported.includes(game)
+          ? "Back up, restore or delete saved games. These have never been exported: they are only in this browser's storage, which the browser may clear."
+          : 'Back up, restore or delete saved games.',
         action: () => go(`saves/${game}`),
       },
       {
@@ -480,6 +483,10 @@
       {@render needs()}
       <dt>Saved games</dt>
       <dd>{sys.saves[game] || 'NONE'}</dd>
+      {#if sys.saves[game]}
+        <dt>Last exported</dt>
+        <dd class:amber={!sys.exported[game]}>{exportedState(sys.exported[game])}</dd>
+      {/if}
       <dt>Last session</dt>
       <dd>{stats.lastPlayed ? stamp(stats.lastPlayed) : 'NEVER'}</dd>
     </dl>

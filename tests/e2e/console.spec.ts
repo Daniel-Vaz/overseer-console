@@ -93,8 +93,8 @@ test('is fully usable from the keyboard and remembers settings', async ({ page }
   await page.keyboard.press('5');
   await expect(page.getByRole('heading', { name: 'Terminal settings' })).toBeVisible();
   // The settings stand under what they belong to, and their keys run on in order.
-  await expect(page.locator('.menu .group')).toContainText(['The games', 'This console', 'Storage']);
-  expect(await page.locator('.menu .key').allInnerTexts()).toEqual(['[1]', '[2]', '[3]', '[4]', '[5]', '[6]', '[7]', '[8]', '[9]', '[V]', '[M]', '[L]', '[D]', '[0]']);
+  await expect(page.locator('.menu .group')).toContainText(['The games', 'This console']);
+  expect(await page.locator('.menu .key').allInnerTexts()).toEqual(['[1]', '[2]', '[3]', '[4]', '[5]', '[6]', '[7]', '[A]', '[8]', '[9]', '[V]', '[M]', '[L]', '[D]', '[0]']);
 
   // A setting steps on with ENTER and the right arrow, and back with the left one.
   const scaling = page.locator('.menu li').filter({ hasText: 'Scaling' });
@@ -327,6 +327,41 @@ test('restores, exports and erases saved games', async ({ page }) => {
   await expect(page.locator('.menu li').filter({ hasText: 'Erased saves' })).toHaveCount(0);
   await page.keyboard.press('3');
   await expect(page.locator('.readout')).toContainText('in 2 files');
+});
+
+test('says when saves were last exported, and asks for it while they never were', async ({ page }) => {
+  await openConsole(page, 'saves/fo2');
+  const archive = zipSync({ 'SAVEGAME/SLOT03/SAVE.DAT': new Uint8Array(fakeSaveDat('Narg', 'before the temple')) });
+  await page.locator('input[accept*="zip"]').setInputFiles({ name: 'saves.zip', mimeType: 'application/zip', buffer: Buffer.from(archive) });
+  await expect(page.getByText('1 save restored from the archive.')).toBeVisible();
+  await expect(page.getByText('LAST EXPORTED: NEVER')).toBeVisible();
+  await expect(page.getByText("These saves are only in this browser's storage")).toBeVisible();
+
+  // The main directory says so too, in amber.
+  await page.goto('#/');
+  const archives = page.locator('.menu li').filter({ hasText: 'Save archives' });
+  await expect(archives).toContainText('1 SAVE, NEVER EXPORTED');
+  await expect(page.locator('.board .readout')).toContainText('NEVER');
+  await page.keyboard.press('4');
+  await expect(page.locator('.menu li').filter({ hasText: 'Fallout 2' })).toContainText('1 SAVE, NEVER EXPORTED');
+
+  // Exporting one save is not a backup of them all; exporting all of them is.
+  await page.keyboard.press('2');
+  await page.keyboard.press('3');
+  let download = page.waitForEvent('download');
+  await page.keyboard.press('e');
+  await download;
+  await page.keyboard.press('Escape');
+  await expect(page.getByText('LAST EXPORTED: NEVER')).toBeVisible();
+  download = page.waitForEvent('download');
+  await page.keyboard.press('x');
+  expect((await download).suggestedFilename()).toMatch(/^overseer-fo2-saves-.*\.zip$/);
+  await expect(page.getByText('LAST EXPORTED JUST NOW, TO A ZIP FILE.')).toBeVisible();
+
+  await page.goto('#/');
+  await expect(archives).toContainText('1 SAVE');
+  await expect(archives).not.toContainText('NEVER');
+  await expect(page.locator('.board .readout')).toContainText('JUST NOW');
 });
 
 test('keeps what a slot held before it was replaced, and rolls back to it', async ({ page }) => {

@@ -61,6 +61,9 @@ addToLibrary({
     cachedBytes: 0,
     onError: null,
     resumedAt: 0,
+    inGame: false,
+    // The save the host asked for: { slot, done(saved) }.
+    saveWanted: null,
     counters: { yields: 0, sleeps: 0, stalls: 0, busyMs: 0, blockReads: 0, blockBytes: 0, blockMs: 0, evictions: 0, syncs: 0 },
 
     boot() {
@@ -704,6 +707,17 @@ addToLibrary({
           OVERSEER.onError = fn;
         },
 
+        // Whether a game is in progress (not its menus or movies).
+        inGame: () => OVERSEER.inGame,
+        // Asks for a save in `slot` (1-based) at the next moment the game
+        // could make one. Resolves true once made, false when it failed or
+        // a later request took its place. Slot 0 calls off the one waiting.
+        requestSave: (slot) => new Promise((resolve) => {
+          if (OVERSEER.saveWanted) OVERSEER.saveWanted.done(false);
+          OVERSEER.saveWanted = slot > 0 ? { slot, done: resolve } : null;
+          if (!(slot > 0)) resolve(false);
+        }),
+
         stats: () => ({
           ...OVERSEER.counters,
           cachedBytes: OVERSEER.cachedBytes,
@@ -753,6 +767,25 @@ addToLibrary({
       });
     }
     return (OVERSEER.now() - OVERSEER.ticksOrigin) | 0;
+  },
+
+  // Autosaves. The engines' main loop says when a game is in progress, and at
+  // every turn it could save asks whether the host wants a save, in which
+  // slot (1-based, 0 for none). It reports how the save went.
+  overseer_in_game__deps: ['$OVERSEER'],
+  overseer_in_game: (playing) => {
+    OVERSEER.inGame = !!playing;
+  },
+  overseer_autosave_point__deps: ['$OVERSEER'],
+  overseer_autosave_point: () => {
+    var wanted = OVERSEER.saveWanted;
+    return wanted ? wanted.slot : 0;
+  },
+  overseer_autosaved__deps: ['$OVERSEER'],
+  overseer_autosaved: (slot, saved) => {
+    var wanted = OVERSEER.saveWanted;
+    OVERSEER.saveWanted = null;
+    if (wanted) wanted.done(!!saved);
   },
 
   // read(): waits for lazy blocks when they are not in memory yet, and gives

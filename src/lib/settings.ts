@@ -1,4 +1,5 @@
 /** Console preferences, kept in localStorage. */
+import { AUTOSAVE_MINUTES } from './autosave';
 import { GAME_IDS, type GameId } from './games';
 
 const KEY = 'overseer-console:settings';
@@ -35,6 +36,8 @@ export interface Settings {
   improvements: boolean;
   /** How many times as fast as normal a game runs while fast forward is on. */
   fastForward: number;
+  /** Minutes of play between autosaves, in the last three save slots. 0: none. */
+  autosave: number;
   /** Scanlines, glow and flicker on the console itself. */
   crt: boolean;
   /** Key clicks and beeps on the console itself. */
@@ -80,6 +83,7 @@ export const DEFAULT_SETTINGS: Settings = {
   skipIntro: false,
   improvements: true,
   fastForward: 3,
+  autosave: 10,
   crt: true,
   sound: true,
   vault: true,
@@ -111,6 +115,7 @@ export function loadSettings(): Settings {
     if (merged.audio !== 'buffered' && merged.audio !== 'direct') merged.audio = DEFAULT_SETTINGS.audio;
     if (merged.touchPointer !== 'direct' && merged.touchPointer !== 'trackpad') merged.touchPointer = DEFAULT_SETTINGS.touchPointer;
     if (!FAST_FORWARD_SPEEDS.includes(merged.fastForward)) merged.fastForward = DEFAULT_SETTINGS.fastForward;
+    if (!AUTOSAVE_MINUTES.includes(merged.autosave)) merged.autosave = DEFAULT_SETTINGS.autosave;
     if (typeof merged.improvements !== 'boolean') merged.improvements = DEFAULT_SETTINGS.improvements;
     if (!Number.isFinite(merged.cacheMb)) merged.cacheMb = DEFAULT_SETTINGS.cacheMb;
     merged.cacheMb = Math.min(1024, Math.max(32, Math.round(merged.cacheMb)));

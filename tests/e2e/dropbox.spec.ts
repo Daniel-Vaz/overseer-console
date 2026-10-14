@@ -198,8 +198,11 @@ test('carries saves to another browser through Dropbox', async ({ page, context 
   await expect(page.getByText('1 save restored from the archive.')).toBeVisible();
   const saved = await savedAt(page, '03');
 
+  await expect(page.getByText('LAST EXPORTED: NEVER')).toBeVisible();
+  await expect(page.getByText('Upload them to Dropbox [U] to keep a copy.')).toBeVisible();
   await page.keyboard.press('u');
   await expect(page.getByText('1 save uploaded to Dropbox.')).toBeVisible();
+  await expect(page.getByText('LAST EXPORTED JUST NOW, TO DROPBOX.')).toBeVisible();
   expect([...dropbox.files.values()].map((file) => file.path)).toEqual(['/Saves/Fallout 2/SLOT03.zip']);
   await page.keyboard.press('u');
   await expect(page.getByText('Dropbox already holds every save that is in this browser.')).toBeVisible();

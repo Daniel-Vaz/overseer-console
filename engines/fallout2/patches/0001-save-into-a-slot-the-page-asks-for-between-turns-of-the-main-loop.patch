@@ -1,0 +1,183 @@
+Save into a slot the page asks for, between turns of the main loop
+
+The page around the engine asks now and then for a save in a given slot
+(engines/lib/overseer.js). The main loop takes the request at the end of a
+turn, when the player could have made a quick save: outside combat and
+conversations, while the game takes orders, with the player alive. The save
+is made the way a quick save is once its slot is known, described as
+"AUTOSAVE hh:mm", and leaves the slot the player last picked alone.
+
+The main loop also tells the page when it starts and when it ends: while
+it runs, a game is in progress.
+---
+diff --git a/src/loadsave.cc b/src/loadsave.cc
+index f0dc694..84da4e4 100644
+--- a/src/loadsave.cc
++++ b/src/loadsave.cc
+@@ -1637,6 +1637,61 @@ int lsgGetTotalSlotCount()
+     return saveLoadTotalSlots;
+ }
+ 
++// Saves into the given slot (zero-based) without asking, the way a quick save
++// does once its slot is known, described as an autosave with the time it was
++// made. Unlike a quick save it leaves the slot the player last picked alone,
++// and shows nothing when it fails: whoever asked for it says so.
++int lsgAutoSaveInSlot(int slot)
++{
++    if (slot < 0 || slot >= saveLoadTotalSlots) {
++        return -1;
++    }
++
++    ScopedGameMode gm(GameMode::kSaveGame);
++
++    _ls_error_code = 0;
++    _patches = settings.system.master_patches_path.c_str();
++
++    int playerSlot = _slot_cursor;
++    MouseCursorType cursor = gameMouseGetCursor();
++    _slot_cursor = slot;
++
++    snprintf(_gmpath, sizeof(_gmpath), "%s\\%s%.2d\\%s", "SAVEGAME", "SLOT", _slot_cursor + 1, "SAVE.DAT");
++    _flptr = fileOpen(_gmpath, "rb");
++    if (_flptr != nullptr) {
++        lsgLoadHeaderInSlot(_slot_cursor);
++        fileClose(_flptr);
++    }
++
++    time_t now = time(nullptr);
++    struct tm* local = localtime(&now);
++    snprintf(_LSData[slot].description, LOAD_SAVE_DESCRIPTION_LENGTH, "AUTOSAVE %02d:%02d", local->tm_hour, local->tm_min);
++
++    int rc = -1;
++    if (messageListInit(&gLoadSaveMessageList)) {
++        char path[COMPAT_MAX_PATH];
++        snprintf(path, sizeof(path), "%s%s", asc_5186C8, LSGAME_MSG_NAME);
++        if (messageListLoad(&gLoadSaveMessageList, path)) {
++            messageListRepositorySetStandardMessageList(STANDARD_MESSAGE_LIST_LSGAME, &gLoadSaveMessageList);
++
++            _snapshotBuf = nullptr;
++            if (_QuickSnapShot() == 1) {
++                rc = lsgPerformSaveGame();
++            }
++
++            if (_snapshotBuf != nullptr) {
++                internal_free(_snapshot);
++            }
++        }
++        loadSaveMessageListReset();
++    }
++
++    gameMouseSetCursor(cursor);
++    _slot_cursor = playerSlot;
++
++    return rc;
++}
++
+ // 0x47D2E4
+ static int lsgWindowInit(int windowType)
+ {
+diff --git a/src/loadsave.h b/src/loadsave.h
+index 9700bc9..062cd1f 100644
+--- a/src/loadsave.h
++++ b/src/loadsave.h
+@@ -20,6 +20,7 @@ int lsgSaveGame(int mode);
+ int lsgLoadGame(int mode);
+ void lsgDevSetLoadGameSlot(int slot);
+ int lsgGetTotalSlotCount();
++int lsgAutoSaveInSlot(int slot);
+ bool _isLoadingGame();
+ int mapIdBeingLoaded();
+ void lsgInit();
+diff --git a/src/main.cc b/src/main.cc
+index e5eb954..1e1a068 100644
+--- a/src/main.cc
++++ b/src/main.cc
+@@ -9,6 +9,7 @@
+ #include "autorun.h"
+ #include "character_selector.h"
+ #include "color.h"
++#include "combat.h"
+ #include "content_config.h"
+ #include "credits.h"
+ #include "cycle.h"
+@@ -44,6 +45,13 @@
+ #include "word_wrap.h"
+ #include "worldmap.h"
+ 
++#if defined(__EMSCRIPTEN__)
++// Overseer Console: the page around the engine (engines/lib/overseer.js).
++extern "C" void overseer_in_game(int playing);
++extern "C" int overseer_autosave_point();
++extern "C" void overseer_autosaved(int slot, int saved);
++#endif
++
+ namespace fallout {
+ 
+ static bool falloutInit(int argc, char** argv);
+@@ -58,6 +66,7 @@ static void mainHandleDevEndgameRequests();
+ static void mainRequestDevEndgameIfNeeded();
+ static void mainRunDevEndgameMovieIfNeeded();
+ static void mainLoop();
++static void mainAutosave();
+ static void mainRunGameLoopAndCleanup();
+ static void showDeath();
+ static void _main_death_voiceover_callback();
+@@ -417,6 +426,10 @@ static void mainLoop()
+ 
+     scriptsEnable();
+ 
++#if defined(__EMSCRIPTEN__)
++    overseer_in_game(1);
++#endif
++
+     while (_game_user_wants_to_quit == GAME_QUIT_REQUEST_NONE) {
+         sharedFpsLimiter.mark();
+ 
+@@ -441,11 +454,17 @@ static void mainLoop()
+             _game_user_wants_to_quit = GAME_QUIT_REQUEST_MAIN_MENU;
+         }
+ 
++        mainAutosave();
++
+         renderFpsCounter();
+         renderPresent();
+         sharedFpsLimiter.throttle();
+     }
+ 
++#if defined(__EMSCRIPTEN__)
++    overseer_in_game(0);
++#endif
++
+     scriptsDisable();
+ 
+     if (cursorWasHidden) {
+@@ -453,6 +472,29 @@ static void mainLoop()
+     }
+ }
+ 
++// The page asks for a save now and then (see engines/lib/overseer.js). It is
++// made here, between two turns of the main loop, and only at a moment the
++// player could have made a quick save: outside combat and conversations,
++// while the game takes orders, with the player alive.
++static void mainAutosave()
++{
++#if defined(__EMSCRIPTEN__)
++    GameState state = gameGetState();
++    if (_game_user_wants_to_quit != GAME_QUIT_REQUEST_NONE
++        || (state != GameState::Normal && state != GameState::DialogFinished)
++        || gameUiIsDisabled()
++        || isInCombat()
++        || (gDude->data.critter.combat.results & (DAM_DEAD | DAM_KNOCKED_OUT)) != 0) {
++        return;
++    }
++
++    int slot = overseer_autosave_point();
++    if (slot > 0) {
++        overseer_autosaved(slot, lsgAutoSaveInSlot(slot - 1) == 0 ? 1 : 0);
++    }
++#endif
++}
++
+ static void mainRunGameLoopAndCleanup()
+ {
+     mainHandleDevEndgameRequests();

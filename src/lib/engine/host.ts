@@ -7,6 +7,7 @@
  * (saves, settings) is layered on top from the overlay.
  */
 import { GAMES, type EngineId, type GameId } from '../games';
+import { isSaveData, slotOf } from '../savefile';
 import type { Settings } from '../settings';
 import { pathKey } from '../storage/manifest';
 import { StorageUnavailableError, loadInstall, openBlob, openInstalled, type Install } from '../storage/opfs';
@@ -50,8 +51,8 @@ export interface BootHooks {
   progress(done: number, total: number): void;
   /** A line the engine printed. */
   log(line: string): void;
-  /** The engine finished storing a batch of changes (a save, settings). */
-  saved(files: number): void;
+  /** The engine finished storing a batch of changes: a save (`slots` names it), settings. */
+  saved(files: number, slots: number[]): void;
   /** Changes could not be written to browser storage. The player must be told. */
   storageFailed(reason: string): void;
   exit(code: number): void;
@@ -74,6 +75,10 @@ export interface Engine {
   resume(): void;
   /** Fast forward: how many times as fast as the original the game runs. 1 is the original's pace. */
   setSpeed(speed: number): void;
+  /** Whether a game is in progress: not its menus or movies. */
+  inGame(): boolean;
+  /** A save in `slot` at the next moment the game can make one; slot 0 calls it off. True once made. */
+  requestSave(slot: number): Promise<boolean>;
   audioContext(): AudioContext | undefined;
 }
 
@@ -265,7 +270,8 @@ export async function bootEngine(
       hooks.storageFailed(quota ? 'browser storage is full' : err instanceof Error ? err.message : String(err));
       throw err;
     }
-    hooks.saved(batch.puts.length + batch.deletes.length);
+    const slots = batch.puts.filter((put) => isSaveData(put.key)).map((put) => slotOf(put.key)!);
+    hooks.saved(batch.puts.length + batch.deletes.length, slots);
   });
 
   hooks.status('MOUNTING GAME DATA');
@@ -303,6 +309,8 @@ export async function bootEngine(
     pause: () => ov.pause(),
     resume: () => ov.resume(),
     setSpeed: (speed) => ov.setSpeed(speed),
+    inGame: () => ov.inGame(),
+    requestSave: (slot) => ov.requestSave(slot),
     audioContext: () => module.SDL2?.audioContext,
   };
 }

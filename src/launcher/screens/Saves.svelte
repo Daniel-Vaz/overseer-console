@@ -12,7 +12,7 @@
   import Menu from '../components/Menu.svelte';
   import Sheet from '../components/Sheet.svelte';
   import Thumbnail from '../components/Thumbnail.svelte';
-  import { ago, plural, stamp } from '../format';
+  import { ago, exportedState, plural, stamp } from '../format';
   import { launchGame } from '../launch';
   import { sfx } from '../sfx';
   import { consoleState as sys } from '../state.svelte';
@@ -177,6 +177,7 @@
     const stamp = new Date().toISOString().slice(0, 10);
     const suffix = slot === undefined ? 'saves' : `slot${String(slot).padStart(2, '0')}`;
     download(await exportSaves(game, slot), `overseer-${game}-${suffix}-${stamp}.zip`);
+    if (slot === undefined) sys.markExported(game, 'zip');
     message = { text: slot === undefined ? 'All saves written to a zip file.' : `${slotLabel(slot)} written to a zip file.` };
     sfx.done();
   }
@@ -290,6 +291,8 @@
         cloudBusy = `UPLOADING ${slotLabel(item.slot)} (${index + 1} OF ${items.length})`;
         await sendSave(game, item);
       }
+      // Dropbox now holds every save that is here, or a newer one in its slot.
+      if (standings.some((item) => item.here)) sys.markExported(game, 'dropbox');
       const sent = items.length
         ? `${plural(items.length, 'save')} uploaded to Dropbox.`
         : standings.some((item) => item.here)
@@ -386,7 +389,9 @@
       (id, index): MenuItem => ({
         key: String(index + 1),
         label: GAMES[id].title,
-        state: sys.saves[id] ? `${sys.saves[id]} ${sys.saves[id] === 1 ? 'SAVE' : 'SAVES'}` : 'EMPTY',
+        state: sys.saves[id] ? `${sys.saves[id]} ${sys.saves[id] === 1 ? 'SAVE' : 'SAVES'}${sys.exported[id] ? '' : ', NEVER EXPORTED'}` : 'EMPTY',
+        tone: sys.unexported.includes(id) ? 'amber' : undefined,
+        note: sys.unexported.includes(id) ? "Never exported: these saves are only in this browser's storage." : undefined,
         action: () => go(`saves/${id}`),
       }),
     ),
@@ -771,7 +776,20 @@
     </div>
   {:else}
     {#if !slots.length}
-      <p class="gap dim">NO SAVED GAMES YET. Saves made in the game (F4, or F6 for a quick save) appear here.</p>
+      <p class="gap dim">NO SAVED GAMES YET. Saves made in the game (F4, or F6 for a quick save) and its autosaves appear here.</p>
+    {:else if !sys.exported[game]}
+      <div class="panel signed warn reminder" role="status">
+        <Glyph name="warning" tone="amber" />
+        <div>
+          <p class="amber">LAST EXPORTED: NEVER</p>
+          <p class="why">
+            These saves are only in this browser's storage, which the browser may clear.
+            {sys.dropbox.linked ? 'Upload them to Dropbox [U] to keep a copy.' : 'Export them to a zip file [X], or keep them in your Dropbox [U].'}
+          </p>
+        </div>
+      </div>
+    {:else}
+      <p class="gap dim">LAST EXPORTED {exportedState(sys.exported[game])}.</p>
     {/if}
     {#if cloudBusy}
       <p class="gap" role="status">{cloudBusy}<span class="cursor"></span></p>

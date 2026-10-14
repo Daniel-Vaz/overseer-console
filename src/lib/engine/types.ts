@@ -42,6 +42,14 @@ export interface OverseerApi {
   setSpeed(speed: number): void;
   flush(): Promise<void>;
   onError(handler: (what: string, err: unknown) => void): void;
+  /** Whether a game is in progress: not its menus or movies. */
+  inGame(): boolean;
+  /**
+   * Asks for a save in `slot` (1-based) at the next moment the game could
+   * make one. True once made; false when it failed or was called off. Slot 0
+   * calls off the one waiting.
+   */
+  requestSave(slot: number): Promise<boolean>;
   stats(): OverseerStats;
 }
 

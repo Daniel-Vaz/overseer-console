@@ -199,6 +199,17 @@
     (see below) does the moving for you.
   </p>
   <p>
+    <span class="hot">Autosave.</span> Every ten minutes of play the console has the game save itself in slot 08, 09
+    or 10, in turn, described as AUTOSAVE and the time. Only time spent playing counts: not the game's menus, nor a
+    suspended game. The save is made when you could have made a quick save yourself, so never in combat or in a
+    conversation. Slots 01 to 07 are yours alone, and so is a save you make in 08 to 10 yourself: an autosave never
+    replaces it. How often, or not at all, is under Terminal settings.
+  </p>
+  <p>
+    The deck of each game, and its archive, say when its saves were <span class="hot">last exported</span> to a zip
+    file or uploaded to Dropbox. Until they ever were, the console says so in amber.
+  </p>
+  <p>
     Save archives shows each save with the picture the game stored with it and a summary of the character: level, hit
     points, statistics, tagged skills, traits and perks. The names come from your own game files.
   </p>

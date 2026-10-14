@@ -1,4 +1,5 @@
 /** Everything the console's screens share. */
+import { lastExport, recordExport, type ExportMark, type ExportedTo } from '../lib/backup';
 import { DropboxError } from '../lib/dropbox/api';
 import { LinkError } from '../lib/dropbox/auth';
 import { dropboxGameFiles } from '../lib/dropbox/games';
@@ -89,6 +90,8 @@ class ConsoleState {
   saves = $state<Record<GameId, number>>(perGame(0));
   /** The save "continue" would load, per game. */
   latest = $state<Record<GameId, LatestSave | null>>(perGame(null));
+  /** When each game's saves were last exported, to a zip or to Dropbox. */
+  exported = $state<Record<GameId, ExportMark | null>>(perGame(null));
   /** What each game calls its places, as far as its data was ever read here. */
   places = $state.raw<Record<GameId, Places | undefined>>(perGame(undefined));
   storage = $state<StorageStatus | null>(null);
@@ -173,9 +176,21 @@ class ConsoleState {
     return this.squashed;
   }
 
-  /** The link may have been made, dropped or found dead since it was last looked at. */
+  /** The link may have been made, dropped or found dead since it was last looked at, and saves sent through it. */
   refreshDropbox(): void {
     this.dropbox = dropboxStatus();
+    this.exported = Object.fromEntries(GAME_IDS.map((game) => [game, lastExport(game)])) as Record<GameId, ExportMark | null>;
+  }
+
+  /** All of a game's saves were just exported. */
+  markExported(game: GameId, to: ExportedTo): void {
+    recordExport(game, to);
+    this.exported[game] = lastExport(game);
+  }
+
+  /** The games with saves that have never left this browser. */
+  get unexported(): GameId[] {
+    return GAME_IDS.filter((game) => this.saves[game] > 0 && !this.exported[game]);
   }
 
   /** Looks at what is installed and saved in this browser. */

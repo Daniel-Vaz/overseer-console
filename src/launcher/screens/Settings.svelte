@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { AUTOSAVE_MINUTES } from '../../lib/autosave';
   import { GAME_IDS } from '../../lib/games';
   import { FAST_FORWARD_SPEEDS, type Settings } from '../../lib/settings';
   import { formatBytes } from '../../lib/storage/manifest';
@@ -15,10 +16,11 @@
 
   const CACHE_STEPS = [96, 192, 384, 768];
   const SCALINGS: readonly Settings['scaling'][] = ['fill', 'integer', 'smooth'];
-  // What a setting belongs to. The list is long; these keep it readable.
+  // What a setting belongs to. The list is long; these keep it readable. The console's storage is the console's:
+  // a heading of its own would cost the line the list does not have.
   const GAMES_GROUP = 'The games';
   const CONSOLE_GROUP = 'This console';
-  const STORAGE_GROUP = 'Storage';
+  const STORAGE_GROUP = CONSOLE_GROUP;
   let persistNote = $state('');
   let selected = $state(0);
 
@@ -141,6 +143,17 @@
       state: `${s.fastForward} TIMES`,
       note: 'F8, or FAST on a touch screen, runs a game this many times as fast until pressed again: for long walks and long turns.',
       ...choice('fastForward', FAST_FORWARD_SPEEDS),
+    },
+    {
+      key: 'a',
+      group: GAMES_GROUP,
+      label: 'Autosave',
+      icon: 'save',
+      state: s.autosave ? `EVERY ${s.autosave} MIN` : 'OFF',
+      note: s.autosave
+        ? `Every ${s.autosave} minutes of play the game is saved in slot 08, 09 or 10, in turn. Slots 01 to 07 are yours, and so is a save you make in 08 to 10 yourself: it is never saved over.`
+        : 'Games are saved only when you save them.',
+      ...choice('autosave', AUTOSAVE_MINUTES),
     },
     // Only where there is a touch screen to speak of.
     ...(navigator.maxTouchPoints > 0 || 'ontouchstart' in window || matchMedia('(any-pointer: coarse)').matches

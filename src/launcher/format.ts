@@ -27,6 +27,11 @@ export function ago(timestamp: number, now = Date.now()): string {
   return stamp(timestamp, false);
 }
 
+/** When a game's saves were last exported, and where to: "2 DAYS AGO, TO DROPBOX", or "NEVER". */
+export function exportedState(mark: { at: number; to: 'dropbox' | 'zip' } | null): string {
+  return mark ? `${ago(mark.at)}, ${mark.to === 'dropbox' ? 'TO DROPBOX' : 'TO A ZIP FILE'}` : 'NEVER';
+}
+
 export function plural(count: number, one: string, many = `${one}s`): string {
   return `${count} ${count === 1 ? one : many}`;
 }

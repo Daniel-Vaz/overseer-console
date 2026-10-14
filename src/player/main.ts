@@ -18,6 +18,7 @@ import { bootEngine, NoInstallError, StorageUnavailableError, type Engine } from
 import { GAMES, isGameId, type GameId } from '../lib/games';
 import { loadSettings, recordLaunch, saveSettings } from '../lib/settings';
 import { audioBridgeStats, installAudioBridge } from './audio-bridge';
+import { Autosaver } from './autosave';
 import { TouchControls, fingerFirst } from './touch/controls';
 
 type Phase = 'boot' | 'gate' | 'running' | 'menu' | 'fatal' | 'leaving';
@@ -47,6 +48,8 @@ const TOUCH_HELP_KEY = 'overseer-console:touch-help';
 
 let phase: Phase = 'boot';
 let engine: Engine | null = null;
+/** Saves the game every so many minutes of play, once it has begun. */
+let autosaver: Autosaver | null = null;
 let startedAt = 0;
 /** SDL starts with text input switched on; it is switched off once so that the games' own requests stand out. */
 let textInputReset = false;
@@ -362,6 +365,10 @@ function begin(): void {
   }
   fit();
   stayAwake(true);
+  autosaver = new Autosaver(engine.game, engine, settings.autosave, {
+    playing: () => phase === 'running' && !document.hidden,
+    say: (text, bad) => toast(text, 6000, bad),
+  });
   if (!touch.visible) toast('F8 FAST FORWARD   F9 CONSOLE MENU   F11 FULLSCREEN', 4500);
   else if (!touchHelpSeen()) openTouchHelp();
 }
@@ -723,8 +730,9 @@ async function main(): Promise<void> {
           if (engineLog.length > 200) engineLog.shift();
           console.log(`[engine] ${line}`);
         },
-        saved: (files) => {
-          if (files > 1) toast('SAVED TO BROWSER STORAGE');
+        saved: (files, slots) => {
+          if (autosaver?.saved(slots)) toast(`AUTOSAVED IN SLOT ${String(slots[0]).padStart(2, '0')}`);
+          else if (files > 1) toast('SAVED TO BROWSER STORAGE');
         },
         storageFailed: (reason) => toast(`NOT STORED: ${reason.toUpperCase()}. THIS SAVE WILL BE LOST WHEN YOU LEAVE.`, 20_000, true),
         exit: ended,
@@ -743,8 +751,8 @@ async function main(): Promise<void> {
   }
 
   if (phase !== 'boot') return;
-  // For diagnostics from the browser console: overseerEngine.module.overseer.stats(), overseerAudio()
-  Object.assign(window, { overseerEngine: engine, overseerAudio: audioBridgeStats });
+  // For diagnostics from the browser console: overseerEngine.module.overseer.stats(), overseerAudio(), overseerAutosave()
+  Object.assign(window, { overseerEngine: engine, overseerAudio: audioBridgeStats, overseerAutosave: () => autosaver?.now() });
   phase = 'gate';
   fit();
   showTerminal({ centered: true, state: 'READY' });

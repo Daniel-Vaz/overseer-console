@@ -17,6 +17,11 @@ const GAMES = [
 
 const pause = (page: Page, ms: number) => page.waitForTimeout(ms);
 
+/** Whether the engine says a game is in progress, rather than its menus. */
+function inProgress(page: Page): Promise<boolean> {
+  return page.evaluate(() => (window as unknown as { overseerEngine: { inGame(): boolean } }).overseerEngine.inGame());
+}
+
 async function engineStats(page: Page): Promise<{ sleeps: number; syncs: number; blockReads: number; blockMs: number }> {
   return page.evaluate(() => (window as unknown as { overseerEngine: { module: { overseer: { stats(): never } } } }).overseerEngine.module.overseer.stats());
 }
@@ -90,6 +95,8 @@ for (const game of GAMES) {
     const mainMenu = await fingerprint(page);
     const afterStart = await engineStats(page);
     console.log(`${game.title}: first picture ${firstPicture} ms after starting, ${afterStart.blockReads} block reads taking ${Math.round(afterStart.blockMs)} ms`);
+    // The main menu is not a game in progress: no time counts towards an autosave.
+    expect(await inProgress(page)).toBe(false);
 
     // New game with the first ready-made character; skip the opening movie.
     await page.keyboard.press('n');
@@ -108,10 +115,17 @@ for (const game of GAMES) {
     await page.keyboard.type('e2e', { delay: 80 });
     await page.keyboard.press('Enter');
     await expect(page.locator('#toast')).toHaveText('SAVED TO BROWSER STORAGE', { timeout: 30_000 });
-    const firstSave = (await engineStats(page)).syncs;
-    expect(firstSave).toBeGreaterThan(0);
+    expect((await engineStats(page)).syncs).toBeGreaterThan(0);
 
-    // Quick save again: same slot, no questions. The first save becomes history.
+    // An autosave, asked for now rather than after minutes of play: in slot 8, the first of the last three.
+    expect(await inProgress(page)).toBe(true);
+    await pause(page, 3000);
+    const autosaved = page.evaluate(() => (window as unknown as { overseerAutosave(): Promise<boolean> }).overseerAutosave());
+    await expect(page.locator('#toast')).toHaveText('AUTOSAVED IN SLOT 08', { timeout: 30_000 });
+    expect(await autosaved).toBe(true);
+    const firstSave = (await engineStats(page)).syncs;
+
+    // Quick save again: the slot the player picked, not the autosave's, and no questions. The first save becomes history.
     await pause(page, 1500);
     await page.keyboard.press('F6');
     await expect.poll(async () => (await engineStats(page)).syncs, { timeout: 30_000 }).toBeGreaterThan(firstSave);
@@ -153,6 +167,9 @@ for (const game of GAMES) {
     await expect(slot).toContainText('SLOT 01');
     await expect(slot).toContainText('e2e');
     await expect(page.locator('.menu-note')).toContainText('1 earlier version kept.');
+    await expect(page.locator('.menu li', { hasText: 'SLOT 08' })).toContainText(/AUTOSAVE \d\d:\d\d/);
+    // Nothing has left this browser yet, and the console says so.
+    await expect(page.getByText('LAST EXPORTED: NEVER')).toBeVisible();
 
     // The console read the save: its picture, drawn with the game's own palette, and the character.
     await expect(page.locator('canvas.thumb')).toBeVisible();
