@@ -9,12 +9,12 @@
 import { GAMES, type EngineId, type GameId } from '../games';
 import type { Settings } from '../settings';
 import { pathKey } from '../storage/manifest';
-import { StorageUnavailableError, loadInstall, openBlob, type Install } from '../storage/opfs';
+import { StorageUnavailableError, loadInstall, openBlob, openInstalled, type Install } from '../storage/opfs';
 
 export { StorageUnavailableError };
 import { commitWithHistory } from '../storage/history';
 import { listOverlay, type OverlayEntry } from '../storage/overlay';
-import { baseFiles, baseFolder, buildConfigFiles, chooseScreen, wantsEngineData, type ScreenSize } from './config';
+import { HIGHLIGHTING_FILE, baseFiles, baseFolder, buildConfigFiles, chooseScreen, wantsEngineData, type ScreenSize } from './config';
 import type { EngineFactory, EngineInfo, EngineModule, PersistBatch } from './types';
 
 const GAME_ROOT = '/game';
@@ -271,6 +271,9 @@ export async function bootEngine(
   hooks.status('MOUNTING GAME DATA');
   const overlay = await listOverlay(game);
   const savedConfig = overlay.find((entry) => entry.key === def.configFile && !entry.deleted && entry.data);
+  // What the game brought for the engine's own scripts: its key for lighting
+  // things up is replaced with the console's, the rest of it stands.
+  const mods = await openInstalled(install, HIGHLIGHTING_FILE);
   const screen = chooseScreen(settings.picture[game], viewport);
   const configFiles = buildConfigFiles({
     game,
@@ -281,6 +284,7 @@ export async function bootEngine(
     // Someone who asked for their save does not want the opening movies first.
     skipIntro: settings.skipIntro || options.loadSlot !== undefined,
     improvements: settings.improvements,
+    installMods: await mods?.text(),
   });
   await populate(module, game, installed, overlay, configFiles, engineData);
   module.FS.chdir(GAME_ROOT);

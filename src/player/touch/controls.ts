@@ -190,7 +190,8 @@ export class TouchControls {
     button.classList.add('down');
     let release: () => void;
     if (shortcut) {
-      sendKey('keydown', shortcut);
+      // LIGHT is Shift itself: its own press carries the modifier, as a keyboard's does.
+      sendKey('keydown', shortcut, shortcut.key === 'Shift');
       release = () => sendKey('keyup', shortcut);
     } else if (act === 'esc') {
       sendKey('keydown', ESCAPE_KEY);

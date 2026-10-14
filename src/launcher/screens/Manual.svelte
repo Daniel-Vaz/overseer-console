@@ -145,8 +145,9 @@
     sight; the inventory has a second column; companions' own inventories can be reached when looting and
     bartering; doors that are neither locked nor special open as you walk into them; the interface shows up to 16
     action points; and with the HIGH RESOLUTION picture the barter screen has a fourth row. Switched off, Fallout
-    2 plays as the original did. Fallout Et Tu comes with its makers' own choice of these and keeps it; the engine
-    of Fallout has none of them.
+    2 plays as the original did. Fallout Et Tu comes with its makers' own choice of these and keeps it, save for
+    the key: <span class="hot">SHIFT</span> lights things up in every game the console runs. The engine of Fallout
+    has none of this.
   </p>
 
   <h2>Touch screens</h2>

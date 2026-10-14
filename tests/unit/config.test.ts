@@ -115,7 +115,7 @@ describe('buildConfigFiles', () => {
       screen: { width: 1280, height: 720 },
       skipIntro: false,
     });
-    expect(Object.keys(files)).toEqual(['fallout2.cfg']);
+    expect(Object.keys(files).sort()).toEqual(['fallout2.cfg', 'mods/sfall-mods.ini']);
     const ini = Ini.parse(files['fallout2.cfg']!);
     expect(ini.get('preferences', 'text_base_delay')).toBe('3.5');
     expect(ini.get('system', 'master_dat')).toBe('fo2\\master.dat');
@@ -159,9 +159,43 @@ describe('buildConfigFiles', () => {
     expect(plain.get('qol', 'auto_open_doors')).toBe('0');
     expect(Object.keys(original)).toEqual(['fallout2.cfg']);
 
-    // Settings a mod of the player's brought for it are theirs.
-    const modded = buildConfigFiles({ ...start, manifest: manifest('fo2', ['master.dat', 'mods/SFALL-MODS.INI']), improvements: true });
-    expect(Object.keys(modded)).toEqual(['fallout2.cfg']);
+    // Settings a mod of the player's brought for it are theirs, save for the key.
+    const theirs = ['; which key', '[Highlighting]', 'Key = 29 ; left ctrl', 'Corpses=0', '', '[CombatControl]', 'Mode=3', ''].join('\r\n');
+    const modded = buildConfigFiles({ ...start, improvements: true, installMods: theirs });
+    expect(modded['mods/sfall-mods.ini']).toBe(
+      ['; which key', '[Highlighting]', 'Key=42', 'Corpses=0', '', '[CombatControl]', 'Mode=3', ''].join('\r\n'),
+    );
+  });
+
+  it('gives every game the console has the key that lights things up', () => {
+    const start = { manifest: manifest('fo2', ['master.dat']), screen: CLASSIC_SCREEN, skipIntro: false, improvements: true };
+
+    // Et Tu brings this file itself, with the left CTRL key in it. The console's key stands instead.
+    const base = manifest('fo2', ['master.dat', 'critter.dat']);
+    const ettu = buildConfigFiles({
+      ...start,
+      game: 'ettu',
+      manifest: manifest('ettu', ['mods/fo1_base', 'mods/sfall-mods.ini']),
+      base,
+      installMods: '[Highlighting]\r\nKey=29\r\nCheckLOS=1\r\n',
+    });
+    expect(ettu['mods/sfall-mods.ini']).toBe('[Highlighting]\r\nKey=42\r\nCheckLOS=1\r\n');
+
+    // A file that says nothing about lighting things up gets the console's own settings for it.
+    const quiet = buildConfigFiles({ ...start, game: 'fo2', installMods: '[CombatControl]\r\nMode=3\r\n' });
+    expect(quiet['mods/sfall-mods.ini']).toBe('[CombatControl]\r\nMode=3\r\n\r\n[Highlighting]\r\nKey=42\r\nContainers=1\r\nCorpses=1\r\n' + 'Critters=0\r\nCheckLOS=1\r\nOutlineColor=16\r\nOutlineColorContainers=32\r\nOutlineColorContainersEmpty=4\r\nOutlineColorCorpses=32\r\nOutlineColorCorpsesEmpty=4\r\nMotionScanner=0\r\n');
+
+    // A section without the key at all: the key is added to it.
+    const headless = buildConfigFiles({ ...start, game: 'fo2', installMods: '[Highlighting]\r\nCorpses=1\r\n' });
+    expect(headless['mods/sfall-mods.ini']).toBe('[Highlighting]\r\nKey=42\r\nCorpses=1\r\n');
+
+    // Nothing to change: the game's own file is left where it is.
+    const already = buildConfigFiles({ ...start, game: 'fo2', installMods: '[Highlighting]\r\nKey=42\r\nCorpses=1\r\n' });
+    expect(Object.keys(already)).toEqual(['fallout2.cfg']);
+
+    // Switched off, Fallout 2 is not given the engine's script and keeps no key for it.
+    const off = buildConfigFiles({ ...start, game: 'fo2', improvements: false, installMods: '[Highlighting]\r\nKey=29\r\n' });
+    expect(Object.keys(off)).toEqual(['fallout2.cfg']);
   });
 
   it('leaves the other games as they are', () => {
@@ -169,7 +203,7 @@ describe('buildConfigFiles', () => {
     const shipped = '[ui]\ninventory_columns=1\n[qol]\nparty_loot_and_barter=1\n';
     const base = manifest('fo2', ['master.dat', 'critter.dat']);
     const ettu = buildConfigFiles({ game: 'ettu', manifest: manifest('ettu', ['mods/fo1_base'], shipped), base, screen: CLASSIC_SCREEN, skipIntro: false, improvements: true });
-    expect(Object.keys(ettu)).toEqual(['fallout2.cfg']);
+    expect(Object.keys(ettu).sort()).toEqual(['fallout2.cfg', 'mods/sfall-mods.ini']);
     const ini = Ini.parse(ettu['fallout2.cfg']!);
     expect(ini.get('ui', 'inventory_columns')).toBe('1');
     expect(ini.get('ui', 'extend_ap_bar')).toBeUndefined();

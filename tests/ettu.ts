@@ -54,7 +54,8 @@ export function ettuFiles(options: EttuOptions = {}): Record<string, Uint8Array>
     'config/fo1_settings.ini': ascii('[Fo1in2]\r\nGVAR_ENABLE_MOTORCYCLE=0\r\n'),
     'config/Perks.ini': ascii('[Perks]\r\n'),
     'mods/mods_order.txt': ascii('fo1_base\r\nfo1_interface\r\n;InterfaceUpscaled\r\n;fo1_lang_german\r\n'),
-    'mods/sfall-mods.ini': ascii('[Highlighting]\r\nKey=42\r\n'),
+    // As the package ships it: its own key for lighting things up is the left CTRL key.
+    'mods/sfall-mods.ini': ascii('[Highlighting]\r\nKey=29\r\nCheckLOS=1\r\n'),
     'mods/fo1_base/color.pal': palette,
     'mods/fo1_base/text/english/game/perk.msg': ascii(PERKS),
     'mods/fo1_base/text/english/game/trait.msg': ascii(TRAITS),

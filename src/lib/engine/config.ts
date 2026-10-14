@@ -88,7 +88,15 @@ const IMPROVEMENTS: readonly (readonly [section: string, key: string, improved: 
 ];
 
 /** Where the engine's own script for lighting things up looks for its settings. */
-const HIGHLIGHTING_FILE = 'mods/sfall-mods.ini';
+export const HIGHLIGHTING_FILE = 'mods/sfall-mods.ini';
+
+/**
+ * The key that lights things up, as that script numbers keys (the codes the
+ * original game read from the keyboard, where 42 is the left SHIFT key).
+ * It belongs to the console rather than to any one game: all three answer to
+ * the same key, and the touch deck's LIGHT button presses it.
+ */
+const HIGHLIGHT_KEY = 42;
 
 /**
  * Hold the left SHIFT key to light up what lies on the ground: items,
@@ -97,7 +105,7 @@ const HIGHLIGHTING_FILE = 'mods/sfall-mods.ini';
  */
 const HIGHLIGHTING = [
   '[Highlighting]',
-  'Key=42',
+  `Key=${HIGHLIGHT_KEY}`,
   'Containers=1',
   'Corpses=1',
   'Critters=0',
@@ -110,6 +118,31 @@ const HIGHLIGHTING = [
   'MotionScanner=0',
   '',
 ].join('\r\n');
+
+/**
+ * Puts the console's key into a settings file the game brought itself, and
+ * leaves the rest of it alone, comments and all: which key lights things up
+ * is the console's to say, everything else about it is the game's. (Fallout
+ * Et Tu ships this file with the left CTRL key; a mod may bring any other.)
+ * Null when the file already names the console's key.
+ */
+export function withHighlightKey(text: string): string | null {
+  const setting = `Key=${HIGHLIGHT_KEY}`;
+  const header = /^[ \t]*\[Highlighting\][ \t]*$/im.exec(text);
+  // No such section: the console's own, after what the file already says.
+  if (!header) return `${text.replace(/\s*$/, '')}\r\n\r\n${HIGHLIGHTING}`;
+
+  // The section runs from its header to the next one, or to the end of the file.
+  const start = header.index + header[0].length;
+  const rest = text.slice(start);
+  const length = /^[ \t]*\[/m.exec(rest)?.index ?? rest.length;
+  const body = rest.slice(0, length);
+
+  const key = /^[ \t]*Key[ \t]*=.*$/im.exec(body);
+  if (!key) return `${text.slice(0, start)}\r\n${setting}${rest}`;
+  if (key[0].replace(/[ \t\r]/g, '') === setting) return null;
+  return text.slice(0, start) + body.slice(0, key.index) + setting + body.slice(key.index + key[0].length) + rest.slice(length);
+}
 
 /** Whether a game is started with the engine's own data file beside it. */
 export function wantsEngineData(game: GameId, improvements: boolean): boolean {
@@ -161,10 +194,21 @@ export interface ConfigInputs {
   skipIntro: boolean;
   /** The console's improvements are switched on (see Settings). */
   improvements?: boolean;
+  /** The settings the game brought for the engine's own scripts, if it brought any. */
+  installMods?: string;
 }
 
 /** Settings files to place in the game folder, by name. */
-export function buildConfigFiles({ game, manifest, base, savedConfig, screen, skipIntro, improvements = false }: ConfigInputs): Record<string, string> {
+export function buildConfigFiles({
+  game,
+  manifest,
+  base,
+  savedConfig,
+  screen,
+  skipIntro,
+  improvements = false,
+  installMods,
+}: ConfigInputs): Record<string, string> {
   const def = GAMES[game];
   const ini = Ini.parse(savedConfig ?? manifest.installConfig ?? '');
   const music = musicPath(game, manifest);
@@ -200,8 +244,12 @@ export function buildConfigFiles({ game, manifest, base, savedConfig, screen, sk
     const files: Record<string, string> = {};
     if (def.engineData === 'improved') {
       for (const [section, key, improved, original] of IMPROVEMENTS) ini.set(section, key, improvements ? improved : original);
-      // Mods the player installed may bring settings of their own for this: theirs stand.
-      if (improvements && !manifest.files.some((file) => pathKey(file.path) === HIGHLIGHTING_FILE)) files[HIGHLIGHTING_FILE] = HIGHLIGHTING;
+    }
+    // Lighting things up comes with the engine's own script, wherever that is
+    // loaded. Settings a game or a mod brought for it stand, save for the key.
+    if (wantsEngineData(game, improvements)) {
+      const settings = installMods === undefined ? HIGHLIGHTING : withHighlightKey(installMods);
+      if (settings !== null) files[HIGHLIGHTING_FILE] = settings;
     }
     return { [def.configFile]: ini.toString(), ...files };
   }

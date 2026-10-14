@@ -134,6 +134,7 @@ test('puts Fallout Et Tu together from its zip and the two games, and starts its
     return {
       exists: Object.fromEntries(paths.map((path) => [path, FS.analyzePath(`/game/${path}`).exists])),
       config: new TextDecoder().decode(FS.readFile('/game/fallout2.cfg')),
+      lights: new TextDecoder().decode(FS.readFile('/game/mods/sfall-mods.ini')),
       // The engine's own data file is an archive: its last four bytes hold its size.
       engineData: new DataView(base.buffer, base.byteOffset, base.byteLength).getUint32(base.length - 4, true) === base.length,
     };
@@ -163,6 +164,9 @@ test('puts Fallout Et Tu together from its zip and the two games, and starts its
   // Half as tall again as the original, and as wide as the window's shape allows.
   expect(game.config).toContain('resolution_x=1152');
   expect(game.config).toContain('resolution_y=720');
+  // The package ships the left CTRL key for lighting things up; the console's key
+  // is SHIFT in all three games. The rest of what it says about it is its own.
+  expect(game.lights).toBe('[Highlighting]\r\nKey=42\r\nCheckLOS=1\r\n');
 
   // Its saves are its own.
   await page.keyboard.press('Escape');
