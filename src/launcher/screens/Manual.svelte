@@ -141,13 +141,13 @@
   </p>
   <p>
     <span class="hot">Game improvements</span> in Terminal settings switches on what the engine of Fallout 2 adds
-    to the game: holding the left <span class="hot">SHIFT</span> key lights up the items, containers and bodies in
-    sight; the inventory has a second column; companions' own inventories can be reached when looting and
-    bartering; doors that are neither locked nor special open as you walk into them; the interface shows up to 16
-    action points; and with the HIGH RESOLUTION picture the barter screen has a fourth row. Switched off, Fallout
-    2 plays as the original did. Fallout Et Tu comes with its makers' own choice of these and keeps it, save for
-    the key: <span class="hot">SHIFT</span> lights things up in every game the console runs. The engine of Fallout
-    has none of this.
+    to the game: holding the left <span class="hot">SHIFT</span> key lights up the items, containers and bodies
+    lying anywhere in the picture, walls or no walls; the inventory has a second column; companions' own
+    inventories can be reached when looting and bartering; doors that are neither locked nor special open as you
+    walk into them; the interface shows up to 16 action points; and with the HIGH RESOLUTION picture the barter
+    screen has a fourth row. Switched off, Fallout 2 plays as the original did. Fallout Et Tu comes with its
+    makers' own choice of these and keeps it, save for the key: <span class="hot">SHIFT</span> lights things up
+    the same way in every game the console runs. The engine of Fallout has none of this.
   </p>
 
   <h2>Touch screens</h2>

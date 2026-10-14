@@ -147,9 +147,11 @@ describe('buildConfigFiles', () => {
     expect(ini.get('qol', 'party_loot_and_barter')).toBe('1');
     // Quick saves keep asking for their slot: rotating ones would replace saves made by hand.
     expect(ini.get('ui', 'auto_quick_save')).toBeUndefined();
-    // The key that lights things up is set in a file of the engine's own script.
+    // What the key that lights things up does is set in a file of the engine's own script.
     expect(Object.keys(improved).sort()).toEqual(['fallout2.cfg', 'mods/sfall-mods.ini']);
     expect(improved['mods/sfall-mods.ini']).toContain('[Highlighting]\r\nKey=42\r\n');
+    // Nothing lies in the open in most of the games: a line-of-sight test hides the lot.
+    expect(improved['mods/sfall-mods.ini']).toContain('CheckLOS=0');
 
     // Switched off, the engine is told so: it keeps what it was last told.
     const original = buildConfigFiles({ ...start, savedConfig: improved['fallout2.cfg'], improvements: false });
@@ -159,41 +161,52 @@ describe('buildConfigFiles', () => {
     expect(plain.get('qol', 'auto_open_doors')).toBe('0');
     expect(Object.keys(original)).toEqual(['fallout2.cfg']);
 
-    // Settings a mod of the player's brought for it are theirs, save for the key.
-    const theirs = ['; which key', '[Highlighting]', 'Key = 29 ; left ctrl', 'Corpses=0', '', '[CombatControl]', 'Mode=3', ''].join('\r\n');
+    // Settings a mod of the player's brought for other things are theirs.
+    const theirs = ['; mine', '[Highlighting]', 'Key = 29 ; left ctrl', 'Corpses=0', '', '[CombatControl]', 'Mode=3', ''].join('\r\n');
     const modded = buildConfigFiles({ ...start, improvements: true, installMods: theirs });
-    expect(modded['mods/sfall-mods.ini']).toBe(
-      ['; which key', '[Highlighting]', 'Key=42', 'Corpses=0', '', '[CombatControl]', 'Mode=3', ''].join('\r\n'),
-    );
+    expect(modded['mods/sfall-mods.ini']).toContain('; mine\r\n[Highlighting]\r\nKey=42\r\n');
+    expect(modded['mods/sfall-mods.ini']).toContain('[CombatControl]\r\nMode=3\r\n');
+    expect(modded['mods/sfall-mods.ini']).not.toContain('Corpses=0');
   });
 
-  it('gives every game the console has the key that lights things up', () => {
+  it('lights things up the same way in every game the console has', () => {
     const start = { manifest: manifest('fo2', ['master.dat']), screen: CLASSIC_SCREEN, skipIntro: false, improvements: true };
+    const CONSOLE = [
+      '[Highlighting]',
+      'Key=42',
+      'Containers=1',
+      'Corpses=1',
+      'Critters=0',
+      'CheckLOS=0',
+      'OutlineColor=16',
+      'OutlineColorContainers=32',
+      'OutlineColorContainersEmpty=4',
+      'OutlineColorCorpses=32',
+      'OutlineColorCorpsesEmpty=4',
+      'MotionScanner=0',
+      '',
+    ].join('\r\n');
 
-    // Et Tu brings this file itself, with the left CTRL key in it. The console's key stands instead.
+    // Et Tu brings this file itself: the left CTRL key, and nothing lit that is not an item in plain sight.
     const base = manifest('fo2', ['master.dat', 'critter.dat']);
     const ettu = buildConfigFiles({
       ...start,
       game: 'ettu',
       manifest: manifest('ettu', ['mods/fo1_base', 'mods/sfall-mods.ini']),
       base,
-      installMods: '[Highlighting]\r\nKey=29\r\nCheckLOS=1\r\n',
+      installMods: '[Highlighting]\r\nKey=29\r\nContainers=0\r\nCheckLOS=1\r\n',
     });
-    expect(ettu['mods/sfall-mods.ini']).toBe('[Highlighting]\r\nKey=42\r\nCheckLOS=1\r\n');
+    expect(ettu['mods/sfall-mods.ini']).toBe(CONSOLE);
 
-    // A file that says nothing about lighting things up gets the console's own settings for it.
+    // A file that says nothing about it keeps what it does say, and gets the console's.
     const quiet = buildConfigFiles({ ...start, game: 'fo2', installMods: '[CombatControl]\r\nMode=3\r\n' });
-    expect(quiet['mods/sfall-mods.ini']).toBe('[CombatControl]\r\nMode=3\r\n\r\n[Highlighting]\r\nKey=42\r\nContainers=1\r\nCorpses=1\r\n' + 'Critters=0\r\nCheckLOS=1\r\nOutlineColor=16\r\nOutlineColorContainers=32\r\nOutlineColorContainersEmpty=4\r\nOutlineColorCorpses=32\r\nOutlineColorCorpsesEmpty=4\r\nMotionScanner=0\r\n');
-
-    // A section without the key at all: the key is added to it.
-    const headless = buildConfigFiles({ ...start, game: 'fo2', installMods: '[Highlighting]\r\nCorpses=1\r\n' });
-    expect(headless['mods/sfall-mods.ini']).toBe('[Highlighting]\r\nKey=42\r\nCorpses=1\r\n');
+    expect(quiet['mods/sfall-mods.ini']).toBe(`[CombatControl]\r\nMode=3\r\n\r\n${CONSOLE}`);
 
     // Nothing to change: the game's own file is left where it is.
-    const already = buildConfigFiles({ ...start, game: 'fo2', installMods: '[Highlighting]\r\nKey=42\r\nCorpses=1\r\n' });
+    const already = buildConfigFiles({ ...start, game: 'fo2', installMods: CONSOLE });
     expect(Object.keys(already)).toEqual(['fallout2.cfg']);
 
-    // Switched off, Fallout 2 is not given the engine's script and keeps no key for it.
+    // Switched off, Fallout 2 is not given the engine's script and nothing is written for it.
     const off = buildConfigFiles({ ...start, game: 'fo2', improvements: false, installMods: '[Highlighting]\r\nKey=29\r\n' });
     expect(Object.keys(off)).toEqual(['fallout2.cfg']);
   });

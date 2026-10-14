@@ -99,9 +99,15 @@ export const HIGHLIGHTING_FILE = 'mods/sfall-mods.ini';
 const HIGHLIGHT_KEY = 42;
 
 /**
- * Hold the left SHIFT key to light up what lies on the ground: items,
- * containers and bodies within sight. The values are those the script's
- * authors ship, with containers and bodies switched on.
+ * What holding the key does: light up the items, containers and bodies lying
+ * on the ground, wherever they are in the picture.
+ *
+ * The script's own line-of-sight test is off (CheckLOS=0). With it on - which
+ * is what the script and Fallout Et Tu both ship - nothing is lit that the
+ * player could not shoot at, and since what is worth finding is nearly always
+ * inside a building the key appears to do nothing at all. Containers and
+ * bodies are on for the same reason; critters are left to the games, which
+ * light them up themselves in combat.
  */
 const HIGHLIGHTING = [
   '[Highlighting]',
@@ -109,7 +115,7 @@ const HIGHLIGHTING = [
   'Containers=1',
   'Corpses=1',
   'Critters=0',
-  'CheckLOS=1',
+  'CheckLOS=0',
   'OutlineColor=16',
   'OutlineColorContainers=32',
   'OutlineColorContainersEmpty=4',
@@ -120,28 +126,23 @@ const HIGHLIGHTING = [
 ].join('\r\n');
 
 /**
- * Puts the console's key into a settings file the game brought itself, and
- * leaves the rest of it alone, comments and all: which key lights things up
- * is the console's to say, everything else about it is the game's. (Fallout
- * Et Tu ships this file with the left CTRL key; a mod may bring any other.)
- * Null when the file already names the console's key.
+ * Puts the console's own [Highlighting] into a settings file the game brought
+ * itself, and leaves every other section of it alone, comments and all: what
+ * the console's key does is the console's to say, the rest of the file is the
+ * game's. (Fallout Et Tu ships this file with the left CTRL key and with
+ * containers and bodies switched off; a mod may bring anything.) Null when
+ * the file already says what the console would say.
  */
-export function withHighlightKey(text: string): string | null {
-  const setting = `Key=${HIGHLIGHT_KEY}`;
+export function withHighlighting(text: string): string | null {
   const header = /^[ \t]*\[Highlighting\][ \t]*$/im.exec(text);
   // No such section: the console's own, after what the file already says.
   if (!header) return `${text.replace(/\s*$/, '')}\r\n\r\n${HIGHLIGHTING}`;
 
   // The section runs from its header to the next one, or to the end of the file.
-  const start = header.index + header[0].length;
-  const rest = text.slice(start);
+  const rest = text.slice(header.index + header[0].length);
   const length = /^[ \t]*\[/m.exec(rest)?.index ?? rest.length;
-  const body = rest.slice(0, length);
-
-  const key = /^[ \t]*Key[ \t]*=.*$/im.exec(body);
-  if (!key) return `${text.slice(0, start)}\r\n${setting}${rest}`;
-  if (key[0].replace(/[ \t\r]/g, '') === setting) return null;
-  return text.slice(0, start) + body.slice(0, key.index) + setting + body.slice(key.index + key[0].length) + rest.slice(length);
+  const replaced = text.slice(0, header.index) + HIGHLIGHTING + rest.slice(length);
+  return replaced === text ? null : replaced;
 }
 
 /** Whether a game is started with the engine's own data file beside it. */
@@ -246,9 +247,9 @@ export function buildConfigFiles({
       for (const [section, key, improved, original] of IMPROVEMENTS) ini.set(section, key, improvements ? improved : original);
     }
     // Lighting things up comes with the engine's own script, wherever that is
-    // loaded. Settings a game or a mod brought for it stand, save for the key.
+    // loaded. Other settings a game or a mod brought for it stand.
     if (wantsEngineData(game, improvements)) {
-      const settings = installMods === undefined ? HIGHLIGHTING : withHighlightKey(installMods);
+      const settings = installMods === undefined ? HIGHLIGHTING : withHighlighting(installMods);
       if (settings !== null) files[HIGHLIGHTING_FILE] = settings;
     }
     return { [def.configFile]: ini.toString(), ...files };

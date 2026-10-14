@@ -164,9 +164,11 @@ test('puts Fallout Et Tu together from its zip and the two games, and starts its
   // Half as tall again as the original, and as wide as the window's shape allows.
   expect(game.config).toContain('resolution_x=1152');
   expect(game.config).toContain('resolution_y=720');
-  // The package ships the left CTRL key for lighting things up; the console's key
-  // is SHIFT in all three games. The rest of what it says about it is its own.
-  expect(game.lights).toBe('[Highlighting]\r\nKey=42\r\nCheckLOS=1\r\n');
+  // The package ships the left CTRL key for lighting things up, and lights nothing
+  // it cannot shoot at. The console's own key and rules stand in all three games.
+  expect(game.lights).toContain('[Highlighting]\r\nKey=42\r\n');
+  expect(game.lights).toContain('Containers=1');
+  expect(game.lights).toContain('CheckLOS=0');
 
   // Its saves are its own.
   await page.keyboard.press('Escape');
