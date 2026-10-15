@@ -64,6 +64,8 @@ addToLibrary({
     inGame: false,
     // The save the host asked for: { slot, done(saved) }.
     saveWanted: null,
+    // Told how each quick save and quick load went.
+    onQuick: null,
     counters: { yields: 0, sleeps: 0, stalls: 0, busyMs: 0, blockReads: 0, blockBytes: 0, blockMs: 0, evictions: 0, syncs: 0 },
 
     boot() {
@@ -717,6 +719,11 @@ addToLibrary({
           OVERSEER.saveWanted = slot > 0 ? { slot, done: resolve } : null;
           if (!(slot > 0)) resolve(false);
         }),
+        // Hears how a quick save or quick load went: ('save' | 'load',
+        // 'done' | 'empty' | 'failed'). Both always use slot 7.
+        onQuick(fn) {
+          OVERSEER.onQuick = fn;
+        },
 
         stats: () => ({
           ...OVERSEER.counters,
@@ -786,6 +793,18 @@ addToLibrary({
     var wanted = OVERSEER.saveWanted;
     OVERSEER.saveWanted = null;
     if (wanted) wanted.done(!!saved);
+  },
+
+  // Quick saves and quick loads, which the engines make in slot 7 alone. A
+  // load (1) or save (0) was made (1), found nothing to load (0) or failed (-1).
+  overseer_quick__deps: ['$OVERSEER'],
+  overseer_quick: (load, outcome) => {
+    if (!OVERSEER.onQuick) return;
+    try {
+      OVERSEER.onQuick(load ? 'load' : 'save', outcome > 0 ? 'done' : outcome === 0 ? 'empty' : 'failed');
+    } catch (e) {
+      console.error(e);
+    }
   },
 
   // read(): waits for lazy blocks when they are not in memory yet, and gives

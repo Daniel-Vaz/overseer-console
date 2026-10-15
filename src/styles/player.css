@@ -366,10 +366,18 @@ body.touch #handle {
   display: none;
 }
 
+/* With the keyboard up, the strips beside the picture are too short for the shortcuts, which are keys anyway. */
+@media (orientation: landscape) {
+  body.keys-open .deck-quick {
+    display: none;
+  }
+}
+
 /* Held upright there is no room beside the picture: the deck becomes a row under it. */
 @media (orientation: portrait) {
   body.touch {
-    --quick: calc((var(--deck) - 10px) * 0.56 + clamp(4px, 1.4vmin, 12px));
+    --quick-row: calc((var(--deck) - 10px) * 0.56 + clamp(4px, 1.4vmin, 12px));
+    --quick: calc(2 * var(--quick-row));
   }
 
   #stage {
@@ -382,30 +390,36 @@ body.touch #handle {
     left: var(--safe-left);
   }
 
-  /* The shortcuts become a row of their own, above the deck's. */
+  /* The shortcuts become two rows across the window, above the deck's: the left strip's over the right's. */
   .deck-quick {
     position: fixed;
+    right: calc(var(--safe-right) + clamp(4px, 1.4vmin, 12px));
     bottom: calc(var(--keys) + var(--deck) + var(--safe-bottom));
+    left: calc(var(--safe-left) + clamp(4px, 1.4vmin, 12px));
     flex-direction: row;
     align-items: flex-start;
-    height: var(--quick);
+    justify-content: center;
+    height: var(--quick-row);
   }
 
   .deck-left .deck-quick {
-    left: calc(var(--safe-left) + clamp(4px, 1.4vmin, 12px));
+    bottom: calc(var(--keys) + var(--deck) + var(--quick-row) + var(--safe-bottom));
   }
 
-  .deck-right .deck-quick {
-    right: calc(var(--safe-right) + clamp(4px, 1.4vmin, 12px));
-  }
-
-  /* Seven of them have to fit across the narrowest phone. */
+  /* As wide as a row of five can make them, across the narrowest phone, but not wider than a finger needs. */
   .deck-side .deck-quick button {
-    width: min(calc(var(--deck) - 10px), calc((100vw - 64px) / 7));
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
+    max-width: calc((var(--deck) - 10px) * 1.7);
   }
 
   body.keys-open .deck-quick {
     bottom: calc(var(--keys) + var(--deck));
+  }
+
+  body.keys-open .deck-left .deck-quick {
+    bottom: calc(var(--keys) + var(--deck) + var(--quick-row));
   }
 
   /* The picture sits just above the deck, where a hand holding the phone reaches it. */
@@ -543,6 +557,18 @@ body.keys-open {
 
 .readout.touch-help dd {
   padding-left: 0;
+}
+
+/* Sideways there is width to spare and no height: two explanations to a line. */
+@media (orientation: landscape) and (min-width: 640px) {
+  .readout.touch-help {
+    grid-template-columns: max-content minmax(0, 1fr) max-content minmax(0, 1fr);
+    max-width: 120ch;
+  }
+
+  .readout.touch-help dd {
+    padding-right: 2ch;
+  }
 }
 
 .touch-tip {

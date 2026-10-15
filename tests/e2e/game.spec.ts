@@ -107,8 +107,13 @@ for (const game of GAMES) {
     await pause(page, 7500);
     expect(await showsPicture(page)).toBe(true);
 
-    // Quick save: pick the first slot, describe it, confirm.
-    await page.keyboard.press('F6');
+    // Nothing to quick load yet: the game goes on, and the page says why nothing happened.
+    await page.keyboard.press('F7');
+    await expect(page.locator('#toast')).toHaveText('NO QUICK SAVE IN SLOT 07 YET. F6 MAKES ONE.', { timeout: 10_000 });
+    expect(await inProgress(page)).toBe(true);
+
+    // A save of the player's own: the save screen, the first slot, a description.
+    await page.keyboard.press('F4');
     await pause(page, 2500);
     await page.keyboard.press('Enter');
     await pause(page, 1500);
@@ -125,13 +130,24 @@ for (const game of GAMES) {
     expect(await autosaved).toBe(true);
     const firstSave = (await engineStats(page)).syncs;
 
-    // Quick save again: the slot the player picked, not the autosave's, and no questions. The first save becomes history.
+    // A quick save: into slot 7, every time, with no questions. The second makes the first history.
     await pause(page, 1500);
     await page.keyboard.press('F6');
-    await expect.poll(async () => (await engineStats(page)).syncs, { timeout: 30_000 }).toBeGreaterThan(firstSave);
+    await expect(page.locator('#toast')).toHaveText('QUICK SAVED IN SLOT 07', { timeout: 30_000 });
+    const quickSaved = (await engineStats(page)).syncs;
+    expect(quickSaved).toBeGreaterThan(firstSave);
+    await pause(page, 1500);
+    await page.keyboard.press('F6');
+    await expect.poll(async () => (await engineStats(page)).syncs, { timeout: 30_000 }).toBeGreaterThan(quickSaved);
     await pause(page, 1500);
     const inGame = await fingerprint(page);
     expect(distance(inGame, mainMenu)).toBeGreaterThan(12);
+
+    // And a quick load from it, straight back into the game.
+    await page.keyboard.press('F7');
+    await expect(page.locator('#toast')).toHaveText('QUICK LOADED FROM SLOT 07', { timeout: 30_000 });
+    await expect.poll(async () => distance(await fingerprint(page), inGame), { timeout: 30_000, intervals: [1000] }).toBeLessThan(6);
+    expect(await inProgress(page)).toBe(true);
 
     const audio = await page.evaluate(() => (window as unknown as { overseerEngine: { audioContext(): AudioContext | undefined } }).overseerEngine.audioContext()?.state);
     expect(audio).toBe('running');
@@ -161,12 +177,16 @@ for (const game of GAMES) {
     await page.keyboard.press('y');
     await expect(page.getByRole('heading', { name: new RegExp(`${game.title}$`) })).toBeVisible();
 
-    // The save is in the archives, with the one it replaced kept as an earlier version.
+    // The saves are in the archives: the quick save in slot 7, with the one it replaced kept as an earlier version.
     await page.goto(`#/saves/${game.id}`);
     const slot = page.locator('.menu li').first();
     await expect(slot).toContainText('SLOT 01');
     await expect(slot).toContainText('e2e');
+    await expect(page.locator('.menu li', { hasText: 'SLOT 07' })).toContainText(/QUICKSAVE \d\d:\d\d/);
+    await page.keyboard.press('ArrowDown');
+    await expect(page.locator('.menu li.selected')).toContainText('SLOT 07');
     await expect(page.locator('.menu-note')).toContainText('1 earlier version kept.');
+    await page.keyboard.press('Home');
     await expect(page.locator('.menu li', { hasText: 'SLOT 08' })).toContainText(/AUTOSAVE \d\d:\d\d/);
     // Nothing has left this browser yet, and the console says so.
     await expect(page.getByText('LAST EXPORTED: NEVER')).toBeVisible();
@@ -198,11 +218,11 @@ for (const game of GAMES) {
     for (const [name, data] of Object.entries(archive)) expect(data.length, name).toBeGreaterThan(0);
     expect(Buffer.from(archive['SAVEGAME/SLOT01/SAVE.DAT']!.subarray(0, 17)).toString('latin1')).toBe('FALLOUT SAVE FILE');
 
-    // Continue: from the main directory straight back to where the save was made.
+    // Continue: from the main directory straight back to where the latest save, the quick save, was made.
     await page.goto('#/');
     await expect(page.locator('.menu li').first()).toContainText(`Continue: ${game.title}`);
     await launch(page, 'Continue', 'c');
-    expect(page.url()).toContain('slot=1');
+    expect(page.url()).toContain('slot=7');
     let closest = 255;
     await expect
       .poll(async () => (closest = Math.min(closest, distance(await fingerprint(page), inGame))), { timeout: 120_000, intervals: [1000] })

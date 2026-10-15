@@ -1,13 +1,17 @@
 /**
  * Autosaves: now and then the game is saved without being asked, in the last
  * three slots of the ten every game shows on the first page of its save
- * screen. The other seven are the player's own. The engines make the save
- * when the console asks for it (see the engines' patches), at a moment the player
- * could have made a quick save, and describe it as "AUTOSAVE hh:mm".
+ * screen. Slot 7 takes the quick saves, the first six are the player's own.
+ * The engines make the save when the console asks for it (see the engines'
+ * patches), at a moment the player could have made a quick save, and describe
+ * it as "AUTOSAVE hh:mm".
  */
 
 /** The slots autosaves take turns in. */
 export const AUTOSAVE_SLOTS: readonly number[] = [8, 9, 10];
+
+/** The slot every quick save goes into and every quick load comes from (F6, F7), described as "QUICKSAVE hh:mm". */
+export const QUICK_SAVE_SLOT = 7;
 
 /** Minutes of play between autosaves the setting offers. 0 is off. */
 export const AUTOSAVE_MINUTES: readonly number[] = [0, 5, 10, 15, 30];

@@ -57,7 +57,7 @@ test('on a phone the start gate asks for a tap and makes room for the touch deck
   // Between the deck's own buttons sit the shortcuts: keys of the game, fast forward, and the
   // one that lights up what lies on the ground, which this game has. None of them hangs off the screen.
   const shortcuts = page.locator('#deck .deck-quick button:visible');
-  await expect(shortcuts).toHaveText(['INV', 'MAP', 'PIP', 'FAST', 'LIGHT', 'SKILL', 'TURN']);
+  await expect(shortcuts).toHaveText(['INV', 'MAP', 'PIP', 'FAST', 'LIGHT', 'SKILL', 'TURN', 'QSAVE', 'QLOAD']);
   for (const box of await shortcuts.evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().toJSON() as DOMRect))) {
     expect(box.top).toBeGreaterThanOrEqual(0);
     expect(box.bottom).toBeLessThanOrEqual(390);
@@ -66,6 +66,34 @@ test('on a phone the start gate asks for a tap and makes room for the touch deck
 
   await page.getByRole('button', { name: 'Back to console' }).tap();
   await expect(page.getByRole('heading', { name: 'SIMULATION 02: Fallout 2' })).toBeVisible();
+});
+
+test.describe('on a phone held upright', () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test('the shortcuts are two rows across the phone, between the picture and the deck', async ({ page }) => {
+    await openConsole(page, 'fo2');
+    await pickFolder(page, await fakeFallout2Folder());
+    await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 60_000 });
+    await pause(page, 1500);
+    await page.locator('.menu button', { hasText: 'Begin simulation' }).tap();
+    await expect(page.getByText('TAP TO BEGIN')).toBeVisible({ timeout: 60_000 });
+
+    const boxes = await page
+      .locator('#deck .deck-quick button:visible')
+      .evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().toJSON() as DOMRect));
+    expect(boxes.length).toBeGreaterThanOrEqual(9);
+    expect(new Set(boxes.map((box) => Math.round(box.top))).size).toBe(2);
+    for (const box of boxes) {
+      expect(box.left).toBeGreaterThanOrEqual(0);
+      expect(box.right).toBeLessThanOrEqual(390);
+      expect(box.width).toBeGreaterThan(40);
+    }
+    const stage = (await page.locator('#stage').boundingBox())!;
+    expect(stage.y + stage.height).toBeLessThanOrEqual(Math.min(...boxes.map((box) => box.top)) + 1);
+    const menu = (await page.locator('#deck button[data-act="menu"]').boundingBox())!;
+    expect(menu.y).toBeGreaterThanOrEqual(Math.max(...boxes.map((box) => box.bottom)) - 1);
+  });
 });
 
 // ---------------------------------------------------------------------
@@ -271,13 +299,18 @@ for (const game of GAMES) {
       await pause(page, 2500);
     }
 
-    // The keyboard: F6 for a quick save. It closes on demand...
+    // The keyboard: F4 for the save screen. It closes on demand...
     await deck('keys').tap();
     await expect(page.locator('#keys')).toBeVisible();
     const shrunk = (await page.locator('#canvas').boundingBox())!;
     expect(shrunk.y + shrunk.height).toBeLessThanOrEqual((await page.locator('#keys').boundingBox())!.y + 1);
+    // With the keyboard up, the strips beside the picture keep only the deck's own buttons, all of them on the screen.
+    await expect(page.locator('#deck .deck-quick button:visible')).toHaveCount(0);
+    for (const act of ['menu', 'keys', 'esc', 'left', 'right']) {
+      expect((await deck(act).boundingBox())!.y + (await deck(act).boundingBox())!.height, act).toBeLessThanOrEqual((await page.locator('#keys').boundingBox())!.y + 1);
+    }
     await key('@layer').tap();
-    await key('F6').tap();
+    await key('F4').tap();
     await pause(page, 2500);
     await deck('keys').tap();
     await expect(page.locator('#keys')).toBeHidden();
@@ -291,6 +324,25 @@ for (const game of GAMES) {
     await key('Enter').tap();
     await expect(page.locator('#toast')).toHaveText('SAVED TO BROWSER STORAGE', { timeout: 30_000 });
     await expect(page.locator('#keys')).toBeHidden({ timeout: 10_000 });
+
+    // Quick save and quick load are a button each. Loading throws away what was played since, so it asks twice.
+    const shortcut = (code: string) => page.locator(`#deck button[data-key="${code}"]`);
+    await pause(page, 1500);
+    await shortcut('F6').tap();
+    await expect(page.locator('#toast')).toHaveText('QUICK SAVED IN SLOT 07', { timeout: 30_000 });
+    await pause(page, 1500);
+    const saved = await fingerprint(page);
+    await shortcut('F7').tap();
+    await expect(shortcut('F7')).toHaveClass(/armed/);
+    await expect(page.locator('#toast')).toHaveText('Tap QLOAD again to load the quick save');
+    await shortcut('F7').tap();
+    await expect(shortcut('F7')).not.toHaveClass(/armed/);
+    await expect(page.locator('#toast')).toHaveText('QUICK LOADED FROM SLOT 07', { timeout: 30_000 });
+    await expect.poll(async () => distance(await fingerprint(page), saved), { timeout: 30_000, intervals: [1000] }).toBeLessThan(6);
+    // Asked once and left alone, it stands down again.
+    await shortcut('F7').tap();
+    await expect(shortcut('F7')).toHaveClass(/armed/);
+    await expect(shortcut('F7')).not.toHaveClass(/armed/, { timeout: 5000 });
 
     // The menu button pauses; from there, out to the console, where the save shows what was typed.
     await deck('menu').tap();

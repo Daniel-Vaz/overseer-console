@@ -48,7 +48,9 @@ it puts together in the browser from the two games and the conversion's own pack
 - **Saves as in the originals.** Saved games work as they always did, and can be exported to and imported
   from zip files.
 - **Autosave.** Every ten minutes of play (or five, fifteen, thirty, or never) a game is saved by itself, in turn
-  in slots 8, 9 and 10. The first seven are the player's own, and so is any save made by hand in the last three.
+  in slots 8, 9 and 10. The first six are the player's own, and so is any save made by hand in the last three.
+- **Quick save in slot 7.** F6 saves into slot 7 at once and F7 loads it, without asking for a slot: on a touch
+  screen they are two buttons beside the picture.
 - **A reminder to back up.** Each game's deck and archive say when its saves last left the browser, to a zip file or
   to Dropbox, and say it in amber while that has never happened.
 - **A history for every slot.** Saving over a slot keeps what was in it: every slot has earlier versions to

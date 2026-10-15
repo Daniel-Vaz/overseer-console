@@ -66,10 +66,11 @@
     THE ENGINE BUILDS SERVED HERE ARE MODIFIED COPIES.
   </p>
   <p>
-    Fallout Community Edition carries four patches: a fix for corrupted movie frames, waiting loops that sleep
-    instead of spinning, direct pointer input, and a browser build target. Fallout 2 Community Edition is compiled
-    from unchanged source. Both are linked with the console's own glue code, which gives them a pausable clock,
-    on-demand file reading and save persistence. The patches and build scripts are in the
+    Fallout Community Edition carries patches for corrupted movie frames, waiting loops that sleep instead of
+    spinning, direct pointer input, a browser build target, skipping the opening movies and starting straight into a
+    save. Both engines carry patches for autosaves and for quick saves that always use slot 07. Both are linked with
+    the console's own glue code, which gives them a pausable clock, on-demand file reading and save persistence. The
+    patches and build scripts are in the
     <a href={REPO_URL} target="_blank" rel="noopener">console's repository</a>.
   </p>
 

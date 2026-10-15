@@ -13,6 +13,7 @@ import faultIcon from '../assets/icons/fault.png';
 import rotateIcon from '../assets/icons/rotate.png';
 import suspendedIcon from '../assets/icons/suspended.png';
 import warningIcon from '../assets/icons/warning.png';
+import { QUICK_SAVE_SLOT } from '../lib/autosave';
 import { wantsEngineData } from '../lib/engine/config';
 import { bootEngine, NoInstallError, StorageUnavailableError, type Engine } from '../lib/engine/host';
 import { GAMES, isGameId, type GameId } from '../lib/games';
@@ -65,6 +66,15 @@ const engineLog: string[] = [];
 let complaint: { text: string; at: number } | null = null;
 /** Whether holding Shift lights up what lies on the ground in this game. */
 let lights = false;
+/**
+ * When the engine last said it made a quick save, and when the quick save's
+ * slot last reached the browser's storage. The engines wait for the storage
+ * before they report, but either may be heard of first.
+ */
+let quickMadeAt = -Infinity;
+let quickStoredAt = -Infinity;
+const QUICK_PAIRING_MS = 3000;
+const QUICK_SLOT_NAME = String(QUICK_SAVE_SLOT).padStart(2, '0');
 
 // ---------------------------------------------------------------------
 // The terminal overlay
@@ -186,6 +196,7 @@ const touch = new TouchControls(
     },
     openMenu: () => openMenu(),
     toggleFast: () => setFast(!fast),
+    say: (text) => toast(text, 3000),
     layoutChanged: () => fit(),
   },
   settings.touchPointer,
@@ -396,6 +407,7 @@ function openTouchHelp(): void {
     ['CLICK', 'Clicks where the pointer is: drag to aim, then press it'],
     ['CURSOR', 'Switches the cursor between walking and using'],
     ['INV, MAP...', 'The small buttons: inventory, map, Pip-Boy, skilldex, end of turn'],
+    ['QSAVE, QLOAD', `Quick save and quick load, slot ${QUICK_SLOT_NAME}. QLOAD asks twice`],
     ...(lights ? ([['LIGHT', 'Hold it to light up what lies on the ground']] as const) : []),
     ['FAST', 'Fast forward, on and off'],
     ['KEYS', 'Keyboard. Comes up by itself when the game wants text'],
@@ -449,7 +461,7 @@ function openMenu(confirmExit = false): void {
   const keys = el('dl', 'readout gap');
   for (const [key, label] of [
     ['F4 / F5', 'Save / load game'],
-    ['F6 / F7', 'Quick save / quick load'],
+    ['F6 / F7', `Quick save / quick load, always in slot ${QUICK_SLOT_NAME}`],
     ['ESC', 'Game options'],
     ...(lights ? ([['SHIFT', 'Hold to light up what lies on the ground']] as const) : []),
     ['F8', `Fast forward, on and off (${settings.fastForward} times the speed)`],
@@ -731,8 +743,29 @@ async function main(): Promise<void> {
           console.log(`[engine] ${line}`);
         },
         saved: (files, slots) => {
+          const now = performance.now();
+          if (slots.includes(QUICK_SAVE_SLOT)) quickStoredAt = now;
           if (autosaver?.saved(slots)) toast(`AUTOSAVED IN SLOT ${String(slots[0]).padStart(2, '0')}`);
+          else if (slots.includes(QUICK_SAVE_SLOT) && now - quickMadeAt < QUICK_PAIRING_MS) toast(`QUICK SAVED IN SLOT ${QUICK_SLOT_NAME}`);
           else if (files > 1) toast('SAVED TO BROWSER STORAGE');
+        },
+        quick: (kind, outcome) => {
+          if (kind === 'save') {
+            // Said once the save is both made and in the browser's storage, whichever is heard of first.
+            const now = performance.now();
+            if (outcome === 'done') {
+              quickMadeAt = now;
+              if (now - quickStoredAt < QUICK_PAIRING_MS) toast(`QUICK SAVED IN SLOT ${QUICK_SLOT_NAME}`);
+            } else {
+              toast(`QUICK SAVE FAILED. NOTHING WAS WRITTEN TO SLOT ${QUICK_SLOT_NAME}.`, 8000, true);
+            }
+          } else if (outcome === 'empty') {
+            toast(`NO QUICK SAVE IN SLOT ${QUICK_SLOT_NAME} YET. ${touch.visible ? 'QSAVE' : 'F6'} MAKES ONE.`, 5000);
+          } else if (outcome === 'failed') {
+            toast(`THE QUICK SAVE IN SLOT ${QUICK_SLOT_NAME} COULD NOT BE LOADED.`, 8000, true);
+          } else {
+            toast(`QUICK LOADED FROM SLOT ${QUICK_SLOT_NAME}`);
+          }
         },
         storageFailed: (reason) => toast(`NOT STORED: ${reason.toUpperCase()}. THIS SAVE WILL BE LOST WHEN YOU LEAVE.`, 20_000, true),
         exit: ended,

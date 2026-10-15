@@ -63,8 +63,8 @@
       id: 'saving',
       title: 'Saving',
       icon: 'save',
-      summary: 'How saves are kept, autosaves, and when they last left the browser.',
-      topics: ['Saved games', 'Autosave', 'Last exported'],
+      summary: 'How saves are kept, quick saves in slot 07, autosaves, and when they last left the browser.',
+      topics: ['Saved games', 'Quick save', 'Autosave', 'Last exported'],
     },
     {
       id: 'archives',
@@ -272,7 +272,7 @@
             <dt>F4 / F5</dt>
             <dd>Save game / load game</dd>
             <dt>F6 / F7</dt>
-            <dd>Quick save / quick load</dd>
+            <dd>Quick save / quick load, always in slot 07 (chapter 6)</dd>
             <dt>ESC</dt>
             <dd>Game options</dd>
             <dt>F8</dt>
@@ -357,6 +357,8 @@
               skilldex, TURN the end of your turn in combat. FAST is fast forward. LIGHT, where a game has it, lights up
               what lies on the ground for as long as it is held
             </dd>
+            <dt>QSAVE, QLOAD</dt>
+            <dd>Quick save and quick load, in slot 07. QLOAD asks for a second tap before it throws away what was played since</dd>
           </dl>
 
           <h2>The pointer</h2>
@@ -374,6 +376,18 @@
             (chapter 8) does the moving for you.
           </p>
 
+          <h2>Quick save</h2>
+          <p>
+            <span class="hot">F6</span> saves the game in slot 07 at once, without asking for a slot or a description, and
+            <span class="hot">F7</span> loads that save again. On a touch screen <span class="hot">QSAVE</span> and
+            <span class="hot">QLOAD</span> do the same; QLOAD asks for a second tap, as loading throws away what was played
+            since. A quick save is described as QUICKSAVE and the time.
+          </p>
+          <p>
+            Slot 07 belongs to the quick save: a save you make there yourself is replaced by the next one, and kept among
+            the slot's earlier versions (chapter 7).
+          </p>
+
           <h2>Autosave</h2>
           <p>
             Every ten minutes of play the console has the game save itself in slot 08, 09 or 10, in turn, described as
@@ -381,7 +395,7 @@
             made when you could have made a quick save yourself, so never in combat or in a conversation.
           </p>
           <p>
-            Slots 01 to 07 are yours alone, and so is a save you make in 08 to 10 yourself: an autosave never replaces it.
+            Slots 01 to 06 are yours alone, and so is a save you make in 08 to 10 yourself: an autosave never replaces it.
             How often, or not at all, is under Terminal settings.
           </p>
 

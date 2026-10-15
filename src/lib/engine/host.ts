@@ -16,7 +16,7 @@ export { StorageUnavailableError };
 import { commitWithHistory } from '../storage/history';
 import { listOverlay, type OverlayEntry } from '../storage/overlay';
 import { HIGHLIGHTING_FILE, baseFiles, baseFolder, buildConfigFiles, chooseScreen, wantsEngineData, type ScreenSize } from './config';
-import type { EngineFactory, EngineInfo, EngineModule, PersistBatch } from './types';
+import type { EngineFactory, EngineInfo, EngineModule, PersistBatch, QuickKind, QuickOutcome } from './types';
 
 const GAME_ROOT = '/game';
 
@@ -55,6 +55,8 @@ export interface BootHooks {
   saved(files: number, slots: number[]): void;
   /** Changes could not be written to browser storage. The player must be told. */
   storageFailed(reason: string): void;
+  /** A quick save or quick load (F6, F7: slot 7 alone) was made, found nothing to load, or failed. */
+  quick(kind: QuickKind, outcome: QuickOutcome): void;
   exit(code: number): void;
   fatal(message: string): void;
 }
@@ -260,6 +262,7 @@ export async function bootEngine(
   const ov = module.overseer;
   ov.config.cacheBytes = settings.cacheMb << 20;
   ov.onError((what, err) => hooks.log(`[storage] ${what}: ${err instanceof Error ? err.message : String(err)}`));
+  ov.onQuick((kind, outcome) => hooks.quick(kind, outcome));
   ov.mount(GAME_ROOT, async (batch: PersistBatch) => {
     try {
       // A save over a slot first moves the slot's old contents into its history.

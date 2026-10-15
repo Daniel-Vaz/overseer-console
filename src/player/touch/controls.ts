@@ -23,6 +23,8 @@ export interface TouchHost {
   openMenu(): void;
   /** Fast forward, on or off. */
   toggleFast(): void;
+  /** Something the player should read, briefly. */
+  say(text: string): void;
   /** The deck or the keyboard appeared or went: the picture has to be fitted again. */
   layoutChanged(): void;
 }
@@ -32,8 +34,13 @@ export function fingerFirst(): boolean {
   return matchMedia('(pointer: coarse)').matches && !matchMedia('(any-pointer: fine)').matches;
 }
 
+/** How long a button that asks for a second tap waits for it. */
+const CONFIRM_MS = 3000;
+
 export class TouchControls {
   private readonly tuning: GestureTuning = { ...DEFAULT_TUNING };
+  /** A button that costs what was played since the last save, tapped once: it waits for the second tap. */
+  private asking: { button: HTMLElement; timer: number } | null = null;
   private readonly gestures: Gestures;
   private readonly mouse: SyntheticMouse;
   readonly keyboard: Keyboard;
@@ -139,6 +146,30 @@ export class TouchControls {
     this.keyboard.releaseAll();
     for (const release of this.deckHeld.values()) release();
     this.deckHeld.clear();
+    this.stopAsking();
+  }
+
+  /**
+   * Whether a button that asks to be tapped twice has been: the first tap
+   * lights it up and says what the second will do.
+   */
+  private confirmed(button: HTMLElement): boolean {
+    if (this.asking?.button === button) {
+      this.stopAsking();
+      return true;
+    }
+    this.stopAsking();
+    button.classList.add('armed');
+    this.asking = { button, timer: window.setTimeout(() => this.stopAsking(), CONFIRM_MS) };
+    this.host.say(button.dataset.confirm || `Tap ${button.textContent} again`);
+    return false;
+  }
+
+  private stopAsking(): void {
+    if (!this.asking) return;
+    clearTimeout(this.asking.timer);
+    this.asking.button.classList.remove('armed');
+    this.asking = null;
   }
 
   private onTouch(event: TouchEvent): void {
@@ -168,6 +199,8 @@ export class TouchControls {
     if (!button) return;
     // No focus change, no delayed click, no text selection.
     event.preventDefault();
+    // Any other button is an answer of "no" to one that asked for a second tap.
+    if (this.asking && this.asking.button !== button) this.stopAsking();
     const act = button.dataset.act;
     if (act === 'menu') {
       this.host.openMenu();
@@ -186,6 +219,7 @@ export class TouchControls {
     // A shortcut is a key of the keyboard: down for as long as the button is.
     const shortcut = SHORTCUT_KEYS[button.dataset.key ?? ''];
     if (!act && !shortcut) return;
+    if (button.dataset.confirm !== undefined && !this.confirmed(button)) return;
     button.setPointerCapture?.(event.pointerId);
     button.classList.add('down');
     let release: () => void;

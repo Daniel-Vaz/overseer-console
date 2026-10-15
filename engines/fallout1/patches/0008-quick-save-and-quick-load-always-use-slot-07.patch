@@ -1,0 +1,165 @@
+Quick save and quick load always use slot 07
+
+F6 saves into slot 07 and F7 loads from it, every time, without the
+window that asks for a slot: the page offers both as buttons, and a
+button cannot answer a question. The quick save is described as
+"QUICKSAVE hh:mm". A quick load with nothing in slot 07 that can be
+read leaves the game as it is. Loading a save at start-up still goes
+through the quick load, with its own slot.
+
+Both tell the page how they went (engines/lib/overseer.js).
+---
+diff --git a/src/game/loadsave.cc b/src/game/loadsave.cc
+index 9aa4401..aaa9580 100644
+--- a/src/game/loadsave.cc
++++ b/src/game/loadsave.cc
+@@ -49,6 +49,13 @@
+ #include "plib/gnw/svga.h"
+ #include "plib/gnw/text.h"
+ 
++#if defined(__EMSCRIPTEN__)
++// Overseer Console: the page around the engine (engines/lib/overseer.js) hears
++// how a quick save (0) or a quick load (1) went: 1 made, 0 nothing to load,
++// -1 failed.
++extern "C" void overseer_quick(int load, int outcome);
++#endif
++
+ namespace fallout {
+ 
+ #define LOAD_SAVE_SIGNATURE "FALLOUT SAVE FILE"
+@@ -135,6 +142,9 @@ static int LoadSlot(int slot);
+ static void GetTimeDate(short* day, short* month, short* year, int* hour);
+ static int SaveHeader(int slot);
+ static int LoadHeader(int slot);
++static int SaveInSlotAs(int slot, const char* what);
++static int QuickSlotState();
++static void ReportQuick(int load, int outcome);
+ static int GetSlotList();
+ static void ShowSlotList(int a1);
+ static void DrawInfoBox(int a1);
+@@ -173,6 +183,10 @@ static int slot_cursor = 0;
+ // 0x505960
+ static bool quick_done = false;
+ 
++// CE: quick saves and quick loads always use slot 07 (zero-based here) and
++// never ask for a slot, so that the page can offer them as buttons.
++static constexpr int kQuickSaveSlot = 6;
++
+ // 0x505964
+ static bool bk_enable = false;
+ 
+@@ -347,6 +361,18 @@ int SaveGame(int mode)
+         patches = emgpath;
+     }
+ 
++    if (mode == LOAD_SAVE_MODE_QUICK) {
++        // CE: a quick save goes into slot 07, every time, without asking.
++        // Whether it was made, the page says.
++        if (SaveInSlotAs(kQuickSaveSlot, "QUICKSAVE") != -1) {
++            ReportQuick(0, 1);
++            return 1;
++        }
++        gsound_play_sfx_file("iisxxxx1");
++        ReportQuick(0, -1);
++        return -1;
++    }
++
+     if (mode == LOAD_SAVE_MODE_QUICK && quick_done) {
+         snprintf(gmpath, sizeof(gmpath), "%s\\%s%.2d\\", "SAVEGAME", "SLOT", slot_cursor + 1);
+         strcat(gmpath, "SAVE.DAT");
+@@ -859,6 +885,25 @@ int LoadGame(int mode)
+         patches = emgpath;
+     }
+ 
++    if (mode == LOAD_SAVE_MODE_QUICK && !quick_done) {
++        // CE: a quick load comes from slot 07, every time, without asking.
++        // With nothing there that can be loaded, nothing happens but a word
++        // to the page; the game goes on. (LoadGameInSlot comes this way too,
++        // with its slot already picked.)
++        int state = QuickSlotState();
++        if (state != 1) {
++            gsound_play_sfx_file("iisxxxx1");
++            ReportQuick(1, state);
++            return 0;
++        }
++
++        int playerSlot = slot_cursor;
++        int rc = LoadGameInSlot(kQuickSaveSlot);
++        slot_cursor = playerSlot;
++        ReportQuick(1, rc == 1 ? 1 : -1);
++        return rc;
++    }
++
+     if (mode == LOAD_SAVE_MODE_QUICK && quick_done) {
+         int quickSaveWindowX = (screenGetWidth() - LS_WINDOW_WIDTH) / 2;
+         int quickSaveWindowY = (screenGetHeight() - LS_WINDOW_HEIGHT) / 2;
+@@ -1258,18 +1303,24 @@ int LoadGameInSlot(int slot)
+ 
+     int rc = LoadGame(LOAD_SAVE_MODE_QUICK);
+ 
+-    // As after loading from the main menu: the first quick save asks for
+-    // its slot instead of silently reusing this one.
++    // No slot is picked any longer: a quick load is from slot 07 again.
+     quick_done = false;
+ 
+     return rc;
+ }
+ 
+-// CE: Saves into the given slot (zero-based) without asking, the way a quick
+-// save does once its slot is known, described as an autosave with the time
+-// it was made. Unlike a quick save it leaves the slot the player last picked
+-// alone, and shows nothing when it fails: whoever asked for it says so.
++// CE: Saves into the page's choice of slot (zero-based), described as an
++// autosave.
+ int AutoSaveInSlot(int slot)
++{
++    return SaveInSlotAs(slot, "AUTOSAVE");
++}
++
++// CE: Saves into the given slot (zero-based) without asking, the way a quick
++// save does once its slot is known, described as `what` and the time it was
++// made. It leaves the slot the player last picked alone, and shows nothing
++// when it fails: whoever asked for it says so.
++static int SaveInSlotAs(int slot, const char* what)
+ {
+     if (slot < 0 || slot > 9) {
+         return -1;
+@@ -1294,7 +1345,7 @@ int AutoSaveInSlot(int slot)
+ 
+     time_t now = time(NULL);
+     struct tm* local = localtime(&now);
+-    snprintf(LSData[slot].description, LOAD_SAVE_DESCRIPTION_LENGTH, "AUTOSAVE %02d:%02d", local->tm_hour, local->tm_min);
++    snprintf(LSData[slot].description, LOAD_SAVE_DESCRIPTION_LENGTH, "%s %02d:%02d", what, local->tm_hour, local->tm_min);
+ 
+     int rc = -1;
+     if (message_init(&lsgame_msgfl)) {
+@@ -1319,6 +1370,29 @@ int AutoSaveInSlot(int slot)
+     return rc;
+ }
+ 
++// CE: Whether slot 07 holds a quick save to load: 1 it does, 0 it is empty,
++// -1 what is there cannot be read. Looked at before anything of the game in
++// progress is let go of.
++static int QuickSlotState()
++{
++    snprintf(gmpath, sizeof(gmpath), "%s\\%s%.2d\\%s", "SAVEGAME", "SLOT", kQuickSaveSlot + 1, "SAVE.DAT");
++    flptr = db_fopen(gmpath, "rb");
++    if (flptr == NULL) {
++        return 0;
++    }
++
++    int state = LoadHeader(kQuickSaveSlot) == -1 ? -1 : 1;
++    db_fclose(flptr);
++    return state;
++}
++
++static void ReportQuick(int load, int outcome)
++{
++#if defined(__EMSCRIPTEN__)
++    overseer_quick(load, outcome);
++#endif
++}
++
+ // 0x46F3D0
+ static int LSGameStart(int windowType)
+ {

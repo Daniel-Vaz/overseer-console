@@ -151,7 +151,7 @@
       icon: 'save',
       state: s.autosave ? `EVERY ${s.autosave} MIN` : 'OFF',
       note: s.autosave
-        ? `Every ${s.autosave} minutes of play the game is saved in slot 08, 09 or 10, in turn. Slots 01 to 07 are yours, and so is a save you make in 08 to 10 yourself: it is never saved over.`
+        ? `Every ${s.autosave} minutes of play the game is saved in slot 08, 09 or 10, in turn. A save you make in 08 to 10 yourself is never saved over. Quick saves go in 07.`
         : 'Games are saved only when you save them.',
       ...choice('autosave', AUTOSAVE_MINUTES),
     },

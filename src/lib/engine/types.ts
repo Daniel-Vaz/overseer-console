@@ -50,8 +50,14 @@ export interface OverseerApi {
    * calls off the one waiting.
    */
   requestSave(slot: number): Promise<boolean>;
+  /** Hears how each quick save and quick load went. Both use slot 7 alone. */
+  onQuick(handler: (kind: QuickKind, outcome: QuickOutcome) => void): void;
   stats(): OverseerStats;
 }
+
+export type QuickKind = 'save' | 'load';
+/** Made; nothing in the slot to load; failed. */
+export type QuickOutcome = 'done' | 'empty' | 'failed';
 
 export interface EngineModule {
   FS: {
