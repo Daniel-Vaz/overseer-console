@@ -661,6 +661,47 @@ test('credits name the engines, their licence and that the builds are modified',
   expect(await licence.text()).toContain('Sustainable Use License');
 });
 
+test('the manual is a list of chapters, each read on its own and leading to the next', async ({ page }) => {
+  await openConsole(page);
+  await page.keyboard.press('6');
+  await expect(page.getByRole('heading', { name: 'Operations manual' })).toBeVisible();
+  const chapters = ['Loading a game', 'Fallout Et Tu', 'Controls', 'Picture and speed', 'Touch screens', 'Saving', 'Save archives', 'Your Dropbox', 'If something fails'];
+  await expect(page.locator('.menu .label')).toHaveText([...chapters, 'Back'], { ignoreCase: true });
+
+  // The board lists the sections of the chapter under the cursor: the headings that chapter has.
+  for (const [number, title] of chapters.entries()) {
+    await page.goto('#/manual');
+    await page.keyboard.press('Home');
+    for (let step = 0; step < number; step++) await page.keyboard.press('ArrowDown');
+    const topics = await page.locator('.board .topics li').allInnerTexts();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('h1')).toHaveText(title);
+    await expect(page.getByText(`chapter ${number + 1} of ${chapters.length}`)).toBeVisible();
+    expect(topics.map((topic) => topic.replace(/^- /, '').toUpperCase())).toEqual((await page.locator('.prose h2').allInnerTexts()).map((heading) => heading.replace(/=/g, '').trim().toUpperCase()));
+  }
+
+  // N and P turn the pages; ESC goes back to the contents, with the chapter read under the cursor.
+  await page.goto('#/manual');
+  await page.keyboard.press('6');
+  await expect(page.locator('h1')).toHaveText('Saving');
+  await page.keyboard.press('n');
+  await expect(page.locator('h1')).toHaveText('Save archives');
+  await page.keyboard.press('p');
+  await page.keyboard.press('p');
+  await expect(page.locator('h1')).toHaveText('Touch screens');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('heading', { name: 'Operations manual' })).toBeVisible();
+  await expect(page.locator('.menu li.selected')).toContainText('Touch screens');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('heading', { name: 'Main directory' })).toBeVisible();
+
+  // A deck that asks where the game files are opens that chapter.
+  await page.goto('#/fo2');
+  await page.locator('.menu button', { hasText: 'Where are the game files?' }).click();
+  await expect(page.locator('h1')).toHaveText('Loading a game');
+  await expect(page.getByText('Browse local files')).toBeVisible();
+});
+
 test('keeps working without a network connection once visited', async ({ page, context }) => {
   await openConsole(page);
   await expect(page.getByRole('heading', { name: 'Main directory' })).toBeVisible();

@@ -203,14 +203,14 @@
             {
               label: 'What it is put together from',
               note: 'The package and the two games, and what the console does with them.',
-              action: () => go('manual'),
+              action: () => go('manual/ettu'),
             },
           ]
         : [
             {
               label: 'Where are the game files?',
               note: 'Steam, GOG and Epic install locations.',
-              action: () => go('manual'),
+              action: () => go('manual/files'),
             },
             {
               label: `Get ${def.title}`,

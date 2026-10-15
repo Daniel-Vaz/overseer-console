@@ -894,6 +894,45 @@ kbd {
   margin-top: 0;
 }
 
+/* A board that points into what stands beside it stays in view as that scrolls. */
+.board.wide-only {
+  position: sticky;
+  top: 0;
+}
+
+/* The sections of a chapter of the manual, listed on its board. */
+.topics {
+  margin: 0.2em 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.topics li::before {
+  content: '- ';
+  color: var(--phosphor-dim);
+}
+
+.topics button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--phosphor-hot);
+  font: inherit;
+  text-align: left;
+  text-shadow: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+  cursor: pointer;
+}
+
+.topics button:hover,
+.topics button:focus-visible {
+  background: var(--phosphor);
+  color: var(--tube);
+  text-shadow: none;
+  outline: none;
+}
+
 .art {
   display: block;
   width: 100%;
@@ -1178,6 +1217,11 @@ kbd {
 
   .board .art,
   .board .glyph {
+    display: none;
+  }
+
+  /* A board that only points into what stands beside it has nothing to say under it. */
+  .board.wide-only {
     display: none;
   }
 }

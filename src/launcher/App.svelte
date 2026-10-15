@@ -234,7 +234,9 @@
             {:else if section === 'settings'}
               <Settings {go} />
             {:else if section === 'manual'}
-              <Manual {go} />
+              {#key route[1]}
+                <Manual {go} chapter={route[1]} />
+              {/key}
             {:else if section === 'credits'}
               <Credits {go} />
             {:else if game}

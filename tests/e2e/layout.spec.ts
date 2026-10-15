@@ -49,7 +49,7 @@ async function furnish(page: Page): Promise<void> {
   await expect(page.getByText('3 saves restored from the archive.')).toBeVisible();
 }
 
-const SCREENS = ['', 'fo2', 'ettu', 'saves/fo2', 'settings', 'settings/picture'];
+const SCREENS = ['', 'fo2', 'ettu', 'saves/fo2', 'settings', 'settings/picture', 'manual'];
 
 test('holds the same page however large the window is: nothing runs off the tube, nothing is cut short', async ({ page }) => {
   await furnish(page);

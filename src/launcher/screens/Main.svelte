@@ -117,7 +117,7 @@
     {
       key: '6',
       label: 'Operations manual',
-      note: 'Where the game files are, controls, and what to do when something fails.',
+      note: 'Nine short chapters: loading a game, controls, touch screens, saving, and what to do when something fails.',
       icon: 'manual',
       action: () => go('manual'),
     },
