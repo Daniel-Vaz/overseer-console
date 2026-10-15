@@ -315,7 +315,8 @@
           <p>
             <span class="hot">Game improvements</span> in Terminal settings switches on what the engine of Fallout 2 adds
             to the game: holding the left <span class="hot">SHIFT</span> key lights up the items, containers and bodies
-            lying anywhere in the picture, walls or no walls; the inventory has a second column; companions' own
+            lying anywhere in the picture, walls or no walls (on a touch screen, <span class="hot">HILITE</span> switches
+            that on and off); the inventory has a second column; companions' own
             inventories can be reached when looting and bartering; doors that are neither locked nor special open as you
             walk into them; the interface shows up to 16 action points; and with the HIGH RESOLUTION picture the barter
             screen has a fourth row. Switched off, Fallout 2 plays as the original did.
@@ -355,8 +356,8 @@
             <dd>
               Keys the games answer to, a tap away. Beside the picture's left edge the game's screens, in the order of its
               own interface bar: INV the inventory, MAP the map of the place, CHA the character screen, PIP the Pip-Boy,
-              SKILL the skilldex. On the right, TURN the end of your turn in combat. FAST is fast forward. LIGHT, where a game has it, lights up
-              what lies on the ground for as long as it is held
+              SKILL the skilldex. On the right, TURN the end of your turn in combat. FAST is fast forward. HILITE, where a game has it,
+              highlights what lies on the ground until it is pressed again
             </dd>
             <dt>QSAVE, QLOAD</dt>
             <dd>Quick save and quick load, in slot 07. QLOAD asks for a second tap before it throws away what was played since</dd>

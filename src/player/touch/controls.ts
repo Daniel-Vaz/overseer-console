@@ -23,6 +23,8 @@ export interface TouchHost {
   openMenu(): void;
   /** Fast forward, on or off. */
   toggleFast(): void;
+  /** What lies on the ground lit up, or not. */
+  toggleLights(): void;
   /** Something the player should read, briefly. */
   say(text: string): void;
   /** The deck or the keyboard appeared or went: the picture has to be fitted again. */
@@ -138,14 +140,23 @@ export class TouchControls {
 
   /** Shows on the deck whether the game is running fast. */
   setFast(on: boolean): void {
-    const button = this.host.deck.querySelector('[data-act="fast"]');
+    this.showSwitch('fast', on);
+  }
+
+  /** Shows on the deck whether what lies on the ground is lit up. */
+  setLights(on: boolean): void {
+    this.showSwitch('lights', on);
+  }
+
+  private showSwitch(act: string, on: boolean): void {
+    const button = this.host.deck.querySelector(`[data-act="${act}"]`);
     button?.classList.toggle('armed', on);
     button?.setAttribute('aria-pressed', String(on));
   }
 
-  /** Offers the shortcut for a key, or takes it away: not every game answers to every one. */
-  offerKey(code: string, offered: boolean): void {
-    const button = this.host.deck.querySelector<HTMLElement>(`[data-key="${code}"]`);
+  /** Offers one of the deck's buttons, or takes it away: not every game has what every one is for. */
+  offer(act: string, offered: boolean): void {
+    const button = this.host.deck.querySelector<HTMLElement>(`[data-act="${act}"]`);
     if (button) button.hidden = !offered;
   }
 
@@ -225,6 +236,10 @@ export class TouchControls {
       this.host.toggleFast();
       return;
     }
+    if (act === 'lights') {
+      this.host.toggleLights();
+      return;
+    }
 
     // A shortcut is a key of the keyboard: down for as long as the button is.
     const shortcut = SHORTCUT_KEYS[button.dataset.key ?? ''];
@@ -234,8 +249,7 @@ export class TouchControls {
     button.classList.add('down');
     let release: () => void;
     if (shortcut) {
-      // LIGHT is Shift itself: its own press carries the modifier, as a keyboard's does.
-      sendKey('keydown', shortcut, shortcut.key === 'Shift');
+      sendKey('keydown', shortcut);
       release = () => sendKey('keyup', shortcut);
     } else if (act === 'esc') {
       sendKey('keydown', ESCAPE_KEY);

@@ -52,6 +52,8 @@ export interface OverseerApi {
   requestSave(slot: number): Promise<boolean>;
   /** Hears how each quick save and quick load went. Both use slot 7 alone. */
   onQuick(handler: (kind: QuickKind, outcome: QuickOutcome) => void): void;
+  /** Holds a key (a DirectInput scan code) down for the game's scripts alone, or lets go of it. Fallout 2's engine only. */
+  holdScriptKey(key: number, held: boolean): void;
   stats(): OverseerStats;
 }
 

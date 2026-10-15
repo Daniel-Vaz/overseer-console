@@ -15,7 +15,7 @@ import { StorageUnavailableError, loadInstall, openBlob, openInstalled, type Ins
 export { StorageUnavailableError };
 import { commitWithHistory } from '../storage/history';
 import { listOverlay, type OverlayEntry } from '../storage/overlay';
-import { HIGHLIGHTING_FILE, baseFiles, baseFolder, buildConfigFiles, chooseScreen, wantsEngineData, type ScreenSize } from './config';
+import { HIGHLIGHT_KEY, HIGHLIGHTING_FILE, baseFiles, baseFolder, buildConfigFiles, chooseScreen, wantsEngineData, type ScreenSize } from './config';
 import type { EngineFactory, EngineInfo, EngineModule, PersistBatch, QuickKind, QuickOutcome } from './types';
 
 const GAME_ROOT = '/game';
@@ -81,6 +81,8 @@ export interface Engine {
   inGame(): boolean;
   /** A save in `slot` at the next moment the game can make one; slot 0 calls it off. True once made. */
   requestSave(slot: number): Promise<boolean>;
+  /** Lights up what lies on the ground, as holding the key for it does, until switched off. */
+  setLights(on: boolean): void;
   audioContext(): AudioContext | undefined;
 }
 
@@ -314,6 +316,7 @@ export async function bootEngine(
     setSpeed: (speed) => ov.setSpeed(speed),
     inGame: () => ov.inGame(),
     requestSave: (slot) => ov.requestSave(slot),
+    setLights: (on) => ov.holdScriptKey(HIGHLIGHT_KEY, on),
     audioContext: () => module.SDL2?.audioContext,
   };
 }

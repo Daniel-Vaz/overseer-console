@@ -94,9 +94,10 @@ export const HIGHLIGHTING_FILE = 'mods/sfall-mods.ini';
  * The key that lights things up, as that script numbers keys (the codes the
  * original game read from the keyboard, where 42 is the left SHIFT key).
  * It belongs to the console rather than to any one game: all three answer to
- * the same key, and the touch deck's LIGHT button presses it.
+ * the same key, and the touch deck's HILITE switch holds it down for the
+ * script (see `holdScriptKey`).
  */
-const HIGHLIGHT_KEY = 42;
+export const HIGHLIGHT_KEY = 42;
 
 /**
  * What holding the key does: light up the items, containers and bodies lying

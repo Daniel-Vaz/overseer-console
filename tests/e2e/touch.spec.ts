@@ -57,7 +57,7 @@ test('on a phone the start gate asks for a tap and makes room for the touch deck
   // Between the deck's own buttons sit the shortcuts: keys of the game, fast forward, and the
   // one that lights up what lies on the ground, which this game has. None of them hangs off the screen.
   const shortcuts = page.locator('#deck .deck-quick button:visible');
-  await expect(shortcuts).toHaveText(['INV', 'MAP', 'CHA', 'PIP', 'SKILL', 'FAST', 'LIGHT', 'TURN', 'QSAVE', 'QLOAD']);
+  await expect(shortcuts).toHaveText(['INV', 'MAP', 'CHA', 'PIP', 'SKILL', 'FAST', 'HILITE', 'TURN', 'QSAVE', 'QLOAD']);
   for (const box of await shortcuts.evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().toJSON() as DOMRect))) {
     expect(box.top).toBeGreaterThanOrEqual(0);
     expect(box.bottom).toBeLessThanOrEqual(390);
@@ -228,7 +228,12 @@ for (const game of GAMES) {
     await tap(page, 88, 331);
     // The screen goes dark, then the opening movie starts; a tap on it skips it.
     const picture = async () => brightness(await fingerprint(page));
-    await expect.poll(picture, { timeout: 60_000, intervals: [200] }).toBeLessThan(4);
+    const darkens = (timeout: number) => expect.poll(picture, { timeout, intervals: [200] }).toBeLessThan(4);
+    // A tap that comes while the screen is still being drawn is not heard: once more, then.
+    await darkens(20_000).catch(async () => {
+      await tap(page, 88, 331);
+      await darkens(40_000);
+    });
     await expect.poll(picture, { timeout: 90_000, intervals: [300] }).toBeGreaterThan(10);
     await pause(page, 1500);
     await tap(page, 320, 200);
@@ -244,13 +249,76 @@ for (const game of GAMES) {
     await pause(page, 2000);
     expect(distance(await fingerprint(page), inGame)).toBeLessThan(3);
 
-    // The deck's own shortcut to the character screen, a screen of its own; ESC closes it too.
-    await page.locator('#deck button[data-key="KeyC"]').tap();
+    // Where a game lights up what lies on the ground, HILITE is a switch: on until pressed again. It holds
+    // its key for the game's script alone, so what is typed below is not shifted (the save says "Touch1").
+    const hilite = deck('lights');
+    const lit = await hilite.isVisible();
+    expect(lit).toBe(game.id === 'fo2');
+    if (lit) {
+      await hilite.tap();
+      await expect(hilite).toHaveAttribute('aria-pressed', 'true');
+      await pause(page, 1000);
+      await expect(hilite).toHaveClass(/armed/);
+    }
+
+    // The keyboard: F4 for the save screen. It closes on demand...
+    await deck('keys').tap();
+    await expect(page.locator('#keys')).toBeVisible();
+    const shrunk = (await page.locator('#canvas').boundingBox())!;
+    expect(shrunk.y + shrunk.height).toBeLessThanOrEqual((await page.locator('#keys').boundingBox())!.y + 1);
+    // With the keyboard up, the strips beside the picture keep only the deck's own buttons, all of them on the screen.
+    await expect(page.locator('#deck .deck-quick button:visible')).toHaveCount(0);
+    for (const act of ['menu', 'keys', 'esc', 'left', 'right']) {
+      expect((await deck(act).boundingBox())!.y + (await deck(act).boundingBox())!.height, act).toBeLessThanOrEqual((await page.locator('#keys').boundingBox())!.y + 1);
+    }
+    await key('@layer').tap();
+    await key('F4').tap();
     await pause(page, 2500);
-    expect(distance(await fingerprint(page), inGame)).toBeGreaterThan(12);
+    await deck('keys').tap();
+    await expect(page.locator('#keys')).toBeHidden();
+    // ...and comes back by itself when the game asks for the save's description,
+    // which it does once the slot is confirmed with the picker's own button.
+    await pause(page, 600); // the picture grows back into the room the keyboard took
+    await tap(page, 398, 357);
+    await expect(page.locator('#keys')).toBeVisible({ timeout: 10_000 });
+    await key('@shift').tap();
+    for (const code of ['KeyT', 'KeyO', 'KeyU', 'KeyC', 'KeyH', 'Digit1']) await key(code).tap();
+    await key('Enter').tap();
+    await expect(page.locator('#toast')).toHaveText('SAVED TO BROWSER STORAGE', { timeout: 30_000 });
+    await expect(page.locator('#keys')).toBeHidden({ timeout: 10_000 });
+    if (lit) {
+      await hilite.tap();
+      await expect(hilite).toHaveAttribute('aria-pressed', 'false');
+      await expect(hilite).not.toHaveClass(/armed/);
+    }
+
+    // Quick save and quick load are a button each. Loading throws away what was played since, so it asks twice.
+    const shortcut = (code: string) => page.locator(`#deck button[data-key="${code}"]`);
+    await pause(page, 1500);
+    await shortcut('F6').tap();
+    await expect(page.locator('#toast')).toHaveText('QUICK SAVED IN SLOT 07', { timeout: 30_000 });
+    await pause(page, 1500);
+    const saved = await fingerprint(page);
+    await shortcut('F7').tap();
+    await expect(shortcut('F7')).toHaveClass(/armed/);
+    await expect(page.locator('#toast')).toHaveText('Tap QLOAD again to load the quick save');
+    await shortcut('F7').tap();
+    await expect(shortcut('F7')).not.toHaveClass(/armed/);
+    await expect(page.locator('#toast')).toHaveText('QUICK LOADED FROM SLOT 07', { timeout: 30_000 });
+    await expect.poll(async () => distance(await fingerprint(page), saved), { timeout: 30_000, intervals: [1000] }).toBeLessThan(6);
+    // Asked once and left alone, it stands down again.
+    await shortcut('F7').tap();
+    await expect(shortcut('F7')).toHaveClass(/armed/);
+    await expect(shortcut('F7')).not.toHaveClass(/armed/, { timeout: 5000 });
+
+    // The deck's own shortcut to the character screen, a screen of its own; ESC closes it too.
+    const here = await fingerprint(page);
+    await shortcut('KeyC').tap();
+    await pause(page, 2500);
+    expect(distance(await fingerprint(page), here)).toBeGreaterThan(12);
     await deck('esc').tap();
     await pause(page, 2000);
-    expect(distance(await fingerprint(page), inGame)).toBeLessThan(3);
+    expect(distance(await fingerprint(page), here)).toBeLessThan(3);
 
     // From here on the browser's own mouse is over the picture, as after a tap
     // on a menu laid over it, or on a laptop with a touch screen. A tap on the
@@ -314,51 +382,6 @@ for (const game of GAMES) {
       await fingers.lift();
       await pause(page, 2500);
     }
-
-    // The keyboard: F4 for the save screen. It closes on demand...
-    await deck('keys').tap();
-    await expect(page.locator('#keys')).toBeVisible();
-    const shrunk = (await page.locator('#canvas').boundingBox())!;
-    expect(shrunk.y + shrunk.height).toBeLessThanOrEqual((await page.locator('#keys').boundingBox())!.y + 1);
-    // With the keyboard up, the strips beside the picture keep only the deck's own buttons, all of them on the screen.
-    await expect(page.locator('#deck .deck-quick button:visible')).toHaveCount(0);
-    for (const act of ['menu', 'keys', 'esc', 'left', 'right']) {
-      expect((await deck(act).boundingBox())!.y + (await deck(act).boundingBox())!.height, act).toBeLessThanOrEqual((await page.locator('#keys').boundingBox())!.y + 1);
-    }
-    await key('@layer').tap();
-    await key('F4').tap();
-    await pause(page, 2500);
-    await deck('keys').tap();
-    await expect(page.locator('#keys')).toBeHidden();
-    // ...and comes back by itself when the game asks for the save's description,
-    // which it does once the slot is confirmed with the picker's own button.
-    await pause(page, 600); // the picture grows back into the room the keyboard took
-    await tap(page, 398, 357);
-    await expect(page.locator('#keys')).toBeVisible({ timeout: 10_000 });
-    await key('@shift').tap();
-    for (const code of ['KeyT', 'KeyO', 'KeyU', 'KeyC', 'KeyH', 'Digit1']) await key(code).tap();
-    await key('Enter').tap();
-    await expect(page.locator('#toast')).toHaveText('SAVED TO BROWSER STORAGE', { timeout: 30_000 });
-    await expect(page.locator('#keys')).toBeHidden({ timeout: 10_000 });
-
-    // Quick save and quick load are a button each. Loading throws away what was played since, so it asks twice.
-    const shortcut = (code: string) => page.locator(`#deck button[data-key="${code}"]`);
-    await pause(page, 1500);
-    await shortcut('F6').tap();
-    await expect(page.locator('#toast')).toHaveText('QUICK SAVED IN SLOT 07', { timeout: 30_000 });
-    await pause(page, 1500);
-    const saved = await fingerprint(page);
-    await shortcut('F7').tap();
-    await expect(shortcut('F7')).toHaveClass(/armed/);
-    await expect(page.locator('#toast')).toHaveText('Tap QLOAD again to load the quick save');
-    await shortcut('F7').tap();
-    await expect(shortcut('F7')).not.toHaveClass(/armed/);
-    await expect(page.locator('#toast')).toHaveText('QUICK LOADED FROM SLOT 07', { timeout: 30_000 });
-    await expect.poll(async () => distance(await fingerprint(page), saved), { timeout: 30_000, intervals: [1000] }).toBeLessThan(6);
-    // Asked once and left alone, it stands down again.
-    await shortcut('F7').tap();
-    await expect(shortcut('F7')).toHaveClass(/armed/);
-    await expect(shortcut('F7')).not.toHaveClass(/armed/, { timeout: 5000 });
 
     // The menu button pauses; from there, out to the console, where the save shows what was typed.
     await deck('menu').tap();

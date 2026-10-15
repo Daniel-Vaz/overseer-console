@@ -1,0 +1,100 @@
+Let the page hold a key down for the scripts
+
+Scripts hear of keys as they are pressed and let go of (HOOK_KEYPRESS)
+and ask whether one is held (key_pressed). The one that lights up what
+lies on the ground is read that way. A touch screen has no key to hold:
+the page can now press one for the scripts alone and let go of it again,
+so that a button can switch the lighting on and off. The game's own
+keyboard handling never sees that key, so nothing else typed turns into
+its shifted self while it is down.
+---
+diff --git a/src/input.cc b/src/input.cc
+index d8c592b..095e3ca 100644
+--- a/src/input.cc
++++ b/src/input.cc
+@@ -1069,6 +1069,8 @@ void _GNW95_process_message()
+ 
+     touch_process_gesture();
+ 
++    sfall_kb_handle_page_keys();
++
+     if (gProgramIsActive && !keyboardIsDisabled()) {
+         // NOTE: Uninline
+         int tick = getTicks();
+diff --git a/src/sfall_kb_helpers.cc b/src/sfall_kb_helpers.cc
+index 97a1037..e6e5b4b 100644
+--- a/src/sfall_kb_helpers.cc
++++ b/src/sfall_kb_helpers.cc
+@@ -9,6 +9,15 @@
+ #include <deque>
+ #include <unordered_map>
+ 
++#if defined(__EMSCRIPTEN__)
++// Overseer Console: whether the page holds this key (a DirectInput scan code)
++// down for the scripts (engines/lib/overseer.js).
++extern "C" int overseer_script_key(int key);
++// Overseer Console: the next key the page pressed (2 * key + 1) or let go of
++// (2 * key) for the scripts, or -1 when there is none.
++extern "C" int overseer_script_key_change();
++#endif
++
+ namespace fallout {
+ 
+ constexpr size_t DIK_MAP_COUNT = 256;
+@@ -301,6 +310,17 @@ static int get_key_from_scancode(SDL_Scancode scanCode)
+ 
+ bool sfall_kb_is_key_pressed(int key)
+ {
++#if defined(__EMSCRIPTEN__)
++    // Overseer Console: a key the page holds down for the scripts alone, so
++    // that a touch screen's switch can stand for a key that has to be held
++    // (the one that lights up what lies on the ground). The game's own
++    // keyboard handling never sees it: no other key turns into its shifted
++    // self while it is down.
++    if (overseer_script_key(key)) {
++        return true;
++    }
++#endif
++
+     // todo: sfall uses this condition to check for VK key instead of DIK:
+     /* if ((key & 0x80000000) > 0) { // special flag to check by VK code directly
+         return GetAsyncKeyState(key & 0xFFFF) & 0x8000;
+@@ -382,4 +402,23 @@ int sfall_kb_handle_key_pressed(int sdlScanCode, bool pressed)
+     return get_scancode_from_key(overrideDxCode);
+ }
+ 
++void sfall_kb_handle_page_keys()
++{
++#if defined(__EMSCRIPTEN__)
++    // Scripts hear of keys only once a game is loaded; until then the page's
++    // presses wait.
++    if (!gGameLoaded) {
++        return;
++    }
++
++    int change;
++    while ((change = overseer_script_key_change()) >= 0) {
++        SDL_Scancode scancode = get_scancode_from_key(change >> 1);
++        if (scancode != SDL_SCANCODE_UNKNOWN) {
++            sfall_kb_handle_key_pressed(scancode, (change & 1) != 0);
++        }
++    }
++#endif
++}
++
+ } // namespace fallout
+diff --git a/src/sfall_kb_helpers.h b/src/sfall_kb_helpers.h
+index 403c651..e62a19e 100644
+--- a/src/sfall_kb_helpers.h
++++ b/src/sfall_kb_helpers.h
+@@ -19,6 +19,10 @@ void sfall_kb_clear_synthetic_key_events();
+ // replacement SDL scancode, or SDL_SCANCODE_UNKNOWN to swallow the event.
+ int sfall_kb_handle_key_pressed(int sdlScanCode, bool pressed);
+ 
++// Overseer Console: tells the scripts of the keys the page pressed or let go
++// of for them alone, as the keyboard's own are told of (HOOK_KEYPRESS).
++void sfall_kb_handle_page_keys();
++
+ } // namespace fallout
+ 
+ #endif /* FALLOUT_SFALL_KB_HELPERS_H_ */

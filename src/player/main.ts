@@ -66,6 +66,8 @@ const engineLog: string[] = [];
 let complaint: { text: string; at: number } | null = null;
 /** Whether holding Shift lights up what lies on the ground in this game. */
 let lights = false;
+/** The touch deck's switch for that is on: it is lit up without a key being held. */
+let lightsOn = false;
 /**
  * When the engine last said it made a quick save, and when the quick save's
  * slot last reached the browser's storage. The engines wait for the storage
@@ -196,6 +198,7 @@ const touch = new TouchControls(
     },
     openMenu: () => openMenu(),
     toggleFast: () => setFast(!fast),
+    toggleLights: () => setLights(!lightsOn),
     say: (text) => toast(text, 3000),
     layoutChanged: () => fit(),
   },
@@ -343,6 +346,18 @@ function setFast(on: boolean): void {
   touch.setFast(on);
 }
 
+/**
+ * What lies on the ground lit up, for as long as the switch is on: on a touch
+ * screen there is no key to hold for it. Only the game's script for it sees
+ * the key held, so nothing else typed is shifted.
+ */
+function setLights(on: boolean): void {
+  if (!engine || !lights || (phase !== 'running' && phase !== 'menu')) return;
+  lightsOn = on;
+  engine.setLights(on);
+  touch.setLights(on);
+}
+
 function suspendEngine(): void {
   // No button may stay down while the game cannot see it come up.
   touch.releaseAll();
@@ -408,7 +423,7 @@ function openTouchHelp(): void {
     ['CURSOR', 'Switches the cursor between walking and using'],
     ['INV, MAP...', 'The small buttons: inventory, map, character, Pip-Boy, skilldex, end of turn'],
     ['QSAVE, QLOAD', `Quick save and quick load, slot ${QUICK_SLOT_NAME}. QLOAD asks twice`],
-    ...(lights ? ([['LIGHT', 'Hold it to light up what lies on the ground']] as const) : []),
+    ...(lights ? ([['HILITE', 'Highlights what lies on the ground until pressed again']] as const) : []),
     ['FAST', 'Fast forward, on and off'],
     ['KEYS', 'Keyboard. Comes up by itself when the game wants text'],
     ['ESC, MENU', 'Skip or close. Pause, this help, leave the game'],
@@ -714,7 +729,7 @@ async function main(): Promise<void> {
   const def = GAMES[game];
   // Lighting up what lies on the ground comes with the engine's additions, where a game has them.
   lights = wantsEngineData(game, settings.improvements);
-  touch.offerKey('ShiftLeft', lights);
+  touch.offer('lights', lights);
   document.title = `${def.title} - Overseer Console`;
   barTitle.textContent = `OVERSEER CONSOLE // ${def.label}`;
   showTerminal({ state: 'BOOT' });

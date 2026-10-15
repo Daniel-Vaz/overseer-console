@@ -73,8 +73,9 @@ it puts together in the browser from the two games and the conversion's own pack
 - **Dropbox link, if you want one.** Carry saves between devices, and load a game from a folder in your own
   Dropbox (the way to get a game with its music onto a phone).
 - **Touch screens.** Tap, drag, press-and-hold and two-finger gestures stand in for the mouse, with
-  on-screen mouse buttons, one-tap shortcuts for the inventory, map, Pip-Boy, skilldex and the end of a
-  turn, and a keyboard that appears when a game asks for text.
+  on-screen mouse buttons, one-tap shortcuts for the inventory, map, character screen, Pip-Boy, skilldex,
+  the end of a turn, quick save and quick load, a switch that keeps what lies on the ground highlighted,
+  and a keyboard that appears when a game asks for text.
 - **A vault around it.** On a screen with room to spare the console stands in an abandoned vault:
   lamps that fail, a pipe that drips, and now and then something that walks past. Most of it answers
   to being clicked, its great door is shut exactly when the console's storage is sealed, and a console

@@ -66,6 +66,10 @@ addToLibrary({
     saveWanted: null,
     // Told how each quick save and quick load went.
     onQuick: null,
+    // Keys (DirectInput scan codes) the host holds down for the game's scripts,
+    // and the presses and releases of them the scripts have yet to hear of.
+    scriptKeys: new Set(),
+    scriptKeyChanges: [],
     counters: { yields: 0, sleeps: 0, stalls: 0, busyMs: 0, blockReads: 0, blockBytes: 0, blockMs: 0, evictions: 0, syncs: 0 },
 
     boot() {
@@ -724,6 +728,14 @@ addToLibrary({
         onQuick(fn) {
           OVERSEER.onQuick = fn;
         },
+        // Holds a key (a DirectInput scan code) down for the game's scripts
+        // alone, or lets go of it: the keyboard handling never sees it.
+        holdScriptKey(key, held) {
+          if (OVERSEER.scriptKeys.has(key) === !!held) return;
+          if (held) OVERSEER.scriptKeys.add(key);
+          else OVERSEER.scriptKeys.delete(key);
+          OVERSEER.scriptKeyChanges.push(key * 2 + (held ? 1 : 0));
+        },
 
         stats: () => ({
           ...OVERSEER.counters,
@@ -794,6 +806,14 @@ addToLibrary({
     OVERSEER.saveWanted = null;
     if (wanted) wanted.done(!!saved);
   },
+
+  // Keys the host holds down for the scripts alone (the engine of Fallout 2
+  // asks whenever a script does), and, one at a time, each press and release
+  // of them: 2 * key + 1 pressed, 2 * key let go of, -1 none waiting.
+  overseer_script_key__deps: ['$OVERSEER'],
+  overseer_script_key: (key) => (OVERSEER.scriptKeys.has(key) ? 1 : 0),
+  overseer_script_key_change__deps: ['$OVERSEER'],
+  overseer_script_key_change: () => (OVERSEER.scriptKeyChanges.length ? OVERSEER.scriptKeyChanges.shift() : -1),
 
   // Quick saves and quick loads, which the engines make in slot 7 alone. A
   // load (1) or save (0) was made (1), found nothing to load (0) or failed (-1).
