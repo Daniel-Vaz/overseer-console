@@ -242,6 +242,8 @@ test('sealing the storage rolls the great door shut; a seal that is refused leav
   const plate = page.locator('.nameplate');
   const entry = page.locator('.menu li').filter({ hasText: 'Seal private storage' });
   await expect(entry).toContainText('NOT SEALED');
+  // The entry says so before the browser has answered too; the board's readout only once it has, and the door is in place.
+  await expect(page.locator('.board .readout')).toContainText('OPEN');
 
   await page.keyboard.press('l');
   await expect(plate).toHaveText('DOOR JAMMED OPEN');

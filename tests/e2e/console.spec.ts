@@ -347,6 +347,8 @@ test('says when saves were last exported, and asks for it while they never were'
 
   // Exporting one save is not a backup of them all; exporting all of them is.
   await page.keyboard.press('2');
+  // The archive lists its saves once it has read them; a key for one before then opens nothing.
+  await expect(page.locator('.menu li', { hasText: 'SLOT 03' })).toBeVisible();
   await page.keyboard.press('3');
   let download = page.waitForEvent('download');
   await page.keyboard.press('e');
