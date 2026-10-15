@@ -141,6 +141,7 @@ describe('buildConfigFiles', () => {
     const improved = buildConfigFiles({ ...start, improvements: true });
     const ini = Ini.parse(improved['fallout2.cfg']!);
     expect(ini.get('ui', 'inventory_columns')).toBe('2');
+    expect(ini.get('ui', 'loot_weight_indicator')).toBe('3');
     expect(ini.get('ui', 'extend_ap_bar')).toBe('1');
     expect(ini.get('ui', 'expand_barter_window')).toBe('1');
     expect(ini.get('qol', 'auto_open_doors')).toBe('1');
@@ -157,6 +158,7 @@ describe('buildConfigFiles', () => {
     const original = buildConfigFiles({ ...start, savedConfig: improved['fallout2.cfg'], improvements: false });
     const plain = Ini.parse(original['fallout2.cfg']!);
     expect(plain.get('ui', 'inventory_columns')).toBe('1');
+    expect(plain.get('ui', 'loot_weight_indicator')).toBe('1');
     expect(plain.get('ui', 'extend_ap_bar')).toBe('0');
     expect(plain.get('qol', 'auto_open_doors')).toBe('0');
     expect(Object.keys(original)).toEqual(['fallout2.cfg']);

@@ -122,10 +122,10 @@ two patch locations). Music and settings files, which are read by plain path, st
 `master.dat` and `critter.dat` appear in a folder of their own beside them.
 
 > [!NOTE]
-> Et Tu on the Community Edition engine is recent work by both projects, and its developers do not yet call it
-> finished. A package made for this engine holds `fallout2-ce.exe`; the console warns when the one you load does
-> not. The console's own tests cover everything up to the engine opening what was put together. Playing the real
-> thing is covered by the tests that need your copies (see [Developing](#developing)).
+> Since version 2.0 Et Tu is made for the Community Edition engine, the one the console runs, and its package
+> holds `fallout2-ce.exe`; the console warns when the one you load does not (an older package). The console's own
+> tests cover everything up to the engine opening what was put together. Playing the real thing is covered by the
+> tests that need your copies (see [Developing](#developing)).
 
 ## Dropbox link
 

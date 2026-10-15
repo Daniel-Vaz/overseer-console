@@ -77,6 +77,8 @@ const IMPROVEMENTS: readonly (readonly [section: string, key: string, improved: 
   ['ui', 'expand_barter_window', 1, 0],
   // An ammunition meter that shows how many bursts are left.
   ['ui', 'alternate_ammo_meter', 1, 0],
+  // The weight of what is carried and of what is lying in a container, with its size.
+  ['ui', 'loot_weight_indicator', 3, 1],
   // What a damage perk adds, shown with the weapon.
   ['ui', 'display_bonus_damage', 1, 0],
   // Doors that are neither locked nor special open as you walk into them.
