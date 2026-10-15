@@ -70,8 +70,8 @@
       id: 'archives',
       title: 'Save archives',
       icon: 'export-save',
-      summary: 'Continue, earlier versions of a slot, erased saves, and keeping them safe.',
-      topics: ['What they show', 'Continue', 'Earlier versions', 'Erased saves', 'Keeping them safe'],
+      summary: 'Continue, earlier versions of a slot, changing a saved character, erased saves, and keeping them safe.',
+      topics: ['What they show', 'Continue', 'Earlier versions', 'Modifying a save', 'Erased saves', 'Keeping them safe'],
     },
     {
       id: 'dropbox',
@@ -429,6 +429,26 @@
             Saving over a slot does not destroy what was in it. The console keeps earlier versions of every slot (the latest
             three, and a thinning trail of older ones reaching back days) and can put any of them back: open the slot in Save
             archives and choose <span class="hot">Earlier versions</span>. Use it when a save turns out to be a dead end.
+          </p>
+
+          <h2>Modifying a save</h2>
+          <p>
+            Open a slot and choose <span class="hot">Modify this save</span> to change the character in it: name, gender,
+            age, level and experience, S.P.E.C.I.A.L., skills and tagged skills, traits, perks, hit points, and what they
+            carry. The editor reads the game's own rules, words, pictures and items out of your game files, so the game's
+            holodisk must be loaded (for Fallout Et Tu, Fallout 2's as well).
+          </p>
+          <p>
+            Move between its sections with <kbd>TAB</kbd> or <kbd>1</kbd> to <kbd>7</kbd>, change a value with
+            <kbd>&larr;</kbd> and <kbd>&rarr;</kbd>, and press <kbd>ENTER</kbd> to type it. What follows from a change is
+            worked out as the game would: more Strength carries more, a perk adds what it adds, a level brings its hit
+            points. The skill points and perks new levels bring are handed out by the game's own character screen, the
+            next time it opens. What is in hand or worn is left as it is.
+          </p>
+          <p>
+            Nothing is written until you choose <span class="hot">Write</span>, which lists every change, each to be undone
+            on its own. The save as it was is kept under Earlier versions. A save the editor cannot account for to the
+            last byte it does not change at all.
           </p>
 
           <h2>Erased saves</h2>

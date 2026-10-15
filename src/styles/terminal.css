@@ -3,7 +3,8 @@
  *
  * A pre-war desk terminal: a riveted steel housing around a green phosphor
  * tube. Everything is drawn with CSS and inline SVG noise; no artwork from
- * the games is used.
+ * the games comes with it. (The save editor shows pictures out of the
+ * player's own copy of a game, drawn in phosphor in the browser.)
  */
 
 /* The typeface (VT323, SIL Open Font License) is loaded by each page's entry script. */
@@ -782,34 +783,41 @@ kbd {
 }
 
 /* A heading over the entries that belong together in a long list. */
-.menu .group {
+.menu .group,
+.ledger .group {
   margin-top: 0.4em;
   color: var(--phosphor-hot);
   text-transform: uppercase;
 }
 
-.menu .group:first-child {
+.menu .group:first-child,
+.ledger .group:first-child {
   margin-top: 0;
 }
 
-.menu .group::before {
+.menu .group::before,
+.ledger .group::before {
   content: '== ';
   color: var(--phosphor-dim);
 }
 
-.menu .group::after {
+.menu .group::after,
+.ledger .group::after {
   content: ' ==';
   color: var(--phosphor-dim);
 }
 
 /* What follows the last group and belongs to none stands a little apart. */
-.menu .group.none {
+.menu .group.none,
+.ledger .group.none {
   height: 0.4em;
   margin: 0;
 }
 
 .menu .group.none::before,
-.menu .group.none::after {
+.menu .group.none::after,
+.ledger .group.none::before,
+.ledger .group.none::after {
   content: none;
 }
 
@@ -1197,6 +1205,427 @@ kbd {
 }
 
 /* ------------------------------------------------------------------ */
+/* The save editor                                                     */
+/* ------------------------------------------------------------------ */
+
+/*
+ * The editor fills the screen: its heading, its sections and the card stay
+ * where they are, and only the list under the cursor scrolls.
+ */
+.modify {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.modify-head,
+.sections,
+.section-switch,
+.modify-message {
+  flex: none;
+}
+
+.modify-head h1 {
+  font-size: 1.3em;
+}
+
+.modify-who {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0 2ch;
+  margin-top: 0.2em;
+  text-transform: uppercase;
+}
+
+/* The sections, as tabs: the one open lit up. */
+.sections {
+  display: flex;
+  gap: 0 0.6ch;
+  margin-top: 0.6em;
+  border-bottom: 2px solid var(--phosphor-faint);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.section-tab,
+.section-switch button {
+  padding: 0.05em 1ch;
+  border: 0;
+  background: none;
+  color: var(--phosphor-dim);
+  font: inherit;
+  text-shadow: inherit;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.section-tab .key {
+  margin-right: 0.6ch;
+  color: var(--phosphor-faint);
+}
+
+.section-tab .count {
+  margin-left: 0.6ch;
+  color: var(--amber);
+}
+
+.section-tab:hover,
+.section-switch button:hover {
+  color: var(--phosphor);
+}
+
+.section-tab.on {
+  background: var(--phosphor);
+  color: var(--tube);
+  text-shadow: none;
+  box-shadow: 0 0 0.9em rgba(77, 255, 124, 0.35);
+}
+
+.section-tab.on .key,
+.section-tab.on .count {
+  color: inherit;
+}
+
+.section-tab:focus-visible,
+.section-switch button:focus-visible {
+  outline: 1px dashed var(--phosphor);
+}
+
+/* Where there is no room for the tabs: one section's name, and a way to either side. */
+.section-switch {
+  display: none;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: 0.4em;
+  border-bottom: 2px solid var(--phosphor-faint);
+  text-transform: uppercase;
+}
+
+.section-switch button {
+  min-width: 3ch;
+  color: var(--phosphor);
+}
+
+.modify-message {
+  min-height: 1.12em;
+  margin-top: 0.2em;
+  color: var(--phosphor-dim);
+}
+
+.modify-message.alert {
+  color: var(--alert);
+}
+
+.modify-main {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: minmax(0, 1fr) minmax(26ch, 36ch);
+  gap: 0 3ch;
+  min-height: 0;
+  margin-top: 0.2em;
+}
+
+.modify-list {
+  min-height: 0;
+  padding-right: 0.5ch;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--phosphor-dim) transparent;
+  scroll-padding: 0.2em 0;
+}
+
+.ledger {
+  margin: 0.2em 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.modify-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 2ch;
+  text-transform: uppercase;
+}
+
+.modify-status b,
+.card b {
+  margin-right: 0.6ch;
+  color: var(--phosphor-dim);
+  font-weight: normal;
+  text-transform: uppercase;
+}
+
+.modify-status .pair,
+.card .pair {
+  display: inline-block;
+  margin-right: 1.5ch;
+  white-space: nowrap;
+}
+
+.modify-total {
+  margin-top: 0.3em;
+}
+
+/* S.P.E.C.I.A.L.'s consequences, two to a line. */
+.readout.derived {
+  grid-template-columns: repeat(2, minmax(14ch, max-content) minmax(5ch, 1fr));
+  gap: 0 1.5ch;
+  margin-top: 0.5em;
+}
+
+/* A ledger: the console's menu, with a value at the end of every line and a step to either side of it. */
+.ledger .row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 2ch var(--value-width, 8ch) 2ch;
+  align-items: center;
+}
+
+.ledger .main {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0.08em 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-shadow: inherit;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.ledger .main:focus-visible {
+  outline: none;
+}
+
+.ledger .sign {
+  flex: none;
+  width: 2ch;
+  color: var(--phosphor-hot);
+}
+
+.ledger .label {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ledger .leader {
+  flex: 1 1 1ch;
+  align-self: flex-end;
+  min-width: 1ch;
+  margin: 0 0 0.34em 1ch;
+  border-bottom: 0.13em dotted var(--phosphor-faint);
+}
+
+.ledger .value {
+  overflow: hidden;
+  text-align: right;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.ledger .step {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--phosphor-dim);
+  font: inherit;
+  text-shadow: inherit;
+  cursor: pointer;
+}
+
+.ledger .step:disabled {
+  visibility: hidden;
+}
+
+.ledger .value-input {
+  width: 100%;
+  padding: 0 0.3ch;
+  border: 0;
+  border-bottom: 2px solid var(--phosphor);
+  border-radius: 0;
+  background: var(--tube-lit);
+  color: var(--phosphor-hot);
+  caret-color: var(--phosphor);
+  font: inherit;
+  font-size: max(1em, 16px);
+  text-align: right;
+  text-shadow: inherit;
+  outline: none;
+}
+
+.ledger li.selected .row {
+  background: var(--phosphor);
+  color: var(--tube);
+  text-shadow: none;
+  box-shadow: 0 0 0.9em rgba(77, 255, 124, 0.35);
+}
+
+.ledger li.selected .sign,
+.ledger li.selected .step,
+.ledger li.selected .value {
+  color: inherit;
+  text-shadow: none;
+}
+
+.ledger li.selected .leader {
+  border-color: var(--tube);
+}
+
+.ledger li.locked .label {
+  color: var(--phosphor-dim);
+}
+
+.ledger li.locked.selected .row {
+  outline: 1px dashed var(--phosphor-dim);
+  background: none;
+  color: inherit;
+  box-shadow: none;
+}
+
+.ledger li.locked.selected .label {
+  color: var(--phosphor);
+}
+
+.ledger .empty {
+  margin-top: 0.4em;
+}
+
+/* The game's pictures, drawn in phosphor. */
+.art-frame {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.art-frame img {
+  max-width: 100%;
+  max-height: 100%;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 0 0.3em rgba(77, 255, 124, 0.35));
+  user-select: none;
+}
+
+.art-frame.art-thumb {
+  flex: none;
+  width: 3.2em;
+  height: 1.35em;
+  margin-right: 1ch;
+}
+
+.art-frame.art-thumb img {
+  width: auto;
+  height: auto;
+}
+
+.art-frame.art-card {
+  width: min(100%, 11em);
+  margin: 0 auto;
+  aspect-ratio: 140 / 117;
+  border: 2px solid var(--phosphor-faint);
+}
+
+.art-frame.art-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.art-frame.art-item {
+  height: 6.5em;
+}
+
+.art-frame.art-item img {
+  width: auto;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* The card on the board: what the line under the cursor is. */
+.board.card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+  align-self: start;
+  max-height: 100%;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--phosphor-dim) transparent;
+}
+
+.card-words {
+  min-width: 0;
+}
+
+.card-words > * + * {
+  margin-top: 0.3em;
+}
+
+.card-title {
+  margin: 0;
+  color: var(--phosphor-hot);
+}
+
+.card-title::before,
+.card-title::after {
+  content: none;
+}
+
+.card-text {
+  color: var(--phosphor-dim);
+}
+
+.card .needs {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Buttons that do what a key does, for the pointer and the finger: a key, then the deed. */
+.card-button,
+.chip {
+  padding: 0 1ch;
+  border: 1px solid var(--phosphor-dim);
+  background: none;
+  color: var(--phosphor);
+  font: inherit;
+  text-shadow: inherit;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.card-button:hover,
+.card-button:focus-visible,
+.chip:hover,
+.chip:focus-visible,
+.chip.on {
+  background: var(--phosphor);
+  color: var(--tube);
+  text-shadow: none;
+  outline: none;
+}
+
+.picker-search {
+  grid-template-columns: 8ch minmax(0, 1fr);
+  margin-top: 0;
+}
+
+.shelves {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3em 1ch;
+  margin-top: 0.4em;
+}
+
+/* ------------------------------------------------------------------ */
 /* Fewer columns: the board goes under what it stands beside           */
 /* ------------------------------------------------------------------ */
 
@@ -1223,6 +1652,59 @@ kbd {
   /* A board that only points into what stands beside it has nothing to say under it. */
   .board.wide-only {
     display: none;
+  }
+
+  /* The editor: its card above the list, small, and one section at a time. */
+  .modify-main {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .modify-main > .board.card {
+    order: -1;
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 1.5ch;
+    max-height: 7.2em;
+    margin: 0 0 0.3em;
+    padding: 0.3em 1ch;
+    overflow: hidden;
+  }
+
+  .modify-main > .board.card .art-frame.art-card {
+    flex: none;
+    width: 7.5em;
+  }
+
+  .modify-main > .board.card .art-frame.art-item {
+    flex: none;
+    width: 7.5em;
+    height: 4.5em;
+  }
+
+  .modify-main > .board.card .card-text {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+  }
+
+  .modify-main > .board.card .thumb,
+  .modify-main > .board.card .sheet {
+    display: none;
+  }
+
+  .sections {
+    display: none;
+  }
+
+  .section-switch {
+    display: flex;
+  }
+
+  .readout.derived {
+    grid-template-columns: minmax(14ch, max-content) minmax(5ch, 1fr);
   }
 }
 
@@ -1271,6 +1753,49 @@ kbd {
   .reminder > .glyph,
   .reminder .why {
     display: none;
+  }
+}
+
+/* Low, for the save editor: the list gets the lines; the heading, the card and an empty message line give theirs up. */
+@media (max-height: 520px) {
+  .modify-head h1 {
+    font-size: 1.1em;
+  }
+
+  .modify-who {
+    display: none;
+  }
+
+  .sections {
+    margin-top: 0.2em;
+  }
+
+  .modify-message:empty {
+    display: none;
+  }
+
+  .modify-main .art-frame.art-card {
+    width: 6em;
+  }
+
+  .modify-main .art-frame.art-item {
+    height: 3em;
+  }
+}
+
+/* A finger needs more than a character's width to hit: taller lines, wider steps. */
+@media (pointer: coarse) {
+  .ledger .row {
+    grid-template-columns: minmax(0, 1fr) 3.5ch var(--value-width, 8ch) 3.5ch;
+  }
+
+  .ledger .main,
+  .ledger .step {
+    min-height: 1.9em;
+  }
+
+  .ledger .step {
+    font-size: 1.2em;
   }
 }
 

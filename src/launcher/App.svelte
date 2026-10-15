@@ -12,6 +12,7 @@
   import Game from './screens/Game.svelte';
   import Main from './screens/Main.svelte';
   import Manual from './screens/Manual.svelte';
+  import Modify from './screens/Modify.svelte';
   import Picture from './screens/Picture.svelte';
   import Saves from './screens/Saves.svelte';
   import Settings from './screens/Settings.svelte';
@@ -44,7 +45,9 @@
       : section === ''
         ? 'MAIN DIRECTORY'
         : section === 'saves'
-          ? 'SAVE ARCHIVES'
+          ? route[2] === 'modify'
+            ? 'SAVE ARCHIVES // MODIFY'
+            : 'SAVE ARCHIVES'
           : section === 'settings'
             ? route[1] === 'dropbox'
               ? 'DROPBOX LINK'
@@ -225,8 +228,12 @@
               <Boot ondone={finishBoot} />
             {:else if section === ''}
               <Main {go} />
+            {:else if section === 'saves' && game && route[2] === 'modify' && Number(route[3]) > 0}
+              {#key `${game}/${route[3]}`}
+                <Modify {go} {game} slot={Number(route[3])} />
+              {/key}
             {:else if section === 'saves'}
-              <Saves {go} {game} />
+              <Saves {go} {game} slot={Number(route[2]) || undefined} />
             {:else if section === 'settings' && route[1] === 'dropbox'}
               <Dropbox {go} />
             {:else if section === 'settings' && route[1] === 'picture'}

@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
-import { errors, type Page } from '@playwright/test';
+import { errors, expect, type Page } from '@playwright/test';
 import { zipSync } from 'fflate';
 import { ascii, dat2 } from '../archives';
 import { ettuFiles, fallout1Master, type EttuOptions } from '../ettu';
@@ -204,4 +204,168 @@ export async function fakeFallout2WithPlaces(): Promise<string> {
   });
   writeFileSync(join(root, 'master.dat'), Buffer.from(await master.arrayBuffer()));
   return root;
+}
+
+// ---------------------------------------------------------------------
+// A game the save editor can work with
+// ---------------------------------------------------------------------
+
+const be = (...values: number[]): Uint8Array => {
+  const out = new Uint8Array(values.length * 4);
+  values.forEach((value, index) => new DataView(out.buffer).setInt32(index * 4, value | 0, false));
+  return out;
+};
+
+/** A picture in the games' format: one frame, `width` x `height`, a diagonal of colours on index 0. */
+function frm(width: number, height: number): Uint8Array {
+  const pixels = Uint8Array.from({ length: width * height }, (_, i) => ((i % width) + Math.floor(i / width)) % 3 === 0 ? 0 : 40 + (i % 180));
+  const header = new Uint8Array(62);
+  const view = new DataView(header.buffer);
+  view.setUint32(0, 4, false);
+  view.setUint16(4, 10, false);
+  view.setUint16(8, 1, false);
+  view.setUint32(58, 12 + pixels.length, false);
+  const frame = new Uint8Array(12);
+  new DataView(frame.buffer).setUint16(0, width, false);
+  new DataView(frame.buffer).setUint16(2, height, false);
+  new DataView(frame.buffer).setUint32(4, pixels.length, false);
+  return Uint8Array.from([...header, ...frame, ...pixels]);
+}
+
+type FakeKind = 'armor' | 'container' | 'drug' | 'weapon' | 'ammo' | 'misc' | 'key';
+
+/** The items of the made-up game, by number: what they are and what they are called. */
+export const EDITOR_ITEMS: Record<number, { kind: FakeKind; name: string; weight?: number }> = {
+  1: { kind: 'armor', name: 'Leather Armor', weight: 8 },
+  4: { kind: 'weapon', name: 'Knife', weight: 1 },
+  8: { kind: 'weapon', name: '10mm Pistol', weight: 3 },
+  29: { kind: 'ammo', name: '10mm JHP' },
+  40: { kind: 'drug', name: 'Stimpak' },
+  41: { kind: 'misc', name: 'Money' },
+  46: { kind: 'container', name: 'Bag', weight: 1 },
+};
+
+/** An item prototype as the games store one (proto.cc). */
+function proto(pid: number): Uint8Array {
+  const item = EDITOR_ITEMS[pid] ?? { kind: 'misc' as const, name: `Junk ${pid}` };
+  const kinds: FakeKind[] = ['armor', 'container', 'drug', 'weapon', 'ammo', 'misc', 'key'];
+  const type = kinds.indexOf(item.kind);
+  const common = be(pid, pid * 100, 0x00000000 + pid, 0, 0, 0x08, item.kind === 'container' ? 0x8000 : 0, -1, type, 0, 1, item.weight ?? 0, 25 * pid, 0x07000000 + (pid % 2));
+  const own: Record<FakeKind, Uint8Array> = {
+    armor: be(5, 20, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, -1, 0x0100003e, 0x0100003f),
+    container: be(100, 0),
+    drug: be(-2, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+    weapon: Uint8Array.from([...be(1, 2, 6, 0, 1, 0, 0, 2, 3, 3, 0, -1, 1, 0, -1, 0), 0]),
+    ammo: be(1, 24, 0, 0, 1, 1),
+    misc: be(-1, 0, 0),
+    key: be(-1),
+  };
+  return Uint8Array.from([...common, 0, ...own[item.kind]]);
+}
+
+/**
+ * A Fallout 2 folder whose MASTER.DAT holds what the save editor reads: the
+ * words of the character screen, items with their prototypes and pictures,
+ * the character screen's cards. Everything made up.
+ */
+export async function fakeFallout2ForEditor(): Promise<string> {
+  const root = await fakeFallout2Folder(true);
+  const msg = (entries: [number, string][]) => ascii(entries.map(([number, text]) => `{${number}}{}{${text}}`).join('\r\n'));
+  const run = (first: number, names: string[]) => names.map((name, index): [number, string] => [first + index, name]);
+  const perks = Array.from({ length: 119 }, (_, i) => ({ 12: 'Toughness', 51: 'Tag!', 18: 'Educated' })[i] ?? `Perk Number ${i}`);
+  const skills = ['Small Guns', 'Big Guns', 'Energy Weapons', 'Unarmed', 'Melee Weapons', 'Throwing', 'First Aid', 'Doctor', 'Sneak', 'Lockpick', 'Steal', 'Traps', 'Science', 'Repair', 'Speech', 'Barter', 'Gambling', 'Outdoorsman'];
+  const traits = ['Fast Metabolism', 'Bruiser', 'Small Frame', 'One Hander', 'Finesse', 'Kamikaze', 'Heavy Handed', 'Fast Shot', 'Bloody Mess', 'Jinxed', 'Good Natured', 'Chem Reliant', 'Chem Resistant', 'Sex Appeal', 'Skilled', 'Gifted'];
+  const stats = ['Strength', 'Perception', 'Endurance', 'Charisma', 'Intelligence', 'Agility', 'Luck', 'Maximum Hit Points', 'Maximum Action Points', 'Armor Class', 'Unarmed Damage', 'Melee Damage', 'Carry Weight', 'Sequence', 'Healing Rate', 'Critical Chance', 'Better Criticals'];
+  const files: Record<string, { data: Uint8Array; packed: boolean }> = {
+    'color.pal': { data: Uint8Array.from({ length: 800 }, (_, i) => i % 64), packed: false },
+    'text\\english\\game\\perk.msg': { data: msg([...run(101, perks), ...run(1101, perks.map((name) => `What ${name} does.`))]), packed: true },
+    'text\\english\\game\\skill.msg': { data: msg([...run(100, skills), ...run(200, skills.map((name) => `What ${name} is.`))]), packed: true },
+    'text\\english\\game\\trait.msg': { data: msg([...run(100, traits), ...run(200, traits.map((name) => `What ${name} does.`))]), packed: true },
+    'text\\english\\game\\stat.msg': {
+      data: msg([...run(100, stats), ...run(200, stats.map((name) => `What ${name} is.`)), [133, 'Age'], [134, 'Gender'], ...run(301, ['V. Bad', 'Bad', 'Poor', 'Fair', 'Average', 'Good', 'V. Good', 'Great', 'Excellent', 'Heroic']), ...run(400, ['Unspent Skill Points', 'Level', 'Experience', 'Reputation', 'Karma'])]),
+      packed: true,
+    },
+    'text\\english\\game\\editor.msg': { data: msg([[107, 'MALE'], [108, 'FEMALE']]), packed: false },
+    'text\\english\\game\\pro_item.msg': {
+      data: msg(Array.from({ length: 46 }, (_, i) => i + 1).flatMap((pid): [number, string][] => [[pid * 100, EDITOR_ITEMS[pid]?.name ?? `Junk ${pid}`], [pid * 100 + 1, `What a ${EDITOR_ITEMS[pid]?.name ?? 'thing'} is.`]])),
+      packed: true,
+    },
+    'proto\\items\\items.lst': { data: ascii(Array.from({ length: 46 }, (_, i) => `${String(i + 1).padStart(8, '0')}.pro`).join('\r\n')), packed: false },
+    'art\\skilldex\\skilldex.lst': { data: ascii(Array.from({ length: 175 }, () => 'CARD.FRM').join('\r\n')), packed: false },
+    'art\\skilldex\\card.frm': { data: frm(28, 24), packed: true },
+    'art\\inven\\inven.lst': { data: ascii('THING.FRM\r\nOTHER.FRM'), packed: false },
+    'art\\inven\\thing.frm': { data: frm(30, 18), packed: true },
+    'art\\inven\\other.frm': { data: frm(18, 22), packed: true },
+  };
+  for (let pid = 1; pid <= 46; pid++) files[`proto\\items\\${String(pid).padStart(8, '0')}.pro`] = { data: proto(pid), packed: pid % 2 === 0 };
+  writeFileSync(join(root, 'master.dat'), Buffer.from(await dat2(files).arrayBuffer()));
+  return root;
+}
+
+// ---------------------------------------------------------------------
+// Playing the real games
+// ---------------------------------------------------------------------
+
+export const pause = (page: Page, ms: number) => page.waitForTimeout(ms);
+
+/** Whether the engine says a game is in progress, rather than its menus. */
+export function inProgress(page: Page): Promise<boolean> {
+  return page.evaluate(() => (window as unknown as { overseerEngine: { inGame(): boolean } }).overseerEngine.inGame());
+}
+
+export async function engineStats(page: Page): Promise<{ sleeps: number; syncs: number; blockReads: number; blockMs: number }> {
+  return page.evaluate(() => (window as unknown as { overseerEngine: { module: { overseer: { stats(): never } } } }).overseerEngine.module.overseer.stats());
+}
+
+/** True when the page shows a picture rather than a black frame. */
+export async function showsPicture(page: Page): Promise<boolean> {
+  return (await page.screenshot()).length > 150_000;
+}
+
+/** Waits for the game to draw something, then for it to settle. Returns how long the picture took. */
+export async function waitForPicture(page: Page, settleMs: number): Promise<number> {
+  const started = Date.now();
+  await expect.poll(() => showsPicture(page), { timeout: 90_000, intervals: [500] }).toBe(true);
+  const took = Date.now() - started;
+  await pause(page, settleMs);
+  return took;
+}
+
+/** Starts the game from a console menu entry and passes the start gate. */
+export async function launch(page: Page, entry: string, key: string): Promise<void> {
+  await expect(page.locator('.menu button').filter({ hasText: entry })).toBeVisible();
+  // A person does not launch within milliseconds of the page appearing.
+  await pause(page, 1500);
+  await page.keyboard.press(key);
+  await page.waitForURL(/play\.html/);
+  await expect(page.getByText('PRESS ANY KEY')).toBeVisible({ timeout: 60_000 });
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#terminal')).toBeHidden();
+}
+
+/**
+ * A coarse fingerprint of the game's picture: brightness on a 32x24 grid.
+ * Two pictures of the same scene are close; a different screen is far away.
+ */
+export async function fingerprint(page: Page): Promise<number[]> {
+  const box = (await page.locator('#canvas').boundingBox())!;
+  const png = await page.screenshot({ clip: box });
+  return page.evaluate(async (base64) => {
+    const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+    const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+    const canvas = document.createElement('canvas');
+    canvas.width = 32;
+    canvas.height = 24;
+    const context = canvas.getContext('2d')!;
+    context.drawImage(bitmap, 0, 0, 32, 24);
+    const pixels = context.getImageData(0, 0, 32, 24).data;
+    const cells: number[] = [];
+    for (let i = 0; i < pixels.length; i += 4) cells.push((pixels[i]! + pixels[i + 1]! + pixels[i + 2]!) / 3);
+    return cells;
+  }, png.toString('base64'));
+}
+
+/** Mean difference in brightness between two fingerprints, 0 to 255. */
+export function distance(a: number[], b: number[]): number {
+  return a.reduce((sum, value, index) => sum + Math.abs(value - b[index]!), 0) / a.length;
 }

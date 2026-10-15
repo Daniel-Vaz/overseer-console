@@ -24,7 +24,7 @@ const DB_VERSION = 1;
 const VERSIONS = 'versions';
 const BLOBS = 'blobs';
 
-export type VersionCause = 'save' | 'import' | 'restore' | 'cloud' | 'erase';
+export type VersionCause = 'save' | 'import' | 'restore' | 'cloud' | 'erase' | 'edit';
 
 interface VersionFile {
   key: string;
@@ -279,6 +279,21 @@ export async function replaceSlot(
 ): Promise<void> {
   await keepVersion(game, slot, cause, Date.now()).catch(historyFailed);
   await replaceOverlay(game, slotPrefix(slot), puts);
+}
+
+/**
+ * Replaces one file of a slot (the save editor's SAVE.DAT), keeping what the
+ * slot held before as a version. Unlike a save the game made, this one must
+ * not go without its version: it fails when none could be kept.
+ */
+export async function replaceInSlot(
+  game: GameId,
+  slot: number,
+  put: OverlayChanges['puts'][number],
+  cause: VersionCause,
+): Promise<void> {
+  if (!(await keepVersion(game, slot, cause, Date.now()))) throw new Error('the save as it was could not be kept as an earlier version');
+  await commitOverlay(game, { puts: [put], deletes: [] });
 }
 
 // ---------------------------------------------------------------------

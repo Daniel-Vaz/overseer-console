@@ -1,83 +1,20 @@
-import { readFileSync } from 'node:fs';
-import type { Page } from '@playwright/test';
+import { readFileSync, statSync } from 'node:fs';
 import { unzipSync } from 'fflate';
 import { expect, test } from './fixtures';
-import { statSync } from 'node:fs';
-import { openConsole, pickFolder } from './helpers';
+import { distance, engineStats, fingerprint, inProgress, launch, openConsole, pause, pickFolder, showsPicture, waitForPicture } from './helpers';
 
 /**
  * Plays the real games. Needs your own copies:
  *   FO1_DIR="/path/to/Fallout" FO2_DIR="/path/to/Fallout 2" npm run test:e2e
  * Skipped when the folders are not given, which is always the case in CI.
  */
+// Whole games are copied in, more than one for Fallout Et Tu: storage on disk (see fixtures.ts).
+test.use({ onDisk: true });
+
 const GAMES = [
   { id: 'fo1', title: 'Fallout', dir: process.env.FO1_DIR },
   { id: 'fo2', title: 'Fallout 2', dir: process.env.FO2_DIR },
 ] as const;
-
-const pause = (page: Page, ms: number) => page.waitForTimeout(ms);
-
-/** Whether the engine says a game is in progress, rather than its menus. */
-function inProgress(page: Page): Promise<boolean> {
-  return page.evaluate(() => (window as unknown as { overseerEngine: { inGame(): boolean } }).overseerEngine.inGame());
-}
-
-async function engineStats(page: Page): Promise<{ sleeps: number; syncs: number; blockReads: number; blockMs: number }> {
-  return page.evaluate(() => (window as unknown as { overseerEngine: { module: { overseer: { stats(): never } } } }).overseerEngine.module.overseer.stats());
-}
-
-/** True when the page shows a picture rather than a black frame. */
-async function showsPicture(page: Page): Promise<boolean> {
-  return (await page.screenshot()).length > 150_000;
-}
-
-/** Waits for the game to draw something, then for it to settle. Returns how long the picture took. */
-async function waitForPicture(page: Page, settleMs: number): Promise<number> {
-  const started = Date.now();
-  await expect.poll(() => showsPicture(page), { timeout: 90_000, intervals: [500] }).toBe(true);
-  const took = Date.now() - started;
-  await pause(page, settleMs);
-  return took;
-}
-
-/** Starts the game from a console menu entry and passes the start gate. */
-async function launch(page: Page, entry: string, key: string): Promise<void> {
-  await expect(page.locator('.menu button').filter({ hasText: entry })).toBeVisible();
-  // A person does not launch within milliseconds of the page appearing.
-  await pause(page, 1500);
-  await page.keyboard.press(key);
-  await page.waitForURL(/play\.html/);
-  await expect(page.getByText('PRESS ANY KEY')).toBeVisible({ timeout: 60_000 });
-  await page.keyboard.press('Enter');
-  await expect(page.locator('#terminal')).toBeHidden();
-}
-
-/**
- * A coarse fingerprint of the game's picture: brightness on a 32x24 grid.
- * Two pictures of the same scene are close; a different screen is far away.
- */
-async function fingerprint(page: Page): Promise<number[]> {
-  const box = (await page.locator('#canvas').boundingBox())!;
-  const png = await page.screenshot({ clip: box });
-  return page.evaluate(async (base64) => {
-    const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
-    const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
-    const canvas = document.createElement('canvas');
-    canvas.width = 32;
-    canvas.height = 24;
-    const context = canvas.getContext('2d')!;
-    context.drawImage(bitmap, 0, 0, 32, 24);
-    const pixels = context.getImageData(0, 0, 32, 24).data;
-    const cells: number[] = [];
-    for (let i = 0; i < pixels.length; i += 4) cells.push((pixels[i]! + pixels[i + 1]! + pixels[i + 2]!) / 3);
-    return cells;
-  }, png.toString('base64'));
-}
-
-/** Mean difference in brightness between two fingerprints, 0 to 255. */
-function distance(a: number[], b: number[]): number {
-  return a.reduce((sum, value, index) => sum + Math.abs(value - b[index]!), 0) / a.length;
-}
 
 for (const game of GAMES) {
   test(`${game.title}: import, play, save, leave, continue from the save, and quit`, async ({ page }) => {

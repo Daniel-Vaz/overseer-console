@@ -134,7 +134,7 @@ export interface Character {
 export type SaveLayout = 'fo1' | 'fo2';
 type Game = SaveLayout;
 
-const LAYOUT = {
+export const LAYOUT = {
   fo1: {
     /** Bytes that follow the global variables in their section. */
     globalsTail: 1,
@@ -149,18 +149,18 @@ const LAYOUT = {
   fo2: { globalsTail: 0, protoTail: 4, killTypes: 19, perks: 119, pseudoPerks: [53, 72], karmaVariable: 0 },
 } as const;
 
-const STATS = 35;
-const SKILLS = 18;
-const TRAITS = 16;
-const MONEY_PID = 41;
+export const STATS = 35;
+export const SKILLS = 18;
+export const TRAITS = 16;
+export const MONEY_PID = 41;
 /** Everything of an object up to and including its flags word. */
-const OBJECT_BYTES = 18 * 4 + 3 * 4 + 4;
+export const OBJECT_BYTES = 18 * 4 + 3 * 4 + 4;
 /** Words in a companion's combat settings (Fallout 2 writes a set per companion). */
 const AI_PACKET_WORDS = 45;
 /** Extra words stored for each kind of queued event in Fallout 1. */
 const FO1_EVENT_WORDS = [6, 0, 3, 2, 0, 0, 2, 0, 0, 0, 0, 0, 0];
 
-class Words {
+export class Words {
   private readonly view: DataView;
   constructor(readonly data: Uint8Array) {
     this.view = new DataView(data.buffer, data.byteOffset, data.byteLength);
@@ -196,7 +196,7 @@ class Words {
  * the variables, then "n map files" with their names, then the same
  * variables again.
  */
-function locateGlobals(words: Words, start: number, tail: number): { count: number; end: number } | null {
+export function locateGlobals(words: Words, start: number, tail: number): { count: number; end: number } | null {
   for (let count = 1; count <= 8192; count++) {
     const length = 4 * count + tail;
     const list = start + length;
@@ -225,7 +225,7 @@ interface Carried {
 }
 
 /** Whether an inventory entry (a count, then an object) could start here. */
-function looksLikeItem(words: Words, at: number): boolean {
+export function looksLikeItem(words: Words, at: number): boolean {
   if (!words.has(at, 4 + OBJECT_BYTES)) return false;
   const quantity = words.int(at);
   const tile = words.int(at + 8);
@@ -237,7 +237,7 @@ function looksLikeItem(words: Words, at: number): boolean {
 }
 
 /** Whether the character sheet could start here: view centre, sneak flag, flags, then seven stats of 1 to 10. */
-function looksLikeSheet(words: Words, at: number): boolean {
+export function looksLikeSheet(words: Words, at: number): boolean {
   if (!words.has(at, 12 + 7 * 4)) return false;
   const sneak = words.int(at + 4);
   return (sneak === 0 || sneak === 1) && words.ints(at + 12, 7).every((stat) => stat >= 1 && stat <= 10);
@@ -293,7 +293,35 @@ function readInventory(words: Words, at: number, count: number): { items: Carrie
   return { items, end };
 }
 
-function levelAndTraits(words: Words, game: Game, at: number): Pick<Character, 'level' | 'experience' | 'traits'> {
+/** Where the player's statistics lie (spent points, level, experience, reputation, karma), and the traits. */
+export interface SaveTail {
+  stats: number;
+  /** Missing where Fallout 1's queue of events could not be read past. */
+  traits?: number;
+}
+
+/** The preferences: thirteen small numbers, then volumes and three floating point settings. */
+export const PREFERENCE_WORDS = 20;
+const PREFERENCE_LIMITS = [2, 2, 3, 3, 1, 1, 1, 1, 1, 1, 1, 50, 1];
+
+/** Whether the game's preferences could start here: a good landmark, being so particular. */
+export function validPreferences(words: Words, offset: number): boolean {
+  if (!words.has(offset, PREFERENCE_WORDS * 4)) return false;
+  if (!words.ints(offset, 13).every((value, index) => value >= 0 && value <= PREFERENCE_LIMITS[index]!)) return false;
+  const within = (value: number, low: number, high: number) => value >= low && value <= high;
+  return (
+    within(words.float(offset + 13 * 4), 0.5, 20) && // text delay
+    words.ints(offset + 14 * 4, 4).every((volume) => within(volume, 0, 0x7fff)) &&
+    within(words.float(offset + 18 * 4), 0.5, 2) && // brightness
+    within(words.float(offset + 19 * 4), 0.25, 8) // mouse sensitivity
+  );
+}
+
+/**
+ * Finds the player's statistics and traits, given where the combat section
+ * starts (right after the player's perks).
+ */
+export function locateTail(words: Words, game: Game, at: number): SaveTail | null {
   const validStats = (offset: number): boolean => {
     if (!words.has(offset, 20)) return false;
     const [points, level, experience] = words.ints(offset, 3) as [number, number, number];
@@ -305,7 +333,6 @@ function levelAndTraits(words: Words, game: Game, at: number): Pick<Character, '
     const ok = (trait: number) => trait >= -1 && trait < TRAITS;
     return ok(first) && ok(second) && (first !== second || first === -1);
   };
-  const traitsAt = (offset: number): number[] => words.ints(offset, 2).filter((trait) => trait >= 0);
   /** Length of the combat section starting at `offset`, or -1. */
   const combatLength = (offset: number): number => {
     if (!words.has(offset, 4)) return -1;
@@ -321,45 +348,30 @@ function levelAndTraits(words: Words, game: Game, at: number): Pick<Character, '
 
   if (game === 'fo1') {
     const combat = combatLength(at);
-    if (combat < 0 || !validStats(at + combat)) return {};
+    if (combat < 0 || !validStats(at + combat)) return null;
     const stats = at + combat;
-    const result: Pick<Character, 'level' | 'experience' | 'traits'> = { level: words.int(stats + 4), experience: words.int(stats + 8) };
     // The traits follow the queue of timed events.
     try {
       let queue = stats + 20;
       const events = words.int(queue);
-      if (events < 0 || events > 5000) return result;
+      if (events < 0 || events > 5000) return { stats };
       queue += 4;
       for (let i = 0; i < events; i++) {
         const extra = FO1_EVENT_WORDS[words.int(queue + 4)];
-        if (extra === undefined) return result;
+        if (extra === undefined) return { stats };
         queue += 12 + 4 * extra;
       }
-      if (validTraits(queue)) result.traits = traitsAt(queue);
+      return validTraits(queue) ? { stats, traits: queue } : { stats };
     } catch {
-      // Level and experience stand on their own.
+      // The statistics stand on their own.
+      return { stats };
     }
-    return result;
   }
 
   // Fallout 2 writes a block of perks and, for some, combat settings for every
   // possible companion. How many there are depends on the game data, so the
   // one arrangement after which the file reads as statistics, traits and
-  // game preferences is looked for. The preferences are a good landmark:
-  // thirteen small numbers, then volumes and three floating point settings.
-  const PREFERENCE_LIMITS = [2, 2, 3, 3, 1, 1, 1, 1, 1, 1, 1, 50, 1];
-  const PREFERENCE_WORDS = 20;
-  const validPreferences = (offset: number): boolean => {
-    if (!words.has(offset, PREFERENCE_WORDS * 4)) return false;
-    if (!words.ints(offset, 13).every((value, index) => value >= 0 && value <= PREFERENCE_LIMITS[index]!)) return false;
-    const within = (value: number, low: number, high: number) => value >= low && value <= high;
-    return (
-      within(words.float(offset + 13 * 4), 0.5, 20) && // text delay
-      words.ints(offset + 14 * 4, 4).every((volume) => within(volume, 0, 0x7fff)) &&
-      within(words.float(offset + 18 * 4), 0.5, 2) && // brightness
-      within(words.float(offset + 19 * 4), 0.25, 8) // mouse sensitivity
-    );
-  };
+  // game preferences is looked for.
   const perkBlock = 4 * LAYOUT.fo2.perks;
   let found: number | null = null;
   for (let companions = 0; companions <= 150; companions++) {
@@ -369,14 +381,20 @@ function levelAndTraits(words: Words, game: Game, at: number): Pick<Character, '
     for (let packets = 0; packets <= companions; packets++) {
       const stats = combatAt + combat + packets * AI_PACKET_WORDS * 4;
       if (!words.has(stats, 20 + 8 + 4 + PREFERENCE_WORDS * 4)) break;
-      if (validStats(stats) && validTraits(stats + 20) && validPreferences(stats + 32)) {
-        if (found !== null && found !== stats) return {}; // ambiguous: say nothing
+      if (validStats(stats) && validTraits(stats + 20) && validPreferences(words, stats + 32)) {
+        if (found !== null && found !== stats) return null; // ambiguous: say nothing
         found = stats;
       }
     }
   }
-  if (found === null) return {};
-  return { level: words.int(found + 4), experience: words.int(found + 8), traits: traitsAt(found + 20) };
+  return found === null ? null : { stats: found, traits: found + 20 };
+}
+
+function levelAndTraits(words: Words, game: Game, at: number): Pick<Character, 'level' | 'experience' | 'traits'> {
+  const tail = locateTail(words, game, at);
+  if (!tail) return {};
+  const traits = tail.traits === undefined ? undefined : words.ints(tail.traits, 2).filter((trait) => trait >= 0);
+  return { level: words.int(tail.stats + 4), experience: words.int(tail.stats + 8), ...(traits ? { traits } : {}) };
 }
 
 /** Reads the character out of a SAVE.DAT. Null when the save does not follow the expected layout. */

@@ -70,6 +70,10 @@ it puts together in the browser from the two games and the conversion's own pack
 - **Continue.** One key takes you from the console straight into your latest save.
 - **Save archives.** They show each save's screenshot and character sheet, read from the save file itself, and
   name the place it was made in as the game does, from the game's own data.
+- **A save editor.** Change a saved character: name, level, S.P.E.C.I.A.L., skills and tags, traits, perks, hit
+  points and what they carry, with the game's own pictures (from your copy) drawn in phosphor and its own rules applied (what a perk
+  adds, what a level brings). Every change is listed and can be undone; the save it replaces is kept as an earlier
+  version.
 - **Dropbox link, if you want one.** Carry saves between devices, and load a game from a folder in your own
   Dropbox (the way to get a game with its music onto a phone).
 - **Touch screens.** Tap, drag, press-and-hold and two-finger gestures stand in for the mouse, with
@@ -95,6 +99,7 @@ it puts together in the browser from the two games and the conversion's own pack
 | Zip and archive tools | `src/lib/zip.ts`, `datpack.ts`, `blobs.ts` | Read files out of a zip where it lies, without unpacking it, and describe a game archive (`.dat`) made of loose files without copying them. To the importer both are files like any other. |
 | Fallout Et Tu | `src/lib/storage/ettu.ts` | Finds the conversion in a selection and plans how to store it: see [Fallout Et Tu](#fallout-et-tu). |
 | Save reader | `src/lib/savefile.ts`, `dat.ts`, `gamefacts.ts` | Reads a save's header, picture and character sheet, and fetches the palette and the names of perks, traits, skills and places out of the player's own `MASTER.DAT` (both archive formats). |
+| Save editor | `src/lib/modify/`, `src/launcher/modify/` | Maps a SAVE.DAT to the byte, using the game's own item prototypes to know how each item is stored. Applies the engines' rules (`tables.ts` is generated from their sources; Fallout Et Tu's `Perks.ini`, `Skills.ini` and table of experience are read as its engine reads them), writes only the changed fields and the inventory, and reads the result back before it is stored. |
 | Dropbox link | `src/lib/dropbox/` | Optional. Talks to the player's own Dropbox straight from the browser: linking, saves as one zip per slot, and game files read piece by piece through the same importer as a folder on disk. |
 | Console | `index.html`, `src/launcher/` | The terminal: import, save archives, settings, manual, credits. Svelte. |
 | Vault | `src/launcher/vault/` | The room around the console, where the window is larger than the console is. Painted in the browser, one coarse pixel at a time, from nothing but code: no artwork from the games. `life.ts` decides who walks through, when, and what they do about being poked; `effects.ts` has the things that answer to a click; `pest.ts` is the radroach that comes out onto the screen itself. |
@@ -188,6 +193,11 @@ together from the real things and starts it. `tests/e2e/ettu.spec.ts` does as mu
 up to the engine opening the archives the console made.
 
 `tests/e2e/touch.spec.ts` plays them again with fingers only, on a phone-sized screen.
+
+`tests/e2e/modify-games.spec.ts` changes a quick save with the save editor, loads it in the game, saves again from
+inside it, and expects back what the editor wrote. `tests/unit/modify.real.test.ts` checks the editor against the
+games' own rules, items and pictures; it takes the same `FO1_DIR` and `FO2_DIR`, and `ETTU` as the unpacked
+`Fallout1in2` folder.
 
 `tests/e2e/dropbox.spec.ts` and `tests/unit/dropbox.test.ts` run against a stand-in for Dropbox
 (`tests/fake-dropbox.ts`). No test talks to the real one unless you ask: with a token generated on your

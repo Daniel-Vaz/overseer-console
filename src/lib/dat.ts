@@ -41,8 +41,8 @@ const latin1 = (data: Uint8Array, offset: number, length: number): string => {
 
 const normalise = (path: string): string => path.replace(/\\/g, '/').replace(/^\.\//, '').toLowerCase();
 
-/** Fallout 2: the directory sits at the end, its size in the last 8 bytes. */
-async function findDat2(archive: DatArchive, wanted: Set<string>): Promise<Map<string, DatEntry>> {
+/** Fallout 2: the directory sits at the end, its size in the last 8 bytes. Every entry when `wanted` is null. */
+async function findDat2(archive: DatArchive, wanted: Set<string> | null): Promise<Map<string, DatEntry>> {
   const found = new Map<string, DatEntry>();
   if (archive.size < 12) return found;
   const tail = new DataView((await bytes(archive, archive.size - 8, 8)).buffer);
@@ -54,14 +54,14 @@ async function findDat2(archive: DatArchive, wanted: Set<string>): Promise<Map<s
   const view = new DataView(tree.buffer);
   const count = view.getUint32(0, true);
   let at = 4;
-  for (let i = 0; i < count && found.size < wanted.size; i++) {
+  for (let i = 0; i < count && (!wanted || found.size < wanted.size); i++) {
     if (at + 4 > tree.length) break;
     const nameLength = view.getUint32(at, true);
     at += 4;
     if (nameLength > 4096 || at + nameLength + 13 > tree.length) break;
     const name = normalise(latin1(tree, at, nameLength));
     at += nameLength;
-    if (wanted.has(name)) {
+    if (!wanted || wanted.has(name)) {
       found.set(name, {
         name,
         mode: tree[at]!,
@@ -76,7 +76,7 @@ async function findDat2(archive: DatArchive, wanted: Set<string>): Promise<Map<s
 }
 
 /** Fallout 1: the directory comes first. Its length is not stored, so it is read in growing pieces. */
-async function findDat1(archive: DatArchive, wanted: Set<string>): Promise<Map<string, DatEntry>> {
+async function findDat1(archive: DatArchive, wanted: Set<string> | null): Promise<Map<string, DatEntry>> {
   const found = new Map<string, DatEntry>();
   for (let window = 512 << 10; ; window *= 4) {
     const head = await bytes(archive, 0, Math.min(window, archive.size));
@@ -110,7 +110,7 @@ async function findDat1(archive: DatArchive, wanted: Set<string>): Promise<Map<s
           const file = latin1(head, at + 1, length);
           at += 1 + length;
           const name = normalise(dir === '.' ? file : `${dir}/${file}`);
-          if (wanted.has(name)) {
+          if (!wanted || wanted.has(name)) {
             found.set(name, {
               name,
               mode: view.getUint32(at, false) & 0xf0 || 0x10,
@@ -131,6 +131,14 @@ async function findDat1(archive: DatArchive, wanted: Set<string>): Promise<Map<s
 export function findInDat(archive: DatArchive, format: DatFormat, paths: string[]): Promise<Map<string, DatEntry>> {
   const wanted = new Set(paths.map(normalise));
   return format === 'dat1' ? findDat1(archive, wanted) : findDat2(archive, wanted);
+}
+
+/**
+ * Every file of an archive, by lower-cased path. For a reader that will look
+ * many files up: the directory is read once.
+ */
+export function indexDat(archive: DatArchive, format: DatFormat): Promise<Map<string, DatEntry>> {
+  return format === 'dat1' ? findDat1(archive, null) : findDat2(archive, null);
 }
 
 /**

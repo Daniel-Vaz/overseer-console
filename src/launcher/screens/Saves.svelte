@@ -18,7 +18,8 @@
   import { consoleState as sys } from '../state.svelte';
   import type { MenuItem } from '../types';
 
-  let { go, game }: { go: (path: string) => void; game: GameId | null } = $props();
+  // `slot`: a slot to open straight away (coming back from the save editor).
+  let { go, game, slot = undefined }: { go: (path: string) => void; game: GameId | null; slot?: number } = $props();
 
   // Keys for what has no number of its own to go by: digits first, then letters that no action on this screen uses.
   const LIST_KEYS = '123456789abcghjklmnpqstvw';
@@ -88,13 +89,19 @@
     } else if (versions) {
       versions = null;
     } else if (open) {
-      open = null;
+      closeSlot();
     } else if (erasedOpen) {
       erasedOpen = false;
     } else {
       return false;
     }
     return true;
+  }
+
+  /** Back from a slot to the list; a slot opened by the address is closed by it. */
+  function closeSlot(): void {
+    open = null;
+    if (slot !== undefined && game) go(`saves/${game}`);
   }
 
   async function load(): Promise<void> {
@@ -106,6 +113,7 @@
     void gameFacts(current).then((known) => current === game && (facts = known));
     try {
       slots = await listSaves(game);
+      if (slot !== undefined) open = slots.find((save) => save.slot === slot) ?? null;
       // Changing saves under a running game would be overwritten by it.
       const held = (await navigator.locks?.query())?.held ?? [];
       running = held.some((lock) => lock.name === `overseer-console:play:${game}`);
@@ -120,8 +128,9 @@
   }
 
   $effect(() => {
-    // Reload whenever the selected game changes.
+    // Reload whenever the selected game (or the slot asked for) changes.
     void game;
+    void slot;
     open = null;
     confirm = null;
     versions = null;
@@ -507,6 +516,18 @@
       action: () => game && open && void launchGame(game, open.slot),
     },
     {
+      key: 'm',
+      label: 'Modify this save',
+      icon: 'terminal',
+      disabled: !open?.valid || !game || !sys.playable(game) || running,
+      note: running
+        ? 'Close the running simulation first.'
+        : game && !sys.playable(game)
+          ? "Load the holodisk first: the editor reads the game's own items, pictures and rules from it."
+          : 'Change the character: name, S.P.E.C.I.A.L., skills, traits, perks, and what they carry.',
+      action: () => game && open && go(`saves/${game}/modify/${open.slot}`),
+    },
+    {
       key: 'v',
       label: 'Earlier versions',
       state: open?.versions ? `${open.versions} KEPT` : 'NONE YET',
@@ -529,7 +550,7 @@
           : 'Cannot be undone: the slot holds no save the console can read.',
       action: () => (confirm = 'delete'),
     },
-    { key: '0', label: 'Back', action: () => (open = null) },
+    { key: '0', label: 'Back', action: closeSlot },
   ]);
 
   const CAUSES = {
@@ -538,6 +559,7 @@
     restore: 'Replaced when the slot was rolled back',
     cloud: 'Replaced by a save fetched from Dropbox',
     erase: 'Erased',
+    edit: 'Replaced when the save was modified',
   } as const;
 
   const versionItems = $derived<MenuItem[]>([
