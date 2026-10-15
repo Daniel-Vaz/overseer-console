@@ -57,7 +57,7 @@ test('on a phone the start gate asks for a tap and makes room for the touch deck
   // Between the deck's own buttons sit the shortcuts: keys of the game, fast forward, and the
   // one that lights up what lies on the ground, which this game has. None of them hangs off the screen.
   const shortcuts = page.locator('#deck .deck-quick button:visible');
-  await expect(shortcuts).toHaveText(['INV', 'MAP', 'PIP', 'FAST', 'LIGHT', 'SKILL', 'TURN', 'QSAVE', 'QLOAD']);
+  await expect(shortcuts).toHaveText(['INV', 'MAP', 'CHA', 'PIP', 'SKILL', 'FAST', 'LIGHT', 'TURN', 'QSAVE', 'QLOAD']);
   for (const box of await shortcuts.evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().toJSON() as DOMRect))) {
     expect(box.top).toBeGreaterThanOrEqual(0);
     expect(box.bottom).toBeLessThanOrEqual(390);
@@ -240,6 +240,14 @@ for (const game of GAMES) {
     await tap(page, 227, 430);
     await pause(page, 2000);
     expect(distance(await fingerprint(page), inGame)).toBeGreaterThan(6);
+    await deck('esc').tap();
+    await pause(page, 2000);
+    expect(distance(await fingerprint(page), inGame)).toBeLessThan(3);
+
+    // The deck's own shortcut to the character screen, a screen of its own; ESC closes it too.
+    await page.locator('#deck button[data-key="KeyC"]').tap();
+    await pause(page, 2500);
+    expect(distance(await fingerprint(page), inGame)).toBeGreaterThan(12);
     await deck('esc').tap();
     await pause(page, 2000);
     expect(distance(await fingerprint(page), inGame)).toBeLessThan(3);

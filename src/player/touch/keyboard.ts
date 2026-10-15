@@ -79,12 +79,12 @@ export function sendKey(type: 'keydown' | 'keyup', key: Pick<Key, 'code' | 'key'
 export const ESCAPE_KEY: Pick<Key, 'code' | 'key' | 'keyCode'> = ESC;
 
 /**
- * The keys behind the deck's shortcut buttons, by code: inventory, Pip-Boy,
- * skilldex, the map, the end of a turn, quick save and quick load, and Shift,
- * which is held.
+ * The keys behind the deck's shortcut buttons, by code: inventory, character
+ * screen, Pip-Boy, skilldex, the map, the end of a turn, quick save and quick
+ * load, and Shift, which is held.
  */
 export const SHORTCUT_KEYS: Record<string, Pick<Key, 'code' | 'key' | 'keyCode'>> = Object.fromEntries(
-  [letter('i'), letter('p'), letter('s'), TAB, SPACE, fn(6), fn(7), SHIFT_KEY].map((key) => [key.code, key]),
+  [letter('i'), letter('c'), letter('p'), letter('s'), TAB, SPACE, fn(6), fn(7), SHIFT_KEY].map((key) => [key.code, key]),
 );
 
 export class Keyboard {

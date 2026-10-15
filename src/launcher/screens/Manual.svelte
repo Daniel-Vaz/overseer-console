@@ -353,8 +353,9 @@
             <dd>A keyboard (it comes up by itself when a game asks for text), the escape key, and the console menu</dd>
             <dt>The small buttons</dt>
             <dd>
-              Keys the games answer to, a tap away: INV the inventory, MAP the map of the place, PIP the Pip-Boy, SKILL the
-              skilldex, TURN the end of your turn in combat. FAST is fast forward. LIGHT, where a game has it, lights up
+              Keys the games answer to, a tap away. Beside the picture's left edge the game's screens, in the order of its
+              own interface bar: INV the inventory, MAP the map of the place, CHA the character screen, PIP the Pip-Boy,
+              SKILL the skilldex. On the right, TURN the end of your turn in combat. FAST is fast forward. LIGHT, where a game has it, lights up
               what lies on the ground for as long as it is held
             </dd>
             <dt>QSAVE, QLOAD</dt>

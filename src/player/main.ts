@@ -406,7 +406,7 @@ function openTouchHelp(): void {
     ['2 fingers', 'Drag to scroll. Tap to switch the cursor'],
     ['CLICK', 'Clicks where the pointer is: drag to aim, then press it'],
     ['CURSOR', 'Switches the cursor between walking and using'],
-    ['INV, MAP...', 'The small buttons: inventory, map, Pip-Boy, skilldex, end of turn'],
+    ['INV, MAP...', 'The small buttons: inventory, map, character, Pip-Boy, skilldex, end of turn'],
     ['QSAVE, QLOAD', `Quick save and quick load, slot ${QUICK_SLOT_NAME}. QLOAD asks twice`],
     ...(lights ? ([['LIGHT', 'Hold it to light up what lies on the ground']] as const) : []),
     ['FAST', 'Fast forward, on and off'],
