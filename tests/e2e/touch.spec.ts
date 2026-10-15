@@ -383,6 +383,20 @@ for (const game of GAMES) {
       await pause(page, 2500);
     }
 
+    // TURN does something only on the player's turn in a fight: dim the rest of the time, and a tap then says so.
+    const turn = page.locator('#deck button[data-key="Space"]');
+    if (await turn.evaluate((button) => button.classList.contains('idle'))) {
+      await turn.tap();
+      await expect(page.locator('#toast')).toHaveText('TURN ends your turn in a fight. It lights up when your turn comes.');
+    }
+    // A fight begins (the A key): it is the player's turn, and TURN is lit. A tap on it ends that turn.
+    await deck('keys').tap();
+    await key('KeyA').tap();
+    await deck('keys').tap();
+    await expect(turn).not.toHaveClass(/idle/, { timeout: 30_000 });
+    await turn.tap();
+    await expect(turn).toHaveClass(/idle/, { timeout: 15_000 });
+
     // The menu button pauses; from there, out to the console, where the save shows what was typed.
     await deck('menu').tap();
     await expect(page.getByText('Simulation suspended')).toBeVisible();

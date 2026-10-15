@@ -44,6 +44,8 @@ export interface OverseerApi {
   onError(handler: (what: string, err: unknown) => void): void;
   /** Whether a game is in progress: not its menus or movies. */
   inGame(): boolean;
+  /** Whether it is the player's turn in combat, when SPACE ends it. */
+  playerTurn(): boolean;
   /**
    * Asks for a save in `slot` (1-based) at the next moment the game could
    * make one. True once made; false when it failed or was called off. Slot 0

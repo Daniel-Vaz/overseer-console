@@ -79,6 +79,8 @@ export interface Engine {
   setSpeed(speed: number): void;
   /** Whether a game is in progress: not its menus or movies. */
   inGame(): boolean;
+  /** Whether it is the player's turn in combat: the one time ending a turn does anything. */
+  playerTurn(): boolean;
   /** A save in `slot` at the next moment the game can make one; slot 0 calls it off. True once made. */
   requestSave(slot: number): Promise<boolean>;
   /** Lights up what lies on the ground, as holding the key for it does, until switched off. */
@@ -315,6 +317,7 @@ export async function bootEngine(
     resume: () => ov.resume(),
     setSpeed: (speed) => ov.setSpeed(speed),
     inGame: () => ov.inGame(),
+    playerTurn: () => ov.playerTurn(),
     requestSave: (slot) => ov.requestSave(slot),
     setLights: (on) => ov.holdScriptKey(HIGHLIGHT_KEY, on),
     audioContext: () => module.SDL2?.audioContext,

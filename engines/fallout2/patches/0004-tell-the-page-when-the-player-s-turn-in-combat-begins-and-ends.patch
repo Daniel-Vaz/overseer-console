@@ -1,0 +1,50 @@
+Tell the page when the player's turn in combat begins and ends
+
+The key that ends a turn (SPACE) does nothing outside the player's turn
+in combat. The page shows its button for it lit while that turn lasts,
+and dimmed the rest of the time.
+---
+diff --git a/src/combat.cc b/src/combat.cc
+index 744995d..098e1d5 100644
+--- a/src/combat.cc
++++ b/src/combat.cc
+@@ -50,8 +50,31 @@
+ #include "trait.h"
+ #include "window_manager.h"
+ 
++#if defined(__EMSCRIPTEN__)
++// Overseer Console: tells the page whether it is the player's turn in combat
++// (engines/lib/overseer.js), when the key that ends it does anything.
++extern "C" void overseer_combat_turn(int yours);
++#endif
++
+ namespace fallout {
+ 
++// Overseer Console: says the player's turn has begun, and when it is over.
++struct PlayerTurnReport {
++    PlayerTurnReport()
++    {
++#if defined(__EMSCRIPTEN__)
++        overseer_combat_turn(1);
++#endif
++    }
++
++    ~PlayerTurnReport()
++    {
++#if defined(__EMSCRIPTEN__)
++        overseer_combat_turn(0);
++#endif
++    }
++};
++
+ #define CALLED_SHOT_WINDOW_Y (20)
+ #define CALLED_SHOT_WINDOW_WIDTH (504)
+ #define CALLED_SHOT_WINDOW_HEIGHT (309)
+@@ -3180,6 +3203,7 @@ void _combat_turn_run()
+ static int _combat_input()
+ {
+     ScopedGameMode gm(GameMode::kPlayerTurn);
++    PlayerTurnReport report;
+ 
+     while ((gCombatState & COMBAT_STATE_PLAYER_TURN) != 0) {
+         sharedFpsLimiter.mark();

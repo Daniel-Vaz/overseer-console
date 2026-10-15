@@ -348,6 +348,13 @@ body.touch #handle {
   color: inherit;
 }
 
+/* A button that does nothing just now (TURN out of the player's turn in a fight): still there, dimmed. */
+.deck-side button.idle:not(.down) {
+  border-color: var(--phosphor-faint);
+  color: var(--phosphor-dim);
+  text-shadow: none;
+}
+
 /* Shortcuts: keys the games answer to, small enough to sit between the deck's own buttons. */
 .deck-quick {
   display: flex;

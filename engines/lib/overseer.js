@@ -66,6 +66,8 @@ addToLibrary({
     saveWanted: null,
     // Told how each quick save and quick load went.
     onQuick: null,
+    // It is the player's turn in combat: the one time the key that ends it does anything.
+    playerTurn: false,
     // Keys (DirectInput scan codes) the host holds down for the game's scripts,
     // and the presses and releases of them the scripts have yet to hear of.
     scriptKeys: new Set(),
@@ -715,6 +717,8 @@ addToLibrary({
 
         // Whether a game is in progress (not its menus or movies).
         inGame: () => OVERSEER.inGame,
+        // Whether it is the player's turn in combat.
+        playerTurn: () => OVERSEER.playerTurn,
         // Asks for a save in `slot` (1-based) at the next moment the game
         // could make one. Resolves true once made, false when it failed or
         // a later request took its place. Slot 0 calls off the one waiting.
@@ -794,6 +798,7 @@ addToLibrary({
   overseer_in_game__deps: ['$OVERSEER'],
   overseer_in_game: (playing) => {
     OVERSEER.inGame = !!playing;
+    if (!playing) OVERSEER.playerTurn = false;
   },
   overseer_autosave_point__deps: ['$OVERSEER'],
   overseer_autosave_point: () => {
@@ -814,6 +819,12 @@ addToLibrary({
   overseer_script_key: (key) => (OVERSEER.scriptKeys.has(key) ? 1 : 0),
   overseer_script_key_change__deps: ['$OVERSEER'],
   overseer_script_key_change: () => (OVERSEER.scriptKeyChanges.length ? OVERSEER.scriptKeyChanges.shift() : -1),
+
+  // Combat: the engines say when the player's turn begins and ends.
+  overseer_combat_turn__deps: ['$OVERSEER'],
+  overseer_combat_turn: (yours) => {
+    OVERSEER.playerTurn = !!yours;
+  },
 
   // Quick saves and quick loads, which the engines make in slot 7 alone. A
   // load (1) or save (0) was made (1), found nothing to load (0) or failed (-1).

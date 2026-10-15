@@ -275,6 +275,8 @@
             <dd>Quick save / quick load, always in slot 07 (chapter 6)</dd>
             <dt>ESC</dt>
             <dd>Game options</dd>
+            <dt>SPACE / ENTER</dt>
+            <dd>In a fight, on your turn: end your turn / end the fight, once nobody is left to fight</dd>
             <dt>F8</dt>
             <dd>Fast forward, on and off</dd>
             <dt>F9</dt>
@@ -356,7 +358,8 @@
             <dd>
               Keys the games answer to, a tap away. Beside the picture's left edge the game's screens, in the order of its
               own interface bar: INV the inventory, MAP the map of the place, CHA the character screen, PIP the Pip-Boy,
-              SKILL the skilldex. On the right, TURN the end of your turn in combat. FAST is fast forward. HILITE, where a game has it,
+              SKILL the skilldex. On the right, TURN ends your turn in a fight, as SPACE does: it is lit while it is your
+              turn, and dim the rest of the time, when it does nothing. FAST is fast forward. HILITE, where a game has it,
               highlights what lies on the ground until it is pressed again
             </dd>
             <dt>QSAVE, QLOAD</dt>

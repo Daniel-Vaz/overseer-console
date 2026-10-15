@@ -20,6 +20,8 @@ export interface TouchHost {
   playing(): boolean;
   /** Whether the game is waiting for text (a save's description, a name). Undefined when the engine cannot tell. */
   wantsText(): boolean | undefined;
+  /** Whether it is the player's turn in combat. Undefined when there is no engine to ask. */
+  playerTurn(): boolean | undefined;
   openMenu(): void;
   /** Fast forward, on or off. */
   toggleFast(): void;
@@ -108,7 +110,10 @@ export class TouchControls {
 
     // iOS: no pinch-zooming of the game.
     document.addEventListener('gesturestart', (event) => event.preventDefault());
-    setInterval(() => this.watchForText(), 200);
+    setInterval(() => {
+      this.watchForText();
+      this.watchTurn();
+    }, 200);
   }
 
   get visible(): boolean {
@@ -245,6 +250,8 @@ export class TouchControls {
     const shortcut = SHORTCUT_KEYS[button.dataset.key ?? ''];
     if (!act && !shortcut) return;
     if (button.dataset.confirm !== undefined && !this.confirmed(button)) return;
+    // Dimmed, it does nothing just now: say when it will. The key still goes, should the game want it.
+    if (button.classList.contains('idle') && button.dataset.inCombat) this.host.say(button.dataset.inCombat);
     button.setPointerCapture?.(event.pointerId);
     button.classList.add('down');
     let release: () => void;
@@ -270,6 +277,16 @@ export class TouchControls {
     if (!release) return;
     this.deckHeld.delete(event.pointerId);
     release();
+  }
+
+  /**
+   * Lights the buttons that only do something during the player's turn in
+   * combat (TURN) while that turn lasts, and dims them the rest of the time.
+   */
+  private watchTurn(): void {
+    if (!this.shown) return;
+    const yours = this.host.playerTurn();
+    for (const button of this.host.deck.querySelectorAll('[data-in-combat]')) button.classList.toggle('idle', yours === false);
   }
 
   /** Brings the keyboard up when the game starts waiting for text, and takes it away again after. */
