@@ -468,6 +468,8 @@ test('continue goes from the main directory straight into the latest save', asyn
     await expect(page.getByText('1 save restored from the archive.')).toBeVisible();
   };
   await restore('02', 'older');
+  // The archive lists its saves once it has read them; a key for one before then opens nothing.
+  await expect(page.locator('.menu li', { hasText: 'SLOT 02' })).toBeVisible();
   await page.keyboard.press('2');
   await expect(page.locator('.menu li').first()).toContainText('Load this save');
   await expect(page.locator('.menu li').first().locator('button')).toBeDisabled();
