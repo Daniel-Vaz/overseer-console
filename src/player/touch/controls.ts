@@ -89,6 +89,16 @@ export class TouchControls {
       this.mouse.sync(event.offsetX, event.offsetY);
     });
 
+    // A tap beside the picture (the deck, the keyboard) reaches it as a mouse
+    // leaving it: the browser makes mouse events out of taps. SDL would carry
+    // the game's pointer to where that mouse went, out at the edge of the
+    // picture, and the map would scroll there. With the deck out, the game's
+    // pointer goes where fingers and real mouse movements take it, and no
+    // further.
+    for (const type of ['mouseenter', 'mouseleave'] as const) {
+      stage.addEventListener(type, (event) => event.isTrusted && this.shown && event.stopPropagation(), { capture: true });
+    }
+
     deck.addEventListener('pointerdown', (event) => this.onDeckDown(event));
     deck.addEventListener('pointerup', (event) => this.onDeckUp(event));
     deck.addEventListener('pointercancel', (event) => this.onDeckUp(event));

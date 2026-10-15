@@ -252,6 +252,14 @@ for (const game of GAMES) {
     await pause(page, 2000);
     expect(distance(await fingerprint(page), inGame)).toBeLessThan(3);
 
+    // From here on the browser's own mouse is over the picture, as after a tap
+    // on a menu laid over it, or on a laptop with a touch screen. A tap on the
+    // deck then reaches the picture as that mouse leaving it, and the game's
+    // pointer must not follow it out to the edge: the checks of CURSOR and
+    // CLICK below fail if it does.
+    await page.mouse.move(...(await at(page, ...game.ground)));
+    await pause(page, 1000);
+
     if (browserName === 'chromium') {
       const fingers = await Fingers.on(page);
       const settled = await fingerprint(page);
