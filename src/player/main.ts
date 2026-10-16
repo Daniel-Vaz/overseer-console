@@ -425,6 +425,7 @@ function openTouchHelp(): void {
     ['CURSOR', 'Switches the cursor between walking and using'],
     ['INV, MAP...', 'The small buttons: inventory, map, character, Pip-Boy, skilldex'],
     ['TURN', 'Ends your turn in a fight. Dim when it is not your turn'],
+    ['MODE', 'Next attack mode of the weapon in hand'],
     ['QSAVE, QLOAD', `Quick save and quick load, slot ${QUICK_SLOT_NAME}. QLOAD asks twice`],
     ...(lights ? ([['HILITE', 'Highlights what lies on the ground until pressed again']] as const) : []),
     ['FAST', 'Fast forward, on and off'],

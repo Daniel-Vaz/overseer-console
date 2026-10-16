@@ -69,10 +69,10 @@ own **Operations manual** (entry 6 of the main directory) explains each of these
 <p align="center"><img src="images/touch.webp" width="800" alt="Fallout 2 on a phone held sideways, with the touch buttons on both sides"></p>
 
 Tap, drag, press-and-hold and two-finger gestures stand in for the mouse, with on-screen mouse buttons,
-one-tap shortcuts for the inventory, map, character screen, Pip-Boy, skilldex, the end of a turn, quick save
-and quick load, a switch that keeps what lies on the ground highlighted, and a keyboard that appears when a
-game asks for text. Inventories, containers and traders' goods scroll under a swiping finger, as a phone's
-lists do.
+one-tap shortcuts for the inventory, map, character screen, Pip-Boy, skilldex, the weapon's attack mode, the
+end of a turn, quick save and quick load, a switch that keeps what lies on the ground highlighted, and a
+keyboard that appears when a game asks for text. Inventories, containers and traders' goods scroll under a
+swiping finger, as a phone's lists do.
 
 ## Saves
 

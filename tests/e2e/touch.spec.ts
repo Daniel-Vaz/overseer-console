@@ -57,7 +57,7 @@ test('on a phone the start gate asks for a tap and makes room for the touch deck
   // Between the deck's own buttons sit the shortcuts: keys of the game, fast forward, and the
   // one that lights up what lies on the ground, which this game has. None of them hangs off the screen.
   const shortcuts = page.locator('#deck .deck-quick button:visible');
-  await expect(shortcuts).toHaveText(['INV', 'MAP', 'CHA', 'PIP', 'SKILL', 'FAST', 'HILITE', 'TURN', 'QSAVE', 'QLOAD']);
+  await expect(shortcuts).toHaveText(['INV', 'MAP', 'CHA', 'PIP', 'SKILL', 'FAST', 'HILITE', 'MODE', 'TURN', 'QSAVE', 'QLOAD']);
   for (const box of await shortcuts.evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().toJSON() as DOMRect))) {
     expect(box.top).toBeGreaterThanOrEqual(0);
     expect(box.bottom).toBeLessThanOrEqual(390);
@@ -334,6 +334,24 @@ for (const game of GAMES) {
     await deck('esc').tap();
     await pause(page, 2000);
     expect(distance(await fingerprint(page), here)).toBeLessThan(3);
+
+    // MODE is N: the weapon in hand goes to its next attack, which its button on the bar shows. Round again to the first.
+    const weapon = async () => {
+      const [left, top] = await at(page, 265, 400);
+      const [right, bottom] = await at(page, 460, 470);
+      return page.screenshot({ clip: { x: left, y: top, width: right - left, height: bottom - top } });
+    };
+    const firstMode = await weapon();
+    await shortcut('KeyN').tap();
+    await pause(page, 800);
+    expect((await weapon()).equals(firstMode)).toBe(false);
+    let back = false;
+    for (let tries = 0; tries < 6 && !back; tries++) {
+      await shortcut('KeyN').tap();
+      await pause(page, 800);
+      back = (await weapon()).equals(firstMode);
+    }
+    expect(back).toBe(true);
 
     // From here on the browser's own mouse is over the picture, as after a tap
     // on a menu laid over it, or on a laptop with a touch screen. A tap on the
