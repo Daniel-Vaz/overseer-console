@@ -68,7 +68,7 @@ export interface SaveSpec {
   stats?: [points: number, level: number, experience: number, reputation: number, karma: number];
   traits?: [number, number];
   /** Fallout 1: queued events as [type, extra words]. */
-  events?: [type: number, words: number[]][];
+  events?: [type: number, words: number[], owner?: number][];
   /** The game's difficulty (0 to 2). */
   difficulty?: number;
   /** The character screen's last level seen and perks owed. */
@@ -78,18 +78,52 @@ export interface SaveSpec {
   base?: Record<number, number>;
   /** The player's object's picture. */
   fid?: number;
+  /** The game's clock, and the date the header gives for it (month, day, year). */
+  time?: number;
+  date?: [number, number, number];
+  /**
+   * What follows the character screen's record, written the way the engines
+   * write it (world map, movies, skill uses, party, Fallout 2's queue, the
+   * interface bar). Left out, the save ends in made-up bytes that read as none.
+   */
+  rest?: RestSpec;
+}
+
+export interface WorldArea {
+  x: number;
+  y: number;
+  state: number;
+  visited: number;
+  entrances?: number[];
+}
+
+export interface RestSpec {
+  /** Fallout 2: the world map's areas, the car's fuel, and its tiles (each 7 x 6 subtiles, all unknown unless given). */
+  areas?: WorldArea[];
+  fuel?: number;
+  tiles?: number;
+  across?: number;
+  subtiles?: Record<number, number>;
+  /** The objects of the party's members other than the player. */
+  party?: number[];
+  /** Fallout 2's queue of timed events: [time, type, owner, words]. */
+  queue?: [time: number, type: number, owner: number, words: number[]][];
 }
 
 let nextId = 20000;
 
-function writeObject(out: Writer, pid: number, fid: number, tile: number, held: number, flags = 0x2000): void {
+/** The engines number the player 18000. */
+export const PLAYER = 18000;
+
+function writeObject(out: Writer, pid: number, fid: number, tile: number, held: number, flags = 0x2000, id = nextId++): void {
   // id, tile, x, y, sx, sy, frame, rotation, fid, flags, elevation, pid, cid, light distance, light intensity, outline, sid, script index
-  out.int(nextId++, tile, 0, 0, 0, 0, 0, 0, fid, flags, 0, pid, -1, 0, 0x10000, 0, -1, -1);
+  out.int(id, tile, 0, 0, 0, 0, 0, 0, fid, flags, 0, pid, -1, 0, 0x10000, 0, -1, -1);
   // inventory: length, capacity, pointer
   out.int(held, held ? Math.max(10, held) : 0, 0);
 }
 
-function writeItem(out: Writer, item: Item): void {
+/** Writes one carried thing: its quantity, its object, what it holds. */
+export function writeItem(out: Writer, item: Item): void {
   out.int(item.quantity ?? 1);
   writeObject(out, item.pid, 0x00000123, -1, item.holds?.length ?? 0, item.flags);
   out.int(0x0800); // flags
@@ -99,7 +133,7 @@ function writeItem(out: Writer, item: Item): void {
   for (const inner of item.holds ?? []) writeItem(out, inner);
 }
 
-function header(out: Writer): void {
+function header(out: Writer, spec: SaveSpec): void {
   const head = new Uint8Array(HEADER_SIZE);
   const put = (offset: number, text: string) => {
     for (let i = 0; i < text.length; i++) head[offset + i] = text.charCodeAt(i);
@@ -107,15 +141,50 @@ function header(out: Writer): void {
   put(0, 'FALLOUT SAVE FILE');
   put(0x1d, 'Narg');
   put(0x3d, 'test');
-  new DataView(head.buffer).setInt16(0x65, 7, false);
+  const view = new DataView(head.buffer);
+  const [month, day, year] = spec.date ?? [7, 25, 2241];
+  view.setInt16(0x65, month, false);
+  view.setInt16(0x67, day, false);
+  view.setInt16(0x69, year, false);
+  view.setUint32(0x6b, spec.time ?? 0, false);
   put(0x73, 'ARTEMPLE.SAV');
   for (const value of head) out.byte(value);
+}
+
+/** What follows the character screen's record, as the engines write it (see the spec). */
+function writeRest(out: Writer, spec: SaveSpec, rest: RestSpec): void {
+  const fo2 = spec.game === 'fo2';
+  if (fo2) {
+    const areas = rest.areas ?? [{ x: 100, y: 100, state: 1, visited: 2, entrances: [1] }];
+    // Met Frank Horrigan, area, x, y, encounter shown, its map, table and entry, in the car, the car's area, fuel.
+    out.int(0, 0, 100, 100, 0, -1, -1, -1, 0, -1, rest.fuel ?? 80_000, areas.length);
+    for (const area of areas) out.int(area.x, area.y, area.state, area.visited, (area.entrances ?? []).length, ...(area.entrances ?? []));
+    const tiles = rest.tiles ?? 4;
+    out.int(tiles, rest.across ?? 2);
+    for (let subtile = 0; subtile < tiles * 42; subtile++) out.int(rest.subtiles?.[subtile] ?? 0);
+    out.int(0); // encounter counters
+  } else {
+    // The fog (a byte per square), the towns and entrances known, then six words.
+    out.zeros(31 * 29 + 15 * 7);
+    out.int(0, 0, 0, 0, 100, 100);
+  }
+  out.zeros(fo2 ? 17 : 14); // movies seen
+  out.zeros(18 * 3 * 4); // skills used today
+  const party = rest.party ?? [];
+  out.int(party.length + 1, 0, ...party);
+  if (fo2) {
+    for (let companion = 0; companion < (spec.companions ?? 25); companion++) out.int(0, 0, 0);
+    const queue = rest.queue ?? [[864_000, 4, -2, []]];
+    out.int(queue.length);
+    for (const [time, type, owner, words] of queue) out.int(time, type, owner, ...words);
+  }
+  out.int(1, 0, 0, 0); // the interface bar
 }
 
 export function buildSave(spec: SaveSpec): Uint8Array {
   const fo2 = spec.game === 'fo2';
   const out = new Writer();
-  header(out);
+  header(out, spec);
   out.int(-1); // the player's combat id
 
   const globals = spec.globals ?? new Array<number>(fo2 ? 696 : 618).fill(0);
@@ -132,7 +201,7 @@ export function buildSave(spec: SaveSpec): Uint8Array {
 
   // The player.
   const items = spec.items ?? [];
-  writeObject(out, 0x01000000, spec.fid ?? 0x0100003e, 17488, items.length);
+  writeObject(out, 0x01000000, spec.fid ?? 0x0100003e, 17488, items.length, 0x2000, PLAYER);
   out.int(0); // flags
   out.int(0, 0, 8, 0, 0, 0, -1); // combat data
   out.int(spec.hitPoints ?? 44, spec.radiation ?? 0, spec.poison ?? 0);
@@ -184,7 +253,7 @@ export function buildSave(spec: SaveSpec): Uint8Array {
   if (!fo2) {
     const events = spec.events ?? [[3, [0x04000009, 0]]];
     out.int(events.length);
-    for (const [type, words] of events) out.int(264690, type, 469, ...words);
+    for (const [type, words, owner] of events) out.int(264690, type, owner ?? 469, ...words);
   }
   out.int(...traits);
   out.int(0); // automap flags
@@ -193,6 +262,7 @@ export function buildSave(spec: SaveSpec): Uint8Array {
   out.int(spec.difficulty ?? 1, 1, 3, 2, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0x40600000, 22281, 22281, 22281, 22281, 0x3f800000, 0x3f800000);
   // character editor: last level seen, free perk
   out.int(spec.lastLevel ?? (spec.stats ?? [0, 1])[1]!).byte(spec.perksOwed ?? 0);
-  out.zeros(400);
+  if (spec.rest) writeRest(out, spec, spec.rest);
+  else out.zeros(400);
   return out.done();
 }

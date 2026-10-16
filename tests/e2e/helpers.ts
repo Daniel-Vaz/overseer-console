@@ -5,6 +5,7 @@ import { errors, expect, type Page } from '@playwright/test';
 import { zipSync } from 'fflate';
 import { ascii, dat2 } from '../archives';
 import { ettuFiles, fallout1Master, type EttuOptions } from '../ettu';
+import { critterProto } from '../maps';
 
 /** Opens the console on a route with the power-on sequence already seen. */
 export async function openConsole(page: Page, route = '', settings: Record<string, unknown> = {}): Promise<void> {
@@ -285,7 +286,37 @@ export async function fakeFallout2ForEditor(): Promise<string> {
       data: msg([...run(100, stats), ...run(200, stats.map((name) => `What ${name} is.`)), [133, 'Age'], [134, 'Gender'], ...run(301, ['V. Bad', 'Bad', 'Poor', 'Fair', 'Average', 'Good', 'V. Good', 'Great', 'Excellent', 'Heroic']), ...run(400, ['Unspent Skill Points', 'Level', 'Experience', 'Reputation', 'Karma'])]),
       packed: true,
     },
-    'text\\english\\game\\editor.msg': { data: msg([[107, 'MALE'], [108, 'FEMALE']]), packed: false },
+    'text\\english\\game\\editor.msg': {
+      data: msg([
+        [107, 'MALE'],
+        [108, 'FEMALE'],
+        [1000, 'Reputation (General) '],
+        [1100, 'How well known and respected the character is.'],
+        [1003, 'Childkiller'],
+        [1103, 'Not a good thing to be known for.'],
+        [3000, 'Savior of the Damned'],
+        [3004, 'Wanderer'],
+        [3008, 'Demon Spawn'],
+        ...run(1004, ['Nuka Cola reliance', 'Buffout reliance', 'Mentats reliance', 'Psycho reliance', 'RadAway reliance', 'Alcohol reliance', 'Jet reliance', 'Tragic reliance']),
+        ...run(2000, ['Idolized', 'Liked', 'Accepted', 'Neutral', 'Antipathy', 'Hated', 'Vilified']),
+      ]),
+      packed: false,
+    },
+    // The world: global variables, quests, holodisks, karma, towns, kills (see src/lib/modify/world.ts).
+    'data\\vault13.gam': { data: ascii(['GAME_GLOBAL_VARS:', '', ...Array.from({ length: 696 }, (_, i) => `${({ 0: 'GVAR_PLAYER_REPUTATION', 1: 'GVAR_CHILDKILLER_REPUTATION', 9: 'GVAR_KILL_EVIL_PLANTS', 18: 'GVAR_PLAYER_GOT_CAR', 47: 'GVAR_TOWN_REP_ARROYO', 220: 'GVAR_MILITARY_BASE_HOLODISK' } as Record<number, string>)[i] ?? `GVAR_NUMBER_${i}`} :=0; // (${i})${i === 9 ? ' Hakunin wants his garden free of plants' : ''}`)].join('\r\n')), packed: true },
+    'data\\quests.txt': { data: ascii(['# location, description, gvar, shown, done', '1500, 100, 9, 2, 6', '1501, 101, 30, 1, 2'].join('\r\n')), packed: false },
+    'text\\english\\game\\quests.msg': { data: msg([[100, 'Kill the evil plants that infest Hakunin\'s garden.'], [101, 'Free Vic from his debt.']]), packed: false },
+    'data\\holodisk.txt': { data: ascii('220, 300, 1000\r\n'), packed: false },
+    'text\\english\\game\\pipboy.msg': { data: msg([[300, 'Military Base Outside']]), packed: false },
+    'data\\karmavar.txt': { data: ascii('0, 48, 1000, 1100\r\n1, 50, 1003, 1103\r\n'), packed: false },
+    'data\\genrep.txt': { data: ascii('1000, 3000\r\n-249, 3004\r\n-2147483648, 3008\r\n'), packed: false },
+    'data\\city.txt': { data: ascii('[Area 00]\r\ntownmap_label_art_idx=150\r\nsize=Medium\r\n[Area 01]\r\ntownmap_label_art_idx=151\r\nsize=Large\r\n[Area 02]\r\ntownmap_label_art_idx=152\r\nsize=Large\r\n'), packed: false },
+    'text\\english\\game\\map.msg': { data: msg([[1500, 'Arroyo'], [1501, 'The Den'], [1502, 'Klamath']]), packed: false },
+    'text\\english\\game\\proto.msg': { data: msg([...run(1450, ['Men', 'Women', 'Children', 'Super Mutants', 'Ghouls', 'Brahmin', 'Radscorpions', 'Rats', 'Floaters', 'Centaurs', 'Robots', 'Dogs', 'Manti', 'DeathClaws', 'Plants', 'Geckos', 'Aliens', 'Giant Ants', 'Big Bad Boss'])]), packed: false },
+    // A companion: its prototype and its name.
+    'proto\\critters\\critters.lst': { data: ascii('00000001.pro\r\n00000002.pro\r\n00000003.pro\r\n'), packed: false },
+    'proto\\critters\\00000003.pro': { data: critterProto(0x01000003, 103, 60), packed: true },
+    'text\\english\\game\\pro_crit.msg': { data: msg([[103, 'Sulik']]), packed: false },
     'text\\english\\game\\pro_item.msg': {
       data: msg(Array.from({ length: 46 }, (_, i) => i + 1).flatMap((pid): [number, string][] => [[pid * 100, EDITOR_ITEMS[pid]?.name ?? `Junk ${pid}`], [pid * 100 + 1, `What a ${EDITOR_ITEMS[pid]?.name ?? 'thing'} is.`]])),
       packed: true,

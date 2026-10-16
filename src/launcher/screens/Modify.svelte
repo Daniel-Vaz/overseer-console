@@ -12,7 +12,10 @@
   import { launchGame } from '../launch';
   import { Editor } from '../modify/editor.svelte';
   import InventorySection from '../modify/InventorySection.svelte';
+  import KarmaSection from '../modify/KarmaSection.svelte';
+  import PartySection from '../modify/PartySection.svelte';
   import PerksSection from '../modify/PerksSection.svelte';
+  import PipboySection from '../modify/PipboySection.svelte';
   import RecordSection from '../modify/RecordSection.svelte';
   import SkillsSection from '../modify/SkillsSection.svelte';
   import SpecialSection from '../modify/SpecialSection.svelte';
@@ -24,16 +27,22 @@
 
   let { go, game, slot }: { go: (path: string) => void; game: GameId; slot: number } = $props();
 
+  // The character screen's parts, the Pip-Boy's, the party's: ten, keyed 1 to 9 and 0.
   const SECTIONS = [
     { id: 'record', label: 'Record' },
     { id: 'special', label: 'S.P.E.C.I.A.L.' },
     { id: 'skills', label: 'Skills' },
     { id: 'traits', label: 'Traits' },
     { id: 'perks', label: 'Perks' },
+    { id: 'karma', label: 'Karma' },
     { id: 'inventory', label: 'Inventory' },
+    { id: 'party', label: 'Party' },
+    { id: 'pipboy', label: 'Pip-Boy' },
     { id: 'write', label: 'Write' },
   ] as const;
   type SectionId = (typeof SECTIONS)[number]['id'];
+  /** The key that opens a section: its number, the tenth 0. */
+  const keyOf = (number: number) => String((number + 1) % 10);
 
   let editor = $state<Editor | null>(null);
   let failure = $state<string | null>(null);
@@ -54,12 +63,15 @@
   const index = $derived(SECTIONS.findIndex((entry) => entry.id === section));
 
   const HINTS: Record<SectionId, [string, string][]> = {
-    record: [['↑↓', 'SELECT'], ['←→', 'CHANGE'], ['ENTER', 'TYPE'], ['H', 'HEAL']],
+    record: [['↑↓', 'SELECT'], ['←→', 'CHANGE'], ['ENTER', 'TYPE / DO'], ['H', 'HEAL']],
     special: [['↑↓', 'SELECT'], ['←→', 'CHANGE'], ['ENTER', 'TYPE']],
-    skills: [['↑↓', 'SELECT'], ['←→', 'POINTS'], ['ENTER', 'TYPE'], ['T', 'TAG']],
+    skills: [['↑↓', 'SELECT'], ['←→', 'POINTS'], ['ENTER', 'TYPE'], ['T', 'TAG'], ['P', 'RULES']],
     traits: [['↑↓', 'SELECT'], ['ENTER', 'TAKE / GIVE UP']],
-    perks: [['↑↓', 'SELECT'], ['←→', 'RANK'], ['F', 'FILTER']],
+    perks: [['↑↓', 'SELECT'], ['←→', 'RANK'], ['F', 'FILTER'], ['P', 'RULES']],
+    karma: [['↑↓', 'SELECT'], ['←→', 'CHANGE'], ['ENTER', 'TYPE / SWITCH']],
     inventory: [['↑↓', 'SELECT'], ['←→', 'HOW MANY'], ['A', 'ADD'], ['D', 'TAKE OUT']],
+    party: [['↑↓', 'SELECT'], ['←→', 'CHANGE'], ['A', 'ADD'], ['D', 'TAKE OUT'], ['H', 'HEAL']],
+    pipboy: [['↑↓', 'SELECT'], ['←→', 'CHANGE'], ['C', 'COMPLETE'], ['R', 'NEW GAME'], ['V', 'VARIABLES']],
     write: [['↑↓', 'SELECT'], ['W', 'WRITE'], ['U', 'UNDO']],
   };
 
@@ -68,8 +80,10 @@
       sys.hints = [['ESC', 'BACK']];
     } else if (leaving || written) {
       sys.hints = [['↑↓', 'SELECT'], ['ENTER', 'CHOOSE'], ['ESC', 'BACK']];
-    } else if (editor.picking && section === 'inventory') {
-      sys.hints = [['TYPE', 'FIND'], ['[ ]', 'KIND'], ['ENTER', 'ADD'], ['ESC', 'DONE']];
+    } else if (editor.picking) {
+      sys.hints = [['TYPE', 'FIND'], ['[ ]', 'KIND'], ['ENTER', section === 'party' ? 'GIVE' : 'ADD'], ['ESC', 'DONE']];
+    } else if (editor.variables && section === 'pipboy') {
+      sys.hints = [['TYPE', 'FIND'], ['←→', 'CHANGE'], ['R', 'NEW GAME'], ['F', 'FILTER'], ['ESC', 'PIP-BOY']];
     } else {
       sys.hints = [...HINTS[section], ['TAB', 'SECTION'], ['ESC', 'BACK']];
     }
@@ -93,10 +107,11 @@
       if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || isTyping(event)) return;
       const key = event.key;
       if (key === 'Escape' || key === 'Backspace') {
-        // Backspace is the search's own while the list of everything is open.
-        if (editor?.picking && section === 'inventory') {
+        // Backspace is the search's own while a list to search is open.
+        if (editor?.searching && (section === 'inventory' || section === 'party' || section === 'pipboy')) {
           if (key === 'Backspace') return;
-          editor.picking = false;
+          if (editor.picking) editor.picking = false;
+          else editor.variables = false;
         } else if (leaving) {
           leaving = false;
         } else if (!stepOut()) {
@@ -112,11 +127,11 @@
         event.preventDefault();
         event.stopPropagation();
         show(SECTIONS[(index + (event.shiftKey ? SECTIONS.length - 1 : 1)) % SECTIONS.length]!.id);
-      } else if (/^[1-7]$/.test(key) && !(editor.picking && section === 'inventory')) {
+      } else if (/^[0-9]$/.test(key) && !editor.searching) {
         event.preventDefault();
         event.stopPropagation();
-        show(SECTIONS[Number(key) - 1]!.id);
-      } else if (key.toLowerCase() === 'w' && section !== 'write' && !(editor.picking && section === 'inventory')) {
+        show(SECTIONS[(Number(key) + 9) % 10]!.id);
+      } else if (key.toLowerCase() === 'w' && section !== 'write' && !editor.searching) {
         event.preventDefault();
         event.stopPropagation();
         show('write');
@@ -131,7 +146,10 @@
 
   function show(next: SectionId): void {
     if (next === section) return;
-    if (editor) editor.picking = false;
+    if (editor) {
+      editor.picking = false;
+      editor.variables = false;
+    }
     section = next;
     message = null;
     sfx.select();
@@ -244,7 +262,7 @@
     <nav class="sections" aria-label="Sections">
       {#each SECTIONS as entry, number (entry.id)}
         <button type="button" class="section-tab" class:on={entry.id === section} aria-current={entry.id === section ? 'page' : undefined} onclick={() => show(entry.id)}>
-          <span class="key">{number + 1}</span>{entry.label}{#if entry.id === 'write' && editor.changes.length}<span class="count">{editor.changes.length}</span>{/if}
+          <span class="key">{keyOf(number)}</span>{entry.label}{#if entry.id === 'write' && editor.changes.length}<span class="count">{editor.changes.length}</span>{/if}
         </button>
       {/each}
     </nav>
@@ -266,8 +284,14 @@
         <TraitsSection {editor} {say} />
       {:else if section === 'perks'}
         <PerksSection {editor} {say} />
+      {:else if section === 'karma'}
+        <KarmaSection {editor} {say} />
       {:else if section === 'inventory'}
         <InventorySection {editor} {say} />
+      {:else if section === 'party'}
+        <PartySection {editor} {say} />
+      {:else if section === 'pipboy'}
+        <PipboySection {editor} {say} />
       {:else}
         <WriteSection {editor} {say} {running} {palette} {facts} write={() => void write()} />
       {/if}

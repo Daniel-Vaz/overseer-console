@@ -122,7 +122,7 @@ export function messages(file: Uint8Array): Map<number, string> {
  * As the engines do it: a line ends at its first ";" (or "#" where it has
  * none), and names are matched without regard to case.
  */
-function sections(file: Uint8Array): Map<string, Map<string, string>> {
+export function sections(file: Uint8Array): Map<string, Map<string, string>> {
   const found = new Map<string, Map<string, string>>();
   let current: Map<string, string> | undefined;
   for (const raw of new TextDecoder('windows-1252').decode(file).split(/\r?\n/)) {

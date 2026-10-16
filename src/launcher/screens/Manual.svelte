@@ -433,17 +433,28 @@
 
           <h2>Modifying a save</h2>
           <p>
-            Open a slot and choose <span class="hot">Modify this save</span> to change the character in it: name, gender,
-            age, level and experience, S.P.E.C.I.A.L., skills and tagged skills, traits, perks, hit points, and what they
-            carry. The editor reads the game's own rules, words, pictures and items out of your game files, so the game's
-            holodisk must be loaded (for Fallout Et Tu, Fallout 2's as well).
+            Open a slot and choose <span class="hot">Modify this save</span> to change what is in it: the character (name,
+            gender, age, level and experience, S.P.E.C.I.A.L., skills and tags, traits, perks, hit points, what they carry),
+            its karma, reputations, standing in each town, addictions and kills, the companions who travel with it (their
+            hit points and what they carry), and what the Pip-Boy keeps: the date, the quests, the holodisks, the places on
+            the world map, Vault 13's water and the car's fuel where the game counts them. The editor reads the game's own
+            rules, words, pictures and items out of your game files, so the game's holodisk must be loaded (for Fallout Et
+            Tu, Fallout 2's as well).
           </p>
           <p>
-            Move between its sections with <kbd>TAB</kbd> or <kbd>1</kbd> to <kbd>7</kbd>, change a value with
-            <kbd>&larr;</kbd> and <kbd>&rarr;</kbd>, and press <kbd>ENTER</kbd> to type it. What follows from a change is
-            worked out as the game would: more Strength carries more, a perk adds what it adds, a level brings its hit
-            points. The skill points and perks new levels bring are handed out by the game's own character screen, the
-            next time it opens. What is in hand or worn is left as it is.
+            Move between its sections with <kbd>TAB</kbd> or <kbd>1</kbd> to <kbd>9</kbd> and <kbd>0</kbd>, change a value
+            with <kbd>&larr;</kbd> and <kbd>&rarr;</kbd>, and press <kbd>ENTER</kbd> to type it. What follows from a change
+            is worked out as the game would: more Strength carries more, a perk adds what it adds, a level brings its hit
+            points, a cured addiction takes back the withdrawal it brought. The skill points and perks new levels bring are
+            handed out by the game's own character screen, the next time it opens; the editor says how many. What is in hand
+            or worn is left as it is. <kbd>P</kbd> under Skills or Perks plays by the rules: skill points bought with the
+            unspent ones at the game's price, perks taken only when one is owed.
+          </p>
+          <p>
+            Under Pip-Boy, <kbd>C</kbd> crosses a quest out and <kbd>R</kbd> puts it back as a new game has it: that is the
+            Pip-Boy's record only, and what the quest brings is for the game's scripts to give. <kbd>V</kbd> lists every
+            one of the game's global variables, to search by name or number. Record has quick actions: every statistic at
+            10, every skill at its most, the highest level, every perk the game offers, the game's best things.
           </p>
           <p>
             Nothing is written until you choose <span class="hot">Write</span>, which lists every change, each to be undone

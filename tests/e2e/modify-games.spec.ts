@@ -1,11 +1,14 @@
 import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Download, Page } from '@playwright/test';
-import { unzipSync } from 'fflate';
+import { unzipSync, zipSync } from 'fflate';
 import { readCatalog, type Catalog } from '../../src/lib/modify/catalog';
+import { readParty } from '../../src/lib/modify/party';
 import { readSave, type Original } from '../../src/lib/modify/record';
+import { parseSaveHeader } from '../../src/lib/savefile';
 import type { GameData } from '../../src/lib/gamedata';
 import { folderGameData, layeredGameData } from '../gamedata';
+import { recruit } from '../party';
 import { expect, test } from './fixtures';
 import { launch, openConsole, pause, pickFolder, waitForPicture } from './helpers';
 
@@ -54,15 +57,20 @@ async function leave(page: Page, title: RegExp): Promise<void> {
   await expect(page.getByRole('heading', { name: title })).toBeVisible({ timeout: 30_000 });
 }
 
-/** Slot 7's SAVE.DAT, by way of the archives' export. */
-async function slot7(page: Page, game: string): Promise<Uint8Array> {
+/** Slot 7's files, by way of the archives' export. */
+async function slot7Files(page: Page, game: string): Promise<Record<string, Uint8Array>> {
   await page.goto(`#/saves/${game}/7`);
   await expect(page.locator('.menu li', { hasText: 'Export this save' })).toBeVisible();
   const download: Promise<Download> = page.waitForEvent('download');
   await page.keyboard.press('e');
   const archive = unzipSync(new Uint8Array(readFileSync(await (await download).path())));
-  const name = Object.keys(archive).find((path) => /SLOT07\/SAVE\.DAT$/i.test(path))!;
-  return archive[name]!;
+  return Object.fromEntries(Object.entries(archive).filter(([path]) => /SLOT07\//i.test(path)));
+}
+
+/** Slot 7's SAVE.DAT. */
+async function slot7(page: Page, game: string): Promise<Uint8Array> {
+  const files = await slot7Files(page, game);
+  return files[Object.keys(files).find((path) => /SAVE\.DAT$/i.test(path))!]!;
 }
 
 const selected = (page: Page) => page.locator('.ledger li.selected');
@@ -98,7 +106,7 @@ async function modify(page: Page, game: string): Promise<void> {
   await page.keyboard.press('5');
   await cursorTo(page, 'Toughness');
   await page.keyboard.press('ArrowRight');
-  await page.keyboard.press('6');
+  await page.keyboard.press('7');
   await page.keyboard.press('a');
   await page.keyboard.type('stimpak');
   await page.keyboard.press('ArrowDown');
@@ -106,7 +114,23 @@ async function modify(page: Page, game: string): Promise<void> {
   await page.keyboard.press('Enter');
   await page.keyboard.press('Enter');
   await page.keyboard.press('Escape');
-  await page.keyboard.press('7');
+  // Karma: more of it, and a kill.
+  await page.keyboard.press('6');
+  await cursorTo(page, 'Karma');
+  await page.keyboard.press('ArrowRight');
+  await cursorTo(page, 'Men');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  // Pip-Boy: the first quest that is not done, crossed out.
+  await page.keyboard.press('9');
+  await page.keyboard.press('Home');
+  for (let step = 0; step < 40; step++) {
+    if (/^(NOT SHOWN|OPEN)$/.test(((await selected(page).locator('.value').textContent()) ?? '').trim())) break;
+    await page.keyboard.press('ArrowDown');
+  }
+  await page.keyboard.press('c');
+  await expect(selected(page).locator('.value')).toHaveText('DONE');
+  await page.keyboard.press('0');
   await page.keyboard.press('w');
   await expect(page.getByText(/SLOT 07 MODIFIED/)).toBeVisible();
 }
@@ -162,6 +186,12 @@ async function roundTrip(page: Page, game: 'fo1' | 'fo2' | 'ettu', title: RegExp
 
   // The game read every change, and wrote it back as it was given.
   expect(sheet(again)).toEqual(sheet(written));
+  // The world as well: the quest and the karma (the variables the editor changed), the kills.
+  const changed = written.record.globals.flatMap((value, index) => (value !== before.record.globals[index] ? [index] : []));
+  expect(changed).toHaveLength(2);
+  for (const index of changed) expect(again.record.globals[index]).toBe(written.record.globals[index]);
+  expect(written.record.kills[0]).toBe(before.record.kills[0]! + 2);
+  expect(again.record.kills).toEqual(written.record.kills);
   expect(faults).toEqual([]);
 }
 
@@ -176,6 +206,75 @@ for (const [game, title, dir, data] of [
     await pickFolder(page, dir!);
     await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 300_000 });
     await roundTrip(page, game, new RegExp(`${title}$`), data);
+  });
+}
+
+/**
+ * A companion changed in the console, and the game as the judge again: the
+ * quick save's creature taken into the party (tests/party.ts) in slot 3,
+ * healed and given stimpaks, loaded, and quick saved from inside the game.
+ */
+async function companionTrip(page: Page, game: 'fo1' | 'fo2', title: RegExp, data: () => Promise<GameData>): Promise<void> {
+  const faults: string[] = [];
+  page.on('pageerror', (error) => faults.push(error.message));
+  await newGame(page);
+  await quickSave(page);
+  await leave(page, title);
+  const gameData = await data();
+  const catalog = await readCatalog(gameData);
+  const { files, id } = await recruit(await slot7Files(page, game), game, gameData, catalog);
+  const slot3 = Object.fromEntries(Object.entries(files).map(([path, bytes]) => [path.replace(/SLOT07/i, 'SLOT03'), bytes]));
+  await page.goto(`#/saves/${game}`);
+  await page.locator('input[accept*="zip"]').setInputFiles({ name: 'party.zip', mimeType: 'application/zip', buffer: Buffer.from(zipSync(slot3)) });
+  await expect(page.getByText(/restored from the archive/)).toBeVisible();
+
+  await page.goto(`#/saves/${game}/modify/3`);
+  await expect(selected(page)).toContainText('Name');
+  await page.keyboard.press('8');
+  await expect(selected(page)).toContainText('Hit points');
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('a');
+  await page.keyboard.type('stimpak');
+  await page.keyboard.press('ArrowDown');
+  await expect(selected(page)).toContainText('Stimpak');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('0');
+  await page.keyboard.press('w');
+  await expect(page.getByText(/SLOT 03 MODIFIED/)).toBeVisible();
+
+  await page.goto(`#/saves/${game}/3`);
+  await launch(page, 'Load this save', 'l');
+  await waitForPicture(page, 6000);
+  await quickSave(page);
+  await leave(page, title);
+  const again = await slot7Files(page, game);
+  const save = again[Object.keys(again).find((path) => /SAVE\.DAT$/i.test(path))!]!;
+  const kindOf = (pid: number) => catalog.items.get(pid)?.kind;
+  const members = readSave(save, game, kindOf).map.rest!.party.members;
+  expect(members).toContain(id);
+  const entries = Object.entries(again).map(([path, bytes]) => ({ key: path.toLowerCase().replace(/^savegame/, 'data/savegame'), path, data: bytes }));
+  const party = await readParty(gameData, catalog, entries, 'data/savegame/slot07/', parseSaveHeader(save)!.map, members);
+  const member = party!.members.find((entry) => entry.id === id)!;
+  const stimpak = [...catalog.items.values()].find((item) => item.name === 'Stimpak')!.pid;
+  // The game kept what the editor wrote: one hit point less, two stimpaks more.
+  expect(member.record.hitPoints).toBeLessThan(member.maxHitPoints);
+  expect(member.record.items.filter((entry) => entry.pid === stimpak).reduce((sum, entry) => sum + entry.quantity, 0)).toBe(2);
+  expect(faults).toEqual([]);
+}
+
+for (const [game, title, dir, data] of [
+  ['fo1', 'Fallout', FO1, () => folderGameData('fo1', FO1!, ['master.dat', 'critter.dat'])],
+  ['fo2', 'Fallout 2', FO2, () => folderGameData('fo2', FO2!, ['patch000.dat', 'f2_res.dat', 'critter.dat', 'master.dat'])],
+] as const) {
+  test(`${title}: a companion changed in the console is the one the game plays`, async ({ page }) => {
+    test.skip(!dir, `set ${game.toUpperCase()}_DIR to your ${title} folder to run this`);
+    test.setTimeout(600_000);
+    await openConsole(page, game, { skipIntro: true });
+    await pickFolder(page, dir!);
+    await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 300_000 });
+    await companionTrip(page, game, new RegExp(`${title}$`), data);
   });
 }
 

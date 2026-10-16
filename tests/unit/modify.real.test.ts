@@ -8,16 +8,19 @@
  * Fallout Et Tu needs its package unpacked (ETTU a folder, not the zip) and
  * Fallout 2 beside it, whose archives it runs on.
  */
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, openAsBlob, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { indexDat, readDatEntry, type DatArchive } from '../../src/lib/dat';
 import type { GameData } from '../../src/lib/gamedata';
 import type { GameId } from '../../src/lib/games';
 import { readCatalog, type Catalog, type ItemProto } from '../../src/lib/modify/catalog';
+import { readMapWith } from '../../src/lib/modify/party';
 import { Pictures } from '../../src/lib/modify/pictures';
 import { copyRecord, readSave, writeSave } from '../../src/lib/modify/record';
 import { PRIMARY, choosable, experienceFor, readRules, type Rules } from '../../src/lib/modify/rules';
 import { GAMES } from '../../src/lib/games';
+import { TOWN_PICTURES, readWorld } from '../../src/lib/modify/world';
 import { folderGameData, layeredGameData } from '../gamedata';
 import { buildSave, type Item } from '../saves';
 
@@ -41,6 +44,27 @@ const games: [GameId, string | undefined, () => Promise<GameData>][] = [
   ['fo2', FO2, () => folderGameData('fo2', FO2!, ['patch000.dat', 'f2_res.dat', 'critter.dat', 'master.dat'])],
   ['ettu', ETTU && FO2, ettuData],
 ];
+
+/** Every map a game has: Fallout and Fallout 2 in their MASTER.DAT, Fallout Et Tu loose in its mods. */
+async function mapsOf(game: GameId): Promise<[string, Uint8Array][]> {
+  if (game === 'ettu') {
+    const out: [string, Uint8Array][] = [];
+    for (const mod of readdirSync(join(ETTU!, 'mods'), { withFileTypes: true })) {
+      const folder = join(ETTU!, 'mods', mod.name, 'maps');
+      if (!mod.isDirectory() || !existsSync(folder)) continue;
+      for (const name of readdirSync(folder)) if (/\.map$/i.test(name)) out.push([`${mod.name}/${name}`, new Uint8Array(readFileSync(join(folder, name)))]);
+    }
+    return out;
+  }
+  const folder = game === 'fo1' ? FO1! : FO2!;
+  const name = readdirSync(folder).find((entry) => entry.toLowerCase() === 'master.dat')!;
+  const format = GAMES[game].datFormat;
+  const archive = (await openAsBlob(join(folder, name))) as unknown as DatArchive;
+  const index = await indexDat(archive, format);
+  const out: [string, Uint8Array][] = [];
+  for (const [key, entry] of index) if (/^maps\/.*\.map$/.test(key)) out.push([key, await readDatEntry(archive, format, entry)]);
+  return out;
+}
 
 /** One offered item of a kind, as the test save stores it. */
 function sample(catalog: Catalog, kind: ItemProto['kind'], quantity = 1, flags?: number): Item {
@@ -89,6 +113,43 @@ for (const [game, available, open] of games) {
       }
       expect(without).toEqual([]);
     }, 120_000);
+
+    it("knows the game's world: its variables, quests, holodisks, karma, towns and kills, with their cards", async () => {
+      const world = await readWorld(data);
+      expect(world.variables.length).toBe(game === 'fo1' ? 618 : game === 'fo2' ? 696 : world.variables.length);
+      expect(world.variables.length).toBeGreaterThan(600);
+      expect(world.quests.length).toBeGreaterThan(25);
+      expect(world.quests.every((quest) => quest.place && quest.text && quest.variable < world.variables.length)).toBe(true);
+      expect(world.holodisks.length).toBeGreaterThan(10);
+      expect(world.holodisks.every((disk) => disk.name && disk.variable < world.variables.length)).toBe(true);
+      expect(world.karma?.name).toBeTruthy();
+      expect(world.titles.length).toBeGreaterThanOrEqual(3);
+      expect(world.addictions.every((addiction) => addiction.name && addiction.drugs.length)).toBe(true);
+      expect(world.kills.filter((kind) => kind.name).length).toBeGreaterThanOrEqual(15);
+      expect(world.areas.length).toBeGreaterThanOrEqual(10);
+      expect(new Set(world.areas.map((area) => area.name)).size).toBe(world.areas.length);
+      expect(!!world.water).toBe(game !== 'fo2');
+      if (game !== 'fo1') expect(world.towns.length).toBeGreaterThanOrEqual(10);
+      const pictures = new Pictures(data);
+      const missing: number[] = [];
+      for (const card of [...world.titles, ...world.addictions].map((title) => title.picture)) if (!(await pictures.card(card))) missing.push(card);
+      if (game !== 'fo1') for (const card of TOWN_PICTURES) if (!(await pictures.card(card))) missing.push(card);
+      expect(missing).toEqual([]);
+    }, 60_000);
+
+    it('reads every map of the game to its last byte', async () => {
+      const maps = await mapsOf(game);
+      expect(maps.length).toBeGreaterThan(game === 'ettu' ? 50 : 60);
+      const failed: string[] = [];
+      for (const [name, bytes] of maps) {
+        try {
+          await readMapWith(data, catalog, bytes);
+        } catch (err) {
+          failed.push(`${name}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      expect(failed).toEqual([]);
+    }, 300_000);
 
     it('changes a save made of real items, and proves it', async () => {
       const layout = GAMES[game].engine.id;

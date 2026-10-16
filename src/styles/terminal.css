@@ -1428,6 +1428,7 @@ kbd {
 .ledger .value {
   overflow: hidden;
   text-align: right;
+  text-overflow: ellipsis;
   text-transform: uppercase;
   white-space: nowrap;
 }
@@ -1613,6 +1614,13 @@ kbd {
   outline: none;
 }
 
+/* More than one deed on a card: side by side, as long as they fit. */
+.card-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3em 1ch;
+}
+
 .picker-search {
   grid-template-columns: 8ch minmax(0, 1fr);
   margin-top: 0;
@@ -1767,7 +1775,17 @@ kbd {
   }
 
   .sections {
+    gap: 0 0.3ch;
     margin-top: 0.2em;
+  }
+
+  /* Ten sections across a phone held sideways: closer together. */
+  .section-tab {
+    padding-inline: 0.6ch;
+  }
+
+  .section-tab .key {
+    margin-right: 0.4ch;
   }
 
   .modify-message:empty {

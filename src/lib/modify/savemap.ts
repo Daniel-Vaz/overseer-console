@@ -20,6 +20,7 @@
  * touched.
  */
 import { HEADER_SIZE, LAYOUT, OBJECT_BYTES, PREFERENCE_WORDS, SKILLS, STATS, Words, locateGlobals, locateTail, looksLikeSheet, parseSaveHeader, validPreferences, type SaveLayout } from '../savefile';
+import { readQueue, readRest, type Queue, type SaveRest } from './tail';
 
 /** What an item is, as far as how it is stored: the words that follow its flags. */
 export type ItemKind = 'armor' | 'container' | 'drug' | 'weapon' | 'ammo' | 'misc' | 'key';
@@ -64,8 +65,8 @@ export interface MappedItem {
 
 export interface SaveMap {
   layout: SaveLayout;
-  /** The first copy of the global variables, and how many there are. */
-  globals: { at: number; count: number };
+  /** The first copy of the global variables, how many there are, and where the second copy is. */
+  globals: { at: number; count: number; again: number };
   /** The player's object. */
   dude: number;
   /** Everything the player carries, and where that ends. */
@@ -86,6 +87,12 @@ export interface SaveMap {
   /** The character screen's last level (a word) and perks owed (a byte). */
   lastLevel: number;
   perksOwed: number;
+  /** The prototype's flags: sneaking, a level to take, addicted (critter.cc, the dude's states). */
+  protoFlags: number;
+  /** The queue of timed events: Fallout 1 keeps it before the traits, Fallout 2 near the end. Null when it does not read. */
+  queue: Queue | null;
+  /** What follows the character screen's record, when all of it reads. */
+  rest: SaveRest | null;
 }
 
 export class SaveMapError extends Error {}
@@ -169,9 +176,12 @@ export function mapSave(data: Uint8Array, layout: SaveLayout, kindOf: (pid: numb
     const last = words.int(lastLevel);
     if (last < 0 || last > 99) throw new SaveMapError("the character screen's record does not read");
 
+    const rest = readRest(data, layout, perksOwed + 1, tail.companions ?? 0);
+    const queue = layout === 'fo1' ? (tail.queue === undefined ? null : readQueue(words, tail.queue, 'fo1')) : (rest?.queue ?? null);
+    const length = globals.count * 4 + shape.globalsTail;
     return {
       layout,
-      globals: { at: globalsAt, count: globals.count },
+      globals: { at: globalsAt, count: globals.count, again: globals.end - length },
       dude,
       items,
       itemsEnd,
@@ -187,6 +197,9 @@ export function mapSave(data: Uint8Array, layout: SaveLayout, kindOf: (pid: numb
       preferences,
       lastLevel,
       perksOwed,
+      protoFlags: itemsEnd + 8,
+      queue,
+      rest,
     };
   } catch (err) {
     if (err instanceof SaveMapError) throw err;

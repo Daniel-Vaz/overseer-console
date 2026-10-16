@@ -259,6 +259,12 @@ export interface Rules {
   skillMax: number;
   /** The game's words for the gender a character can be. */
   genders: [string, string];
+  /**
+   * Fallout 2's engine: what a point of each skill costs, by the skill's value
+   * (or, with `costsByPoints`, by the points spent on it). Fallout 1 charges one.
+   */
+  costs: number[][] | null;
+  costsByPoints: boolean;
 }
 
 /** What the rules are applied to: the parts of a character sheet they read. */
@@ -375,7 +381,15 @@ export async function readRules(data: GameData): Promise<Rules> {
   let tagBonus = 20;
   let tagPerkBonus = engine === 'fo1';
   let tagDoubles = true;
+  // What a point costs, by the value it is bought at (skillsGetCost): 1 up to 100%, then one more every 25%, 6 from 201%.
+  const costs = engine === 'fo2' ? skills.map(() => Array.from({ length: SKILL_COST_LEVELS }, (_, value) => defaultCost(value))) : null;
+  let costsByPoints = false;
   if (skillsIni) {
+    costsByPoints = (integer(skillsIni.get('Skills', 'BasedOnPoints')) ?? 0) !== 0;
+    skills.forEach((_, skill) => {
+      const list = skillsIni.get('Skills', `SkillCost${skill}`);
+      if (list !== undefined && costs) costs[skill] = customCosts(list);
+    });
     const bonus = integer(skillsIni.get('Skills', 'TagSkillBonus'));
     if (bonus !== undefined && bonus >= 0 && bonus <= 100) tagBonus = bonus;
     const mode = integer(skillsIni.get('Skills', 'TagSkillMode')) ?? 0;
@@ -516,7 +530,42 @@ export async function readRules(data: GameData): Promise<Rules> {
     tagDoubles,
     skillMax: engine === 'fo1' ? 200 : 300,
     genders,
+    costs,
+    costsByPoints,
   };
+}
+
+/** Values a skill's price is kept for (skill.cc, SKILLS_MAX_COST_LEVEL). */
+const SKILL_COST_LEVELS = 512;
+
+function defaultCost(value: number): number {
+  if (value >= 201) return 6;
+  if (value >= 176) return 5;
+  if (value >= 151) return 4;
+  if (value >= 126) return 3;
+  if (value >= 101) return 2;
+  return 1;
+}
+
+/** A game's own prices for a skill (Skills.ini, SkillCost): "60|90|120" costs 1 below 60, 2 below 90... (skillsLoadCustomCosts). */
+function customCosts(list: string): number[] {
+  const out: number[] = [];
+  let price = 1;
+  for (const token of list.split('|')) {
+    if (!token) continue;
+    const next = Number.parseInt(token, 10) || 0;
+    while (out.length < next && out.length < SKILL_COST_LEVELS) out.push(price);
+    price++;
+  }
+  while (out.length < SKILL_COST_LEVELS) out.push(price);
+  return out;
+}
+
+/** What the next point of a skill costs on the character screen (skillAdd): by its value now, or by its points. */
+export function skillCost(rules: Rules, sheet: Sheet, skill: number): number {
+  if (!rules.costs) return 1;
+  const at = rules.costsByPoints ? sheet.skills[skill]! : skillValue(rules, sheet, skill);
+  return rules.costs[skill]![Math.min(SKILL_COST_LEVELS - 1, Math.max(0, at))]!;
 }
 
 // ---------------------------------------------------------------------
@@ -738,6 +787,37 @@ export function hitPointsPerLevel(rules: Rules, sheet: Sheet): number {
   const endurance = baseWithTraits(rules, sheet, STAT.endurance);
   const lifegiver = rank(sheet, PERK.lifegiver) * (rules.engine === 'fo2' ? rules.tweaks.lifegiver : 4);
   return Math.trunc(endurance / 2) + 2 + lifegiver;
+}
+
+/**
+ * What the game's character screen hands out the next time it opens, for the
+ * levels above the last one it saw (characterEditorUpdateLevel, UpdateLevel):
+ * skill points for each (never more than 99 unspent), and a perk at every
+ * third level (fourth, for the Skilled) while the character has room for
+ * one. Fallout 2's engine counts what is owed up; Fallout 1's owes one.
+ */
+export function levelUpGrants(rules: Rules, sheet: Sheet, from: number, to: number, unspent: number, owed: number): { skillPoints: number; perks: number } {
+  let points = unspent;
+  let perks = owed;
+  const skilled = active(rules, sheet, TRAIT.skilled);
+  const gifted = active(rules, sheet, TRAIT.gifted);
+  const every = skilled ? 4 : 3;
+  const distinct = sheet.perks.filter((ranks) => ranks > 0).length;
+  const intelligence = baseWithTraits(rules, sheet, STAT.intelligence);
+  for (let level = from + 1; level <= to; level++) {
+    if (rules.engine === 'fo2') {
+      points += 5 + intelligence * 2 + rank(sheet, PERK.educated) * rules.tweaks.educated + (skilled ? 5 : 0) - (gifted ? 5 : 0);
+      points = Math.min(99, Math.max(0, points));
+      // Perks are handed out here only for a save that owes none (perks are owed as levels are gained, since).
+      if (owed === 0 && level % every === 0 && distinct < 37 && perks < 250) perks++;
+    } else {
+      points += 5 + intelligence * 2 + rank(sheet, PERK.educated) * 2;
+      if (gifted) points = Math.max(0, points - 5);
+      points = Math.min(99, points);
+      if (distinct < 7 && level % every === 0) perks = 1;
+    }
+  }
+  return { skillPoints: points - unspent, perks: perks - owed };
 }
 
 /** The experience a level starts at. */

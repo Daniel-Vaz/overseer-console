@@ -47,6 +47,7 @@
     ...shown.map((perk): Line => {
       const rank = record.perks[perk.id] ?? 0;
       const met = requirements(rules, editor.sheet, perk).met;
+      const takenHere = rank > (editor.original.record.perks[perk.id] ?? 0);
       return {
         key: `p${perk.id}`,
         group: 'PERKS',
@@ -55,16 +56,21 @@
         mark: rank > 0 ? '*' : '',
         value: `${rank}/${perk.maxRank}`,
         tone: rank !== (editor.original.record.perks[perk.id] ?? 0) ? 'hot' : rank > 0 ? undefined : met ? undefined : 'dim',
-        note:
-          perk.maxRank > 1
+        note: editor.byRules
+          ? rank < perk.maxRank
+            ? `${met ? '' : 'Its requirements are not met. '}→ or ENTER takes it with a perk owed (${record.perksOwed} owed)${takenHere ? ', ← gives back the rank taken here' : ''}.`
+            : takenHere
+              ? 'At its highest rank. ← gives back the rank taken here.'
+              : 'At its highest rank.'
+          : perk.maxRank > 1
             ? `Rank ${rank} of ${perk.maxRank}. ←→ to change, ENTER for the next rank.`
             : rank
               ? 'Taken. ENTER or ← to give it up.'
               : `${met ? '' : 'Its requirements are not met, but it can be taken all the same. '}ENTER or → to take it.`,
-        less: rank > 0,
+        less: editor.byRules ? takenHere : rank > 0,
         more: rank < perk.maxRank,
-        adjust: (direction) => editor.setPerkRank(perk, rank + direction),
-        action: () => editor.setPerkRank(perk, rank >= perk.maxRank ? 0 : rank + 1),
+        adjust: (direction) => (editor.byRules ? pay(perk, direction) : editor.setPerkRank(perk, rank + direction)),
+        action: () => (editor.byRules ? pay(perk, rank < perk.maxRank ? 1 : -1) : editor.setPerkRank(perk, rank >= perk.maxRank ? 0 : rank + 1)),
       };
     }),
     ...editor.given.map(
@@ -90,10 +96,28 @@
     say(`Showing ${filter === 'all' ? 'every perk' : filter === 'taken' ? 'the perks taken' : 'the perks that can be taken'}.`);
   }
 
+  /** By the rules: a perk owed for each rank, its requirements met. */
+  function pay(perk: PerkRule, direction: 1 | -1): void {
+    const refused = editor.payPerk(perk, direction);
+    if (refused) say(refused, true);
+  }
+
+  function switchRules(): void {
+    editor.byRules = !editor.byRules;
+    say(editor.byRules ? 'By the rules: a perk is taken with a perk owed, its requirements met.' : 'Free: perks are taken as wanted.');
+  }
+
   function onkey(event: KeyboardEvent): boolean {
-    if (event.key.toLowerCase() !== 'f') return false;
-    cycle();
-    return true;
+    const key = event.key.toLowerCase();
+    if (key === 'f') {
+      cycle();
+      return true;
+    }
+    if (key === 'p') {
+      switchRules();
+      return true;
+    }
+    return false;
   }
 </script>
 
@@ -102,6 +126,7 @@
     <p class="modify-status">
       <span class="pair"><b>Taken</b> {editor.perks.reduce((sum, perk) => sum + (record.perks[perk.id] ? 1 : 0), 0)}</span>
       <button type="button" class="chip" onclick={cycle}>[F] {FILTER_NAMES[filter]}</button>
+      <button type="button" class="chip" class:on={editor.byRules} onclick={switchRules}>[P] {editor.byRules ? 'BY THE RULES' : 'FREE'}</button>
     </p>
     <Ledger {rows} bind:selected label="Perks" {onkey} valueWidth={5} empty="NO PERKS TO SHOW. F TO SHOW OTHERS." />
   </div>

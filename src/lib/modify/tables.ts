@@ -1,9 +1,10 @@
 /**
  * The rule tables of the two engines, as numbers. Generated from their
- * sources (fallout1-ce: game/perk.cc, skill.cc, trait.cc, stat.cc;
- * fallout2-ce: perk.cc, skill.cc, trait.cc, stat.cc) by
- * engines/lib/rule-tables.mjs, not to be edited by hand. What the numbers
- * mean is said in rules.ts, which reads them.
+ * sources (fallout1-ce: game/perk.cc, skill.cc, trait.cc, stat.cc,
+ * pipboy.cc, editor.cc, worldmap.cc, item.cc, game_vars.h; fallout2-ce:
+ * perk.cc, skill.cc, trait.cc, stat.cc, character_editor.cc, item.cc,
+ * game_vars.h) by engines/lib/rule-tables.mjs, not to be edited by hand.
+ * What the numbers mean is said in rules.ts and world.ts, which read them.
  */
 
 /**
@@ -338,3 +339,93 @@ export const FO2_STATS: readonly (readonly number[])[] = [
   [11, 0, 2000, 0],
   [12, 0, 2000, 0],
 ];
+
+/**
+ * Fallout 1's Pip-Boy, which knows its quests by heart: for each of its
+ * twelve places (pipboy.msg 700 + 10 x place names it), the global variables
+ * of its quests (701 + 10 x place + quest describes each). 0 hides a quest, 1
+ * shows it, 2 and more show it done.
+ */
+export const FO1_QUESTS: readonly (readonly number[])[] = [
+  [238, 309, 308, 101, 188],
+  [],
+  [239, 240, 103, 43],
+  [144, 105, 143, 145, 104, 555],
+  [],
+  [29, 31],
+  [100, 112, 111, 106, 107],
+  [108, 109],
+  [],
+  [140, 139],
+  [135, 127, 129, 133, 138, 130, 128],
+  [],
+];
+
+/** Fallout 1's holodisks: the global variable that gives each (pipboy.msg 400 + its place here names it). */
+export const FO1_HOLODISKS: readonly number[] = [162, 163, 161, 164, 165, 166, 167, 209, 210, 211, 212, 234, 235, 258, 259, 260, 237, 311];
+
+/** Fallout 1's karma: the variable, then the titles its character screen lists (editor.msg 1001 + place), three reputations and six addictions. */
+export const FO1_KARMA_VARIABLE = 155;
+export const FO1_KARMA_TITLES: readonly number[] = [156, 157, 158, 189, 190, 191, 192, 193, 194];
+/** Their pictures, karma's own first. */
+export const FO1_KARMA_PICTURES: readonly number[] = [48, 49, 51, 50, 52, 53, 53, 53, 53, 52];
+
+/** Fallout 1's towns: the variable that is 1 once each is known (map.msg 500 + town names it). */
+export const FO1_TOWN_VARIABLES: readonly number[] = [67, 70, 68, 71, 69, 72, 73, 74, 78, 76, 75, 77];
+
+/** Fallout 1's water: the days the vault has left, and the quest that ends the count at 2. */
+export const FO1_VAULT_WATER = 10;
+export const FO1_FIND_WATER_CHIP = 101;
+
+/** Drugs a character can be addicted to: [item, addiction variable]. */
+export const FO1_DRUGS: readonly (readonly number[])[] = [
+  [106, 189],
+  [87, 190],
+  [53, 191],
+  [110, 192],
+  [48, 193],
+  [124, 194],
+  [125, 194],
+];
+
+export const FO2_DRUGS: readonly (readonly number[])[] = [
+  [106, 21],
+  [87, 22],
+  [53, 23],
+  [110, 24],
+  [48, 25],
+  [124, 26],
+  [125, 26],
+  [259, 296],
+  [304, 295],
+];
+
+/** Fallout 2's karma variable; its titles and their thresholds are the game's own (karmavar.txt, genrep.txt). */
+export const FO2_KARMA_VARIABLE = 0;
+
+/** Fallout 2's town reputations, unless the game names its own: [variable, area]. */
+export const FO2_TOWN_REPUTATIONS: readonly (readonly number[])[] = [
+  [47, 0],
+  [48, 2],
+  [49, 1],
+  [50, 4],
+  [51, 5],
+  [52, 3],
+  [53, 8],
+  [54, 6],
+  [55, 7],
+  [56, 13],
+  [57, 10],
+  [59, 11],
+  [61, 14],
+  [63, 17],
+  [64, 19],
+  [65, 18],
+  [66, 25],
+  [294, 9],
+  [308, 20],
+];
+
+/** Fallout 2's addictions as its character screen lists them (editor.msg 1004 + place): variable, and picture. */
+export const FO2_ADDICTIONS: readonly number[] = [21, 22, 23, 24, 25, 26, 296, 295];
+export const FO2_ADDICTION_PICTURES: readonly number[] = [142, 126, 140, 144, 145, 52, 136, 149];

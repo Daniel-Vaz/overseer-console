@@ -289,11 +289,11 @@ export async function replaceSlot(
 export async function replaceInSlot(
   game: GameId,
   slot: number,
-  put: OverlayChanges['puts'][number],
+  put: OverlayChanges['puts'][number] | OverlayChanges['puts'],
   cause: VersionCause,
 ): Promise<void> {
   if (!(await keepVersion(game, slot, cause, Date.now()))) throw new Error('the save as it was could not be kept as an earlier version');
-  await commitOverlay(game, { puts: [put], deletes: [] });
+  await commitOverlay(game, { puts: Array.isArray(put) ? put : [put], deletes: [] });
 }
 
 // ---------------------------------------------------------------------

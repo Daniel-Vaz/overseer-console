@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test';
-import { zipSync } from 'fflate';
+import { gzipSync, zipSync } from 'fflate';
+import { buildMap } from '../maps';
 import { buildSave, type Item } from '../saves';
 import { expect, test } from './fixtures';
 import { EDITOR_ITEMS, fakeFallout2ForEditor, openConsole, pickFolder } from './helpers';
@@ -122,11 +123,11 @@ test('changes a character in every section and writes it into its slot', async (
   await expect(page.locator('.board.card .needs')).toContainText('Level 3');
   // Only the perks taken.
   await page.keyboard.press('f');
-  await expect(page.locator('.chip')).toHaveText('[F] TAKEN');
+  await expect(page.locator('.chip').first()).toHaveText('[F] TAKEN');
   await expect(page.locator('.ledger li .label')).toHaveText(['Perks owed', 'Toughness', 'Perk Number 50']);
 
   // Inventory: more stimpaks from the list of everything, the ammunition taken out, the knife in hand left alone.
-  await page.keyboard.press('6');
+  await page.keyboard.press('7');
   await expect(page.locator('.modify-status')).toContainText('Money 120');
   await page.keyboard.press('a');
   await expect(page.locator('.picker-search input')).toBeFocused();
@@ -146,7 +147,7 @@ test('changes a character in every section and writes it into its slot', async (
   await expect(row(page, 'Knife').locator('.value')).toHaveText('IN HAND');
 
   // Write: the changes listed, one undone, the rest written.
-  await page.keyboard.press('7');
+  await page.keyboard.press('0');
   await expect(page.locator('.ledger li', { hasText: 'Name Narg → Albert' })).toBeVisible();
   await expect(page.locator('.ledger li', { hasText: 'Took out 2 × 10mm JHP' })).toBeVisible();
   await page.locator('.ledger li', { hasText: 'Took out 2 × 10mm JHP' }).locator('.main').click();
@@ -170,6 +171,163 @@ test('changes a character in every section and writes it into its slot', async (
   await page.keyboard.press('Escape');
   await page.keyboard.press('Escape');
   await expect(page).toHaveURL(/#\/saves\/fo2$/);
+});
+
+/** Slot 4: a save that reads to its end, with Sulik in the party, in the map the player is on. */
+function worldSave(): Record<string, Uint8Array> {
+  const globals = new Array<number>(696).fill(0);
+  globals[9] = 2; // the plants: the quest is open
+  globals[18] = 1; // the car is the player's
+  return {
+    'SAVEGAME/SLOT04/SAVE.DAT': buildSave({
+      game: 'fo2',
+      globals,
+      items: [item(41, 50)],
+      special: [6, 7, 5, 4, 8, 7, 5],
+      stats: [7, 3, 3500, 0, 0],
+      traits: [-1, -1],
+      rest: {
+        party: [18003],
+        fuel: 20_000,
+        tiles: 4,
+        across: 2,
+        areas: [
+          { x: 100, y: 100, state: 1, visited: 2, entrances: [1] },
+          { x: 400, y: 120, state: 1, visited: 0, entrances: [1] },
+          { x: 420, y: 330, state: 1, visited: 0, entrances: [1, 0] },
+        ],
+      },
+    }),
+    'SAVEGAME/SLOT04/ARTEMPLE.SAV': gzipSync(buildMap({ critters: [{ id: 18003, pid: 0x01000003, hitPoints: 40, items: [item(4, 1, 0x02000000)] }] })),
+  };
+}
+
+test('changes the world, the karma and the party, and writes them into the slot', async ({ page }) => {
+  await furnish(page, worldSave());
+  await page.goto('#/saves/fo2/modify/4');
+  await expect(selected(page)).toContainText('Name');
+
+  // Record: a quick action, each of its changes listed on its own.
+  await cursorTo(page, 'Every statistic to 10');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.modify-message')).toContainText('every statistic at 10');
+  await expect(page.locator('.section-tab .count')).toHaveText('7');
+
+  // Karma: karma itself, a reputation, a town, a kill.
+  await page.keyboard.press('6');
+  await expect(page.locator('.modify-status')).toContainText('Karma 0 · WANDERER');
+  await cursorTo(page, 'Karma');
+  await page.keyboard.press('ArrowRight');
+  await expect(selected(page).locator('.value')).toHaveText('10');
+  await cursorTo(page, 'Childkiller');
+  await page.keyboard.press('Enter');
+  await expect(selected(page).locator('.value')).toHaveText('EARNED');
+  await cursorTo(page, 'Arroyo');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await expect(selected(page).locator('.value')).toHaveText('2 Accepted');
+  await cursorTo(page, 'Men');
+  await page.keyboard.press('ArrowRight');
+  await expect(selected(page).locator('.value')).toHaveText('1');
+
+  // Party: Sulik healed, and given stimpaks; his spear in hand left alone.
+  await page.keyboard.press('8');
+  await expect(page.locator('.ledger .group', { hasText: 'SULIK' })).toBeVisible();
+  await expect(selected(page)).toContainText('Hit points');
+  await expect(selected(page).locator('.value')).toHaveText('40 / 60');
+  await page.keyboard.press('h');
+  await expect(selected(page).locator('.value')).toHaveText('60 / 60');
+  await page.keyboard.press('a');
+  await expect(page.locator('.modify-status')).toContainText('Giving to Sulik');
+  await page.keyboard.type('stim');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.modify-message')).toContainText('Gave Sulik Stimpak.');
+  await page.keyboard.press('Escape');
+  await expect(row(page, 'Stimpak').locator('.value')).toHaveText('×2');
+  await expect(row(page, 'Knife').locator('.value')).toHaveText('IN HAND');
+
+  // Pip-Boy: a day later, the plants done, a holodisk, Klamath on the map, the car filled.
+  await page.keyboard.press('9');
+  await expect(selected(page)).toContainText('Date');
+  await expect(selected(page).locator('.value')).toHaveText('25 JUL 2241');
+  await page.keyboard.press('ArrowRight');
+  await expect(selected(page).locator('.value')).toHaveText('26 JUL 2241');
+  await cursorTo(page, "Kill the evil plants that infest Hakunin's garden.");
+  await expect(selected(page).locator('.value')).toHaveText('OPEN');
+  await page.keyboard.press('c');
+  await expect(selected(page).locator('.value')).toHaveText('DONE');
+  await cursorTo(page, 'Military Base Outside');
+  await page.keyboard.press('Enter');
+  await expect(selected(page).locator('.value')).toHaveText('HELD');
+  await cursorTo(page, 'Klamath');
+  await page.keyboard.press('Enter');
+  await expect(selected(page).locator('.value')).toHaveText('KNOWN');
+  await cursorTo(page, "Car's fuel");
+  await page.keyboard.press('End');
+  await cursorTo(page, "Car's fuel");
+  await page.keyboard.press('Enter');
+  await page.locator('.value-input').fill('80000');
+  await page.keyboard.press('Enter');
+  await expect(selected(page).locator('.value')).toHaveText('80,000 / 80,000');
+  // Every variable: found by its number, typed into.
+  await page.keyboard.press('v');
+  await expect(page.locator('.picker-search input')).toBeFocused();
+  await page.keyboard.type('47 town');
+  await expect(page.locator('.ledger li .label')).toHaveText(['47 GVAR_TOWN_REP_ARROYO']);
+  await expect(page.locator('.ledger li .value')).toHaveText('2');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.picker-search')).toHaveCount(0);
+
+  // Skills by the rules: points bought with the unspent ones.
+  await page.keyboard.press('3');
+  await page.keyboard.press('p');
+  await expect(page.locator('.chip', { hasText: 'BY THE RULES' })).toBeVisible();
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('.modify-status')).toContainText('Unspent points 6');
+  await page.keyboard.press('ArrowLeft');
+  await expect(page.locator('.modify-status')).toContainText('Unspent points 7');
+  // Only what was bought here can be sold back: no step down now.
+  await expect(selected(page).locator('.step').first()).toBeDisabled();
+
+  // Write: everything listed, then written; the save read again holds it.
+  await page.keyboard.press('0');
+  for (const text of [
+    'Karma 0 → 10',
+    'Childkiller: earned',
+    'Arroyo: reputation 0 → 2',
+    'Men killed 0 → 1',
+    'Sulik: hit points 40 → 60',
+    'Sulik: added 2 × Stimpak',
+    'Date 25 JUL 2241 00:00 → 26 JUL 2241 00:00',
+    "Quest: Kill the evil plants that infest Hakunin's gard… open → done",
+    'Holodisk Military Base Outside: given',
+    'Klamath: known on the world map',
+    "Car's fuel 20,000 → 80,000",
+  ]) {
+    await expect(page.locator('.ledger li', { hasText: text })).toBeVisible();
+  }
+  await page.keyboard.press('w');
+  await expect(page.getByText(/SLOT 04 MODIFIED: \d+ changes written\./)).toBeVisible();
+  await page.keyboard.press('m');
+  await page.keyboard.press('8');
+  await expect(row(page, 'Hit points').locator('.value')).toHaveText('60 / 60');
+  await expect(row(page, 'Stimpak').locator('.value')).toHaveText('×2');
+  await page.keyboard.press('9');
+  await cursorTo(page, "Kill the evil plants that infest Hakunin's garden.");
+  await expect(selected(page).locator('.value')).toHaveText('DONE');
+  await cursorTo(page, 'Date');
+  await expect(selected(page).locator('.value')).toHaveText('26 JUL 2241');
+  await expect(page.locator('.section-tab .count')).toHaveCount(0);
+});
+
+test('says the party cannot be changed where the end of the save does not read', async ({ page }) => {
+  await furnish(page);
+  await page.goto('#/saves/fo2/modify/2');
+  await expect(selected(page)).toContainText('Name');
+  await page.keyboard.press('8');
+  await expect(page.getByText('THE PARTY CANNOT BE CHANGED IN THIS SAVE.')).toBeVisible();
 });
 
 test('asks before leaving with changes not written, and leaves the save as it was', async ({ page }) => {
@@ -223,11 +381,11 @@ test.describe('on a phone', () => {
 });
 
 test('fits every window, the list under the cursor in view', async ({ page }) => {
-  await furnish(page);
+  await furnish(page, worldSave());
   for (const [width, height] of [[1280, 800], [1536, 730], [1366, 650], [1920, 950], [2560, 1300], [820, 1180], [390, 844], [844, 390]] as const) {
     await page.setViewportSize({ width, height });
-    for (const section of ['1', '5', '6', '7']) {
-      await page.goto('#/saves/fo2/modify/2');
+    for (const section of ['1', '5', '6', '7', '8', '9', '0']) {
+      await page.goto('#/saves/fo2/modify/4');
       await expect(page.locator('.ledger li.selected')).toBeVisible();
       await page.keyboard.press(section);
       await page.keyboard.press('End');

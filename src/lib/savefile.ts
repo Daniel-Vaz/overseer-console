@@ -298,6 +298,10 @@ export interface SaveTail {
   stats: number;
   /** Missing where Fallout 1's queue of events could not be read past. */
   traits?: number;
+  /** Fallout 1: where its queue of timed events starts. */
+  queue?: number;
+  /** Fallout 2: the possible companions the game knows, each with a block of perks after the player's. */
+  companions?: number;
 }
 
 /** The preferences: thirteen small numbers, then volumes and three floating point settings. */
@@ -361,7 +365,7 @@ export function locateTail(words: Words, game: Game, at: number): SaveTail | nul
         if (extra === undefined) return { stats };
         queue += 12 + 4 * extra;
       }
-      return validTraits(queue) ? { stats, traits: queue } : { stats };
+      return validTraits(queue) ? { stats, traits: queue, queue: stats + 20 } : { stats };
     } catch {
       // The statistics stand on their own.
       return { stats };
@@ -373,7 +377,7 @@ export function locateTail(words: Words, game: Game, at: number): SaveTail | nul
   // one arrangement after which the file reads as statistics, traits and
   // game preferences is looked for.
   const perkBlock = 4 * LAYOUT.fo2.perks;
-  let found: number | null = null;
+  let found: { stats: number; companions: number } | null = null;
   for (let companions = 0; companions <= 150; companions++) {
     const combatAt = at + companions * perkBlock;
     const combat = combatLength(combatAt);
@@ -382,12 +386,12 @@ export function locateTail(words: Words, game: Game, at: number): SaveTail | nul
       const stats = combatAt + combat + packets * AI_PACKET_WORDS * 4;
       if (!words.has(stats, 20 + 8 + 4 + PREFERENCE_WORDS * 4)) break;
       if (validStats(stats) && validTraits(stats + 20) && validPreferences(words, stats + 32)) {
-        if (found !== null && found !== stats) return null; // ambiguous: say nothing
-        found = stats;
+        if (found !== null && found.stats !== stats) return null; // ambiguous: say nothing
+        found = { stats, companions };
       }
     }
   }
-  return found === null ? null : { stats: found, traits: found + 20 };
+  return found === null ? null : { stats: found.stats, traits: found.stats + 20, companions: found.companions };
 }
 
 function levelAndTraits(words: Words, game: Game, at: number): Pick<Character, 'level' | 'experience' | 'traits'> {
