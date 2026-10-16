@@ -1,0 +1,89 @@
+# Developing
+
+You need Node.js 22 or newer, git, and podman or docker (for the Emscripten container).
+
+```sh
+npm install
+npm run engines     # build both engines into public/engines (a few minutes the first time)
+npm run dev         # http://localhost:5173/overseer-console/
+```
+
+## Checks
+
+```sh
+npm run check       # types
+npm test            # unit tests
+npm run build && npm run test:e2e
+```
+
+The browser tests in `tests/e2e/console.spec.ts` need nothing else.
+
+### Tests with the real games
+
+The ones in `tests/e2e/game.spec.ts` import and play the real games and are skipped unless you say where your
+copies are:
+
+```sh
+FO1_DIR="/path/to/Fallout" FO2_DIR="/path/to/Fallout 2" npm run test:e2e
+```
+
+With both of those and `ETTU="/path/to/Fallout1in2.zip"` (or its folder) the same file puts Fallout Et Tu
+together from the real things and starts it. `tests/e2e/ettu.spec.ts` does as much as made-up data allows,
+up to the engine opening the archives the console made.
+
+`tests/e2e/touch.spec.ts` plays them again with fingers only, on a phone-sized screen.
+
+`tests/e2e/modify-games.spec.ts` changes a quick save with the save editor, loads it in the game, saves again from
+inside it, and expects back what the editor wrote; then does the same with a companion (a creature of the first map
+taken into the party, see `tests/party.ts`). `tests/unit/modify.real.test.ts` checks the editor against the
+games' own rules, items, pictures and world, and reads every map of each game to its last byte; it takes the same
+`FO1_DIR` and `FO2_DIR`, and `ETTU` as the unpacked `Fallout1in2` folder.
+
+### Dropbox
+
+`tests/e2e/dropbox.spec.ts` and `tests/unit/dropbox.test.ts` run against a stand-in for Dropbox
+(`tests/fake-dropbox.ts`). No test talks to the real one unless you ask: with a token generated on your
+Dropbox app's Settings tab, this checks the stand-in against the real thing, in a folder of its own that it
+removes again:
+
+```sh
+DROPBOX_TEST_TOKEN="<token>" npx vitest run tests/unit/dropbox.live.test.ts
+```
+
+### Browsers
+
+`PW_BROWSERS=chromium,firefox,webkit` picks the browsers (default: Chromium). WebKit needs system
+libraries that many machines lack; the official Playwright container has them:
+
+```sh
+podman run --rm --userns=keep-id --ipc=host -e HOME=/tmp -e PW_BROWSERS=webkit -v "$PWD":/work -w /work \
+  mcr.microsoft.com/playwright:v1.64.0-noble npx playwright test
+```
+
+## Changing an engine
+
+`engines/<name>/source.env` names the upstream repository and commit. `engines/<name>/patches/`
+holds the changes applied on top, one file per change with its explanation at the top.
+
+```sh
+engines/patches.sh fo1 import    # patches -> .cache/engines/fo1-dev, one commit each
+# edit, commit or amend in that tree (rebase it to move to a newer upstream commit)
+engines/patches.sh fo1 export    # commits -> engines/fallout1/patches/
+engines/build.sh fo1
+```
+
+`EXTRA_LINK_FLAGS=--profiling-funcs FORCE=1 engines/build.sh fo1` keeps function names in the
+binary, for profiling in the browser's developer tools.
+
+## Deploying
+
+The workflow in [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) builds the engines and the
+site, runs the tests and publishes `dist/` to GitHub Pages on every push to `main`. In the repository settings,
+set **Pages → Build and deployment → Source** to **GitHub Actions** once.
+
+The site is served from `/<repository name>/`; the workflow passes that to the build as
+`BASE_PATH`.
+
+## Architecture
+
+See [How it works](how-it-works.md) for what each part of the code does.

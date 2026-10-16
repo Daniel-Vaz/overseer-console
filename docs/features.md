@@ -1,0 +1,133 @@
+# Features
+
+Everything the console does, in one place. For the short tour see the [README](../README.md); the console's
+own **Operations manual** (entry 6 of the main directory) explains each of these from inside it.
+
+- [The games](#the-games)
+- [Playing](#playing)
+- [Touch screens](#touch-screens)
+- [Saves](#saves)
+- [Save archives](#save-archives)
+- [Save editor](#save-editor)
+- [The vault](#the-vault)
+- [Privacy](#privacy)
+
+## The games
+
+<p align="center"><img src="images/deck-et-tu.webp" width="800" alt="Deck C of the console: Fallout Et Tu, put together and ready"></p>
+
+- **Your own copy of the games.** No game data is hosted or distributed here. You need to own them
+  ([GOG](https://www.gog.com/game/fallout), [Steam](https://store.steampowered.com/app/38400), Epic).
+- **Fallout and Fallout 2**, played by the open source Community Edition engines, compiled to WebAssembly.
+- **Fallout Et Tu, put together for you.** Hand the console the zip the conversion is downloaded as. It takes
+  the files Et Tu needs out of your Fallout and plays it on your Fallout 2: no unpacking, no extraction tool.
+  See [Fallout Et Tu](fallout-et-tu.md).
+- **Games from a folder, a zip, or Dropbox.** Pick the folder a store installed the game to, or drop it on the
+  console. A game folder can also be loaded as one zip of it, which is how a whole game, music included, gets onto
+  a device that cannot pick folders; or from a folder in your own Dropbox (see [Dropbox link](dropbox.md)).
+
+## Playing
+
+<table>
+  <tr>
+    <td width="33%"><img src="images/picture-classic.webp" alt="Fallout 2 at its original 640 x 480, scaled up"></td>
+    <td width="33%"><img src="images/picture-wide.webp" alt="Fallout 2 widened to the shape of the window"></td>
+    <td width="33%"><img src="images/picture-high.webp" alt="Fallout 2 at high resolution"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Classic 4:3</sub></td>
+    <td align="center"><sub>Wide</sub></td>
+    <td align="center"><sub>High resolution</sub></td>
+  </tr>
+</table>
+
+- **Continue.** One key takes you from the console straight into your latest save.
+- **A picture for each game.** The original 640 x 480, widened to the shape of the window, or high resolution:
+  chosen deck by deck. Fallout Et Tu starts at the high resolution it was laid out for, the two originals at the
+  picture they were drawn for.
+- **Fast forward.** F8 runs a game several times as fast, for the long walk across a map and the turns of a
+  dozen rats, and back again.
+- **Fallout 2 with what its engine adds, or without.** One setting switches on items that light up on a key,
+  a wider inventory, companions' own inventories, doors that open as you walk into them and more; switched
+  off, the game plays as the original did.
+- **A console menu over the game.** F9 freezes the game and its clock and opens the console's own menu:
+  resume, fullscreen, back to the console, and the keys. Switching to another tab freezes it too.
+- **Fullscreen.** F11, or from the F9 menu.
+
+| Key | In the game |
+| --- | --- |
+| F4 / F5 | The game's own save and load screens |
+| F6 / F7 | Quick save into slot 07, quick load from it |
+| F8 | Fast forward, on and off |
+| F9 | The console menu |
+| F11 | Fullscreen |
+
+<p align="center"><img src="images/suspended.webp" width="800" alt="The console menu over a paused game of Fallout 2, with the keys listed"></p>
+
+## Touch screens
+
+<p align="center"><img src="images/touch.webp" width="800" alt="Fallout 2 on a phone held sideways, with the touch buttons on both sides"></p>
+
+Tap, drag, press-and-hold and two-finger gestures stand in for the mouse, with on-screen mouse buttons,
+one-tap shortcuts for the inventory, map, character screen, Pip-Boy, skilldex, the end of a turn, quick save
+and quick load, a switch that keeps what lies on the ground highlighted, and a keyboard that appears when a
+game asks for text.
+
+## Saves
+
+- **Saves as in the originals.** Saved games work as they always did, and can be exported to and imported
+  from zip files.
+- **Autosave.** Every ten minutes of play (or five, fifteen, thirty, or never) a game is saved by itself, in turn
+  in slots 8, 9 and 10. The first six are the player's own, and so is any save made by hand in the last three.
+- **Quick save in slot 7.** F6 saves into slot 7 at once and F7 loads it, without asking for a slot: on a touch
+  screen they are two buttons beside the picture.
+- **A history for every slot.** Saving over a slot keeps what was in it: every slot has earlier versions to
+  roll back to. An erased save is kept for a week, and can be put back.
+- **A reminder to back up.** Each game's deck and archive say when its saves last left the browser, to a zip file or
+  to Dropbox, and say it in amber while that has never happened.
+- **Dropbox link, if you want one.** Carry saves between devices. See [Dropbox link](dropbox.md).
+
+## Save archives
+
+<p align="center"><img src="images/archives.webp" width="800" alt="A save in the archives with its screenshot and character sheet"></p>
+
+They show each save's screenshot and character sheet, read from the save file itself, and name the place it
+was made in as the game does, from the game's own data.
+
+## Save editor
+
+<p align="center"><img src="images/editor-special.webp" width="800" alt="The S.P.E.C.I.A.L. page of the save editor"></p>
+
+Change a saved character: name, level, S.P.E.C.I.A.L., skills and tags, traits, perks, hit points and what they
+carry; karma, reputations, town standing, addictions and kills; the companions' hit points and packs; and what the
+Pip-Boy keeps: the date, quests, holodisks, the places on the world map, Vault 13's water and the car's fuel, or
+any of the game's global variables by name.
+
+The game's own pictures (from your copy) are drawn in phosphor and its own rules applied (what a perk adds, what
+a level brings, what curing an addiction takes back), freely or by the rules of its character screen. Quick
+actions max a character out. Every change is listed and can be undone; the save it replaces is kept as an
+earlier version.
+
+<table>
+  <tr>
+    <td width="50%"><img src="images/editor-pipboy.webp" alt="The Pip-Boy page: date and quests"></td>
+    <td width="50%"><img src="images/editor-items.webp" alt="The item picker with pictures and stats"></td>
+  </tr>
+</table>
+
+## The vault
+
+<p align="center"><img src="images/vault.webp" width="800" alt="The console in its vault, with visitors walking past"></p>
+
+On a screen with room to spare the console stands in an abandoned vault: lamps that fail, a pipe that drips,
+and now and then something that walks past. Most of it answers to being clicked, its great door is shut exactly
+when the console's storage is sealed, and a console left alone gets a visitor on its glass.
+
+Painted in the browser, one coarse pixel at a time, from nothing but code: no artwork from the games. It holds
+still for those who have asked their system for less motion, and can be switched off in the settings.
+
+## Privacy
+
+**No server, no account, no tracking.** Game files and saves stay in the browser's private storage on your
+device. Nothing is uploaded, unless you link your own Dropbox: then the saves you choose to upload go to a folder
+in your Dropbox and nowhere else.
