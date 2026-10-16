@@ -16,7 +16,7 @@ export { StorageUnavailableError };
 import { commitWithHistory } from '../storage/history';
 import { listOverlay, type OverlayEntry } from '../storage/overlay';
 import { HIGHLIGHT_KEY, HIGHLIGHTING_FILE, baseFiles, baseFolder, buildConfigFiles, chooseScreen, wantsEngineData, type ScreenSize } from './config';
-import type { EngineFactory, EngineInfo, EngineModule, PersistBatch, QuickKind, QuickOutcome } from './types';
+import type { EngineFactory, EngineInfo, EngineModule, PersistBatch, QuickKind, QuickOutcome, ScreenRect } from './types';
 
 const GAME_ROOT = '/game';
 
@@ -81,6 +81,8 @@ export interface Engine {
   inGame(): boolean;
   /** Whether it is the player's turn in combat: the one time ending a turn does anything. */
   playerTurn(): boolean;
+  /** The list at (x, y) on the game's screen that a finger swiping over should scroll, or null. */
+  scrollListAt(x: number, y: number): ScreenRect | null;
   /** A save in `slot` at the next moment the game can make one; slot 0 calls it off. True once made. */
   requestSave(slot: number): Promise<boolean>;
   /** Lights up what lies on the ground, as holding the key for it does, until switched off. */
@@ -318,6 +320,7 @@ export async function bootEngine(
     setSpeed: (speed) => ov.setSpeed(speed),
     inGame: () => ov.inGame(),
     playerTurn: () => ov.playerTurn(),
+    scrollListAt: (x, y) => ov.scrollListAt(x, y),
     requestSave: (slot) => ov.requestSave(slot),
     setLights: (on) => ov.holdScriptKey(HIGHLIGHT_KEY, on),
     audioContext: () => module.SDL2?.audioContext,

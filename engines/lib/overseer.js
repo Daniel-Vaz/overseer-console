@@ -72,6 +72,9 @@ addToLibrary({
     // and the presses and releases of them the scripts have yet to hear of.
     scriptKeys: new Set(),
     scriptKeyChanges: [],
+    // The lists on the screen that take the mouse wheel (the inventories),
+    // by their rectangle, with when the engine last said they were there.
+    scrollLists: new Map(),
     counters: { yields: 0, sleeps: 0, stalls: 0, busyMs: 0, blockReads: 0, blockBytes: 0, blockMs: 0, evictions: 0, syncs: 0 },
 
     boot() {
@@ -639,6 +642,22 @@ addToLibrary({
     // Host API (Module.overseer)
     // ------------------------------------------------------------------
 
+    // A screen that went round its loop this long ago without naming one of
+    // its lists has gone, or something covers it.
+    scrollListMs: 250,
+    scrollListAt(x, y) {
+      var now = performance.now();
+      var found = null;
+      for (var [key, list] of OVERSEER.scrollLists) {
+        if (now - list.at > OVERSEER.scrollListMs) {
+          OVERSEER.scrollLists.delete(key);
+        } else if (!found && x >= list.left && x <= list.right && y >= list.top && y <= list.bottom) {
+          found = { left: list.left, top: list.top, right: list.right, bottom: list.bottom };
+        }
+      }
+      return found;
+    },
+
     api() {
       var withPopulating = (fn) => {
         OVERSEER.populating++;
@@ -741,6 +760,10 @@ addToLibrary({
           OVERSEER.scriptKeyChanges.push(key * 2 + (held ? 1 : 0));
         },
 
+        // The list that takes the mouse wheel at (x, y), in pixels of the
+        // game's screen: { left, top, right, bottom }, edges included, or null.
+        scrollListAt: (x, y) => OVERSEER.scrollListAt(x, y),
+
         stats: () => ({
           ...OVERSEER.counters,
           cachedBytes: OVERSEER.cachedBytes,
@@ -824,6 +847,16 @@ addToLibrary({
   overseer_combat_turn__deps: ['$OVERSEER'],
   overseer_combat_turn: (yours) => {
     OVERSEER.playerTurn = !!yours;
+  },
+
+  // The inventories say where each of their lists is, every time their
+  // screen goes round its loop (pixels of the game's screen, edges included).
+  overseer_scroll_list__deps: ['$OVERSEER'],
+  overseer_scroll_list: (left, top, right, bottom) => {
+    var key = left + ',' + top + ',' + right + ',' + bottom;
+    var list = OVERSEER.scrollLists.get(key);
+    if (list) list.at = performance.now();
+    else OVERSEER.scrollLists.set(key, { left, top, right, bottom, at: performance.now() });
   },
 
   // Quick saves and quick loads, which the engines make in slot 7 alone. A

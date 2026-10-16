@@ -1,0 +1,88 @@
+Tell the page where the inventory lists are
+
+The inventories scroll with the mouse wheel only while the pointer is over
+the list. Each of their lists now says where it lies on the screen, every
+time its screen goes round its loop, so that the page can scroll it when a
+finger swipes over it: it puts the pointer there and turns the wheel.
+---
+diff --git a/src/game/inventry.cc b/src/game/inventry.cc
+index b3c6be7..d5a116e 100644
+--- a/src/game/inventry.cc
++++ b/src/game/inventry.cc
+@@ -45,6 +45,13 @@
+ #include "plib/gnw/svga.h"
+ #include "plib/gnw/text.h"
+ 
++#if defined(__EMSCRIPTEN__)
++// Overseer Console: tells the page where a list that takes the mouse wheel
++// lies on the screen (engines/lib/overseer.js), so that a finger swiping over
++// it can scroll it.
++extern "C" void overseer_scroll_list(int left, int top, int right, int bottom);
++#endif
++
+ namespace fallout {
+ 
+ #define INVENTORY_WINDOW_X 80
+@@ -384,6 +391,22 @@ static int inventry_msg_unload()
+     return 0;
+ }
+ 
++// Overseer Console: says where a list of the inventory window is, each time
++// its screen goes round its loop, with the rectangle the screen tests the
++// pointer against before it takes the wheel. The page forgets a list it is no
++// longer told of.
++static void report_scroll_list(int left, int top, int right, int bottom)
++{
++#if defined(__EMSCRIPTEN__)
++    Window* window = GNW_find(i_wid);
++    if (window == NULL) {
++        return;
++    }
++
++    overseer_scroll_list(window->rect.ulx + left, window->rect.uly + top, window->rect.ulx + right, window->rect.uly + bottom);
++#endif
++}
++
+ // 0x462480
+ void handle_inventory()
+ {
+@@ -429,6 +452,8 @@ void handle_inventory()
+     for (;;) {
+         sharedFpsLimiter.mark();
+ 
++        report_scroll_list(INVENTORY_SCROLLER_X, INVENTORY_SCROLLER_Y, INVENTORY_SCROLLER_MAX_X, INVENTORY_SLOT_HEIGHT * inven_cur_disp + INVENTORY_SCROLLER_Y);
++
+         int keyCode = get_input();
+ 
+         if (keyCode == KEY_ESCAPE || keyCode == KEY_UPPERCASE_I || keyCode == KEY_LOWERCASE_I) {
+@@ -2291,6 +2316,8 @@ void use_inventory_on(Object* a1)
+     for (;;) {
+         sharedFpsLimiter.mark();
+ 
++        report_scroll_list(INVENTORY_SCROLLER_X, INVENTORY_SCROLLER_Y, INVENTORY_SCROLLER_MAX_X, INVENTORY_SLOT_HEIGHT * inven_cur_disp + INVENTORY_SCROLLER_Y);
++
+         if (game_user_wants_to_quit != 0) {
+             break;
+         }
+@@ -3796,6 +3823,9 @@ int loot_container(Object* a1, Object* a2)
+     for (;;) {
+         sharedFpsLimiter.mark();
+ 
++        report_scroll_list(INVENTORY_LOOT_LEFT_SCROLLER_X, INVENTORY_LOOT_LEFT_SCROLLER_Y, INVENTORY_LOOT_LEFT_SCROLLER_MAX_X, INVENTORY_SLOT_HEIGHT * inven_cur_disp + INVENTORY_LOOT_LEFT_SCROLLER_Y);
++        report_scroll_list(INVENTORY_LOOT_RIGHT_SCROLLER_X, INVENTORY_LOOT_RIGHT_SCROLLER_Y, INVENTORY_LOOT_RIGHT_SCROLLER_MAX_X, INVENTORY_SLOT_HEIGHT * inven_cur_disp + INVENTORY_LOOT_RIGHT_SCROLLER_Y);
++
+         if (game_user_wants_to_quit != 0) {
+             break;
+         }
+@@ -4636,6 +4666,11 @@ void barter_inventory(int win, Object* a2, Object* a3, Object* a4, int a5)
+     for (;;) {
+         sharedFpsLimiter.mark();
+ 
++        report_scroll_list(INVENTORY_TRADE_LEFT_SCROLLER_TRACKING_X, INVENTORY_TRADE_LEFT_SCROLLER_TRACKING_Y, INVENTORY_TRADE_LEFT_SCROLLER_TRACKING_MAX_X, INVENTORY_SLOT_HEIGHT * inven_cur_disp + INVENTORY_TRADE_LEFT_SCROLLER_TRACKING_Y);
++        report_scroll_list(INVENTORY_TRADE_INNER_LEFT_SCROLLER_TRACKING_X, INVENTORY_TRADE_INNER_LEFT_SCROLLER_TRACKING_Y, INVENTORY_TRADE_INNER_LEFT_SCROLLER_TRACKING_MAX_X, INVENTORY_SLOT_HEIGHT * inven_cur_disp + INVENTORY_TRADE_INNER_LEFT_SCROLLER_TRACKING_Y);
++        report_scroll_list(INVENTORY_TRADE_RIGHT_SCROLLER_TRACKING_X, INVENTORY_TRADE_RIGHT_SCROLLER_TRACKING_Y, INVENTORY_TRADE_RIGHT_SCROLLER_TRACKING_MAX_X, INVENTORY_SLOT_HEIGHT * inven_cur_disp + INVENTORY_TRADE_RIGHT_SCROLLER_TRACKING_Y);
++        report_scroll_list(INVENTORY_TRADE_INNER_RIGHT_SCROLLER_TRACKING_X, INVENTORY_TRADE_INNER_RIGHT_SCROLLER_TRACKING_Y, INVENTORY_TRADE_INNER_RIGHT_SCROLLER_TRACKING_MAX_X, INVENTORY_SLOT_HEIGHT * inven_cur_disp + INVENTORY_TRADE_INNER_RIGHT_SCROLLER_TRACKING_Y);
++
+         if (keyCode == KEY_ESCAPE || game_user_wants_to_quit != 0) {
+             break;
+         }

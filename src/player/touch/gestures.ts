@@ -12,10 +12,14 @@
  *     with a second finger   left click where the pointer is (for small targets)
  *   two-finger tap           right click
  *   two-finger drag          scroll
+ *   drag up or down a list   scroll the list (direct mode); flicked, it glides on
  *
  * In "direct" mode the pointer goes where the finger is. In "trackpad" mode
  * the picture is a trackpad: dragging moves the pointer from where it was,
  * and a tap clicks where the pointer is, not where the finger landed.
+ *
+ * The lists are the games' inventories, which scroll with the mouse wheel
+ * while the pointer is over them. Scrolling one, the pointer goes onto it.
  *
  * This file is only the decision making: touches in, mouse actions out. It
  * knows nothing of the page, so that it can be tested on its own.
@@ -36,6 +40,18 @@ export type MouseAction =
   /** Scroll by whole steps. Positive: the content moves right / down, following the fingers. */
   | { type: 'scroll'; dx: number; dy: number };
 
+/** A list of the game's that scrolls by the row (an inventory), in picture coordinates. */
+export interface ScrollList {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+  /** The height of one of its rows: one step of scrolling. */
+  row: number;
+}
+
+export type ListFinder = (x: number, y: number) => ScrollList | null;
+
 export interface GestureTuning {
   /** A finger that moved less than this (CSS pixels) has not moved. */
   slop: number;
@@ -48,9 +64,29 @@ export interface GestureTuning {
   scrollStepY: number;
   /** Trackpad mode: pointer travel per finger travel. */
   trackpadSpeed: number;
+  /** A list let go of faster than this (CSS pixels per millisecond) glides on. */
+  flingSpeed: number;
+  /** How quickly a glide slows down: its speed falls to a third in about this long. */
+  flingMs: number;
 }
 
-export const DEFAULT_TUNING: GestureTuning = { slop: 12, holdMs: 350, tapMs: 400, scrollStepX: 32, scrollStepY: 24, trackpadSpeed: 1.5 };
+export const DEFAULT_TUNING: GestureTuning = {
+  slop: 12,
+  holdMs: 350,
+  tapMs: 400,
+  scrollStepX: 32,
+  scrollStepY: 24,
+  trackpadSpeed: 1.5,
+  flingSpeed: 0.3,
+  flingMs: 325,
+};
+
+/** How far back the finger's speed is measured when it lets go of a list. */
+const FLING_WINDOW_MS = 100;
+/** A glide stops once its next row is further off than this. */
+const FLING_LONGEST_MS = 1200;
+/** The games take a turn of the wheel this often at most; a glide goes no faster. */
+const FLING_STEP_MS = 40;
 
 export interface Timers {
   set(callback: () => void, ms: number): unknown;
@@ -80,9 +116,10 @@ interface Finger {
  * held     one finger holding the left button
  * pair     two fingers, not yet known whether they tap or scroll
  * scroll   two fingers scrolling
+ * swipe    one finger scrolling a list
  * spent    the gesture is over; waiting for every finger to lift
  */
-type State = 'idle' | 'pending' | 'hover' | 'aiming' | 'held' | 'pair' | 'scroll' | 'spent';
+type State = 'idle' | 'pending' | 'hover' | 'aiming' | 'held' | 'pair' | 'scroll' | 'swipe' | 'spent';
 
 export class Gestures {
   private state: State = 'idle';
@@ -100,6 +137,17 @@ export class Gestures {
   private scrollY = 0;
   private centreX = 0;
   private centreY = 0;
+  /** The list under the finger that began this gesture (direct mode), or that two fingers scroll. */
+  private list: ScrollList | null = null;
+  /** Rows a swiping finger has scrolled so far. */
+  private swiped = 0;
+  /** Where the swiping finger was lately, for its speed when it lets go. */
+  private trail: { y: number; at: number }[] = [];
+  private flingTimer: unknown = null;
+  /** The finger of this gesture caught a gliding list: lifting it clicks nothing. */
+  private caught = false;
+  /** Where the game's scrolling lists are. None, until the page says. */
+  listAt: ListFinder = () => null;
 
   constructor(
     private width: number,
@@ -147,9 +195,12 @@ export class Gestures {
 
     switch (this.state) {
       case 'idle':
+        // A finger on a gliding list stops it, and does nothing else unless it goes on.
+        this.caught = this.stopFling();
         this.first = finger;
         this.restX = this.pointerX;
         this.restY = this.pointerY;
+        this.list = this.mode === 'direct' ? this.listAt(x, y) : null;
         this.state = 'pending';
         if (this.mode === 'direct') this.moveTo(x, y);
         this.holdTimer = this.timers.set(() => this.onHold(), this.tuning.holdMs);
@@ -175,12 +226,13 @@ export class Gestures {
         this.state = 'spent';
         break;
       case 'held':
+      case 'swipe':
       case 'spent':
         break;
     }
   }
 
-  move(id: number, x: number, y: number): void {
+  move(id: number, x: number, y: number, now: number): void {
     const finger = this.fingers.get(id);
     if (!finger) return;
     const dx = x - finger.x;
@@ -201,6 +253,16 @@ export class Gestures {
       case 'pending':
         if (finger !== this.first) break;
         if (this.mode === 'direct') {
+          if (finger.moved && this.list && Math.abs(y - finger.startY) >= Math.abs(x - finger.startX)) {
+            // Up or down a list: it scrolls, with the pointer on it where the finger landed.
+            this.clearHold();
+            this.state = 'swipe';
+            this.moveTo(finger.startX, finger.startY);
+            this.swiped = 0;
+            this.trail = [];
+            this.swipe(finger, now);
+            break;
+          }
           // The pointer is under the finger from the start; a tap clicks where the finger lifts.
           this.moveTo(x, y);
           if (finger.moved) {
@@ -217,8 +279,9 @@ export class Gestures {
         if (finger === this.first) {
           this.follow(finger, dx, dy);
         } else if (finger === this.second && finger.moved) {
-          // The second finger came to scroll, not to tap.
+          // The second finger came to scroll, not to tap. A list under the pointer scrolls by its rows.
           this.state = 'scroll';
+          this.list = this.listAt(this.pointerX, this.pointerY);
           this.markCentre();
         }
         break;
@@ -226,13 +289,19 @@ export class Gestures {
         if (this.first!.moved || this.second!.moved) {
           // With one of the two already lifted it is neither a tap nor a scroll.
           this.state = this.fingers.size === 2 ? 'scroll' : 'spent';
-          // Counted from where the fingers landed: the ground stays under
-          // them, and the same drag back brings the same view back.
-          if (this.state === 'scroll') this.scrollTo();
+          if (this.state === 'scroll') {
+            this.list = this.pairList();
+            // Counted from where the fingers landed: the ground stays under
+            // them, and the same drag back brings the same view back.
+            this.scrollTo();
+          }
         }
         break;
       case 'scroll':
         this.scrollTo();
+        break;
+      case 'swipe':
+        if (finger === this.first) this.swipe(finger, now);
         break;
       case 'idle':
       case 'spent':
@@ -248,7 +317,10 @@ export class Gestures {
     switch (this.state) {
       case 'pending':
         this.clearHold();
-        if (this.onPicture(finger)) this.emit({ type: 'click', button: 'left' });
+        if (this.onPicture(finger) && !this.caught) this.emit({ type: 'click', button: 'left' });
+        break;
+      case 'swipe':
+        if (finger === this.first) this.fling(now);
         break;
       case 'held':
         if (finger !== this.first) return;
@@ -280,6 +352,7 @@ export class Gestures {
   /** The system took the touches away (a palm, an incoming call, a system gesture). */
   cancel(): void {
     this.clearHold();
+    this.stopFling();
     if (this.state === 'held') this.emit({ type: 'release', button: 'left' });
     this.fingers.clear();
     this.state = 'idle';
@@ -288,6 +361,8 @@ export class Gestures {
 
   private finish(): void {
     this.first = this.second = null;
+    this.list = null;
+    this.caught = false;
     this.state = this.fingers.size ? 'spent' : 'idle';
   }
 
@@ -361,11 +436,90 @@ export class Gestures {
     this.scrollY += y - this.centreY;
     this.centreX = x;
     this.centreY = y;
-    const dx = Math.trunc(this.scrollX / this.tuning.scrollStepX);
-    const dy = Math.trunc(this.scrollY / this.tuning.scrollStepY);
+    // A list scrolls up and down only, a row per row of finger travel.
+    if (this.list) this.scrollX = 0;
+    const stepX = this.tuning.scrollStepX;
+    const stepY = this.list ? this.list.row : this.tuning.scrollStepY;
+    const dx = Math.trunc(this.scrollX / stepX);
+    const dy = Math.trunc(this.scrollY / stepY);
     if (dx === 0 && dy === 0) return;
-    this.scrollX -= dx * this.tuning.scrollStepX;
-    this.scrollY -= dy * this.tuning.scrollStepY;
+    this.scrollX -= dx * stepX;
+    this.scrollY -= dy * stepY;
     this.emit({ type: 'scroll', dx, dy });
+  }
+
+  /**
+   * The list two fingers came to scroll. In direct mode, the one under them,
+   * and the pointer goes onto it where they landed; in trackpad mode, the one
+   * under the pointer.
+   */
+  private pairList(): ScrollList | null {
+    if (this.mode === 'trackpad') return this.listAt(this.pointerX, this.pointerY);
+    const a = this.first!;
+    const b = this.second!;
+    const x = (a.startX + b.startX) / 2;
+    const y = (a.startY + b.startY) / 2;
+    const list = this.listAt(x, y);
+    if (list) this.moveTo(x, y);
+    return list;
+  }
+
+  /** A finger swiping a list: it follows the finger a row at a time, counted from where it landed. */
+  private swipe(finger: Finger, now: number): void {
+    this.trail.push({ y: finger.y, at: now });
+    while (this.trail.length > 2 && now - this.trail[0]!.at > FLING_WINDOW_MS) this.trail.shift();
+    const rows = Math.trunc((finger.y - finger.startY) / this.list!.row);
+    if (rows === this.swiped) return;
+    this.emit({ type: 'scroll', dx: 0, dy: rows - this.swiped });
+    this.swiped = rows;
+  }
+
+  /**
+   * A list let go of while still moving glides on, slowing down as it goes:
+   * its speed falls off exponentially, so the rows come further and further
+   * apart, and the whole glide covers the finger's speed times flingMs.
+   */
+  private fling(now: number): void {
+    const from = this.trail.find((point) => now - point.at <= FLING_WINDOW_MS);
+    const to = this.trail[this.trail.length - 1];
+    this.trail = [];
+    if (!from || !to || to.at <= from.at) return;
+    const speed = (to.y - from.y) / (to.at - from.at);
+    if (Math.abs(speed) < this.tuning.flingSpeed) return;
+    const row = this.list!.row;
+    const tau = this.tuning.flingMs;
+    const reach = Math.abs(speed) * tau;
+    const direction = Math.sign(speed);
+    // When the glide has covered k rows.
+    const at = (k: number) => -tau * Math.log(1 - (k * row) / reach);
+    let k = 0;
+    const next = () => {
+      this.flingTimer = null;
+      // The list went (the inventory was closed): the wheel would scroll whatever is there now.
+      if (!this.listAt(this.pointerX, this.pointerY)) return;
+      this.emit({ type: 'scroll', dx: 0, dy: direction });
+      schedule();
+    };
+    const schedule = () => {
+      if ((k + 1) * row >= reach) return;
+      const wait = at(k + 1) - at(k);
+      if (at(k + 1) > FLING_LONGEST_MS) return;
+      k++;
+      this.flingTimer = this.timers.set(next, Math.max(wait, FLING_STEP_MS));
+    };
+    schedule();
+  }
+
+  /** Something other than a finger on the picture took over (a button beside it): a gliding list stops. */
+  stopGlide(): void {
+    this.stopFling();
+  }
+
+  /** Stops a glide. True when there was one. */
+  private stopFling(): boolean {
+    if (this.flingTimer === null) return false;
+    this.timers.clear(this.flingTimer);
+    this.flingTimer = null;
+    return true;
   }
 }

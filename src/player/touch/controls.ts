@@ -5,7 +5,8 @@
  * device whose main pointer is a finger), so mouse and keyboard players never
  * see it.
  */
-import { DEFAULT_TUNING, Gestures, type GestureTuning, type MouseButton, type PointerMode } from './gestures';
+import type { ScreenRect } from '../../lib/engine/types';
+import { DEFAULT_TUNING, Gestures, type GestureTuning, type MouseButton, type PointerMode, type ScrollList } from './gestures';
 import { ESCAPE_KEY, Keyboard, SHORTCUT_KEYS, sendKey } from './keyboard';
 import { SyntheticMouse } from './mouse';
 
@@ -22,6 +23,8 @@ export interface TouchHost {
   wantsText(): boolean | undefined;
   /** Whether it is the player's turn in combat. Undefined when there is no engine to ask. */
   playerTurn(): boolean | undefined;
+  /** The game's list at (x, y) on its screen, in its pixels, that scrolls with the wheel; null or undefined for none. */
+  scrollListAt(x: number, y: number): ScreenRect | null | undefined;
   openMenu(): void;
   /** Fast forward, on or off. */
   toggleFast(): void;
@@ -38,6 +41,9 @@ export function fingerFirst(): boolean {
   return matchMedia('(pointer: coarse)').matches && !matchMedia('(any-pointer: fine)').matches;
 }
 
+/** The inventories' rows, in pixels of the game's screen: one turn of the wheel scrolls one. */
+const INVENTORY_ROW = 48;
+
 /** How long a button that asks for a second tap waits for it. */
 const CONFIRM_MS = 3000;
 
@@ -53,6 +59,8 @@ export class TouchControls {
   private keyboardIsAutomatic = false;
   private wantedText = false;
   private readonly deckHeld = new Map<number, () => void>();
+  /** CSS pixels per pixel of the game. */
+  private scale = 1;
   /** Called the first time the deck appears. */
   onFirstShown: () => void = () => {};
 
@@ -73,6 +81,7 @@ export class TouchControls {
       },
       this.tuning,
     );
+    this.gestures.listAt = (x, y) => this.listAt(x, y);
     this.keyboard = new Keyboard(host.keys);
     this.keyboard.onToggle = (open) => {
       document.body.classList.toggle('keys-open', open);
@@ -137,10 +146,25 @@ export class TouchControls {
   /** The picture was resized: `scale` is CSS pixels per pixel of the game. */
   resized(width: number, height: number, scale: number): void {
     this.gestures.resize(width, height);
+    this.scale = scale;
     // The games scroll their maps 32 pixels sideways and 24 up or down at a
     // time; a step per that much finger travel keeps the ground under the fingers.
     this.tuning.scrollStepX = Math.max(16, 32 * scale);
     this.tuning.scrollStepY = Math.max(12, 24 * scale);
+  }
+
+  /** The game's list under a point of the picture, in the picture's CSS pixels. */
+  private listAt(x: number, y: number): ScrollList | null {
+    const scale = this.scale;
+    const rect = this.host.scrollListAt(Math.floor(x / scale), Math.floor(y / scale));
+    if (!rect) return null;
+    return {
+      left: rect.left * scale,
+      top: rect.top * scale,
+      right: (rect.right + 1) * scale,
+      bottom: (rect.bottom + 1) * scale,
+      row: INVENTORY_ROW * scale,
+    };
   }
 
   /** Shows on the deck whether the game is running fast. */
@@ -215,7 +239,7 @@ export class TouchControls {
       const x = touch.clientX - rect.left;
       const y = touch.clientY - rect.top;
       if (event.type === 'touchstart') this.gestures.down(touch.identifier, x, y, event.timeStamp);
-      else if (event.type === 'touchmove') this.gestures.move(touch.identifier, x, y);
+      else if (event.type === 'touchmove') this.gestures.move(touch.identifier, x, y, event.timeStamp);
       else this.gestures.up(touch.identifier, event.timeStamp);
     }
   }
@@ -225,6 +249,7 @@ export class TouchControls {
     if (!button) return;
     // No focus change, no delayed click, no text selection.
     event.preventDefault();
+    this.gestures.stopGlide();
     // Any other button is an answer of "no" to one that asked for a second tap.
     if (this.asking && this.asking.button !== button) this.stopAsking();
     const act = button.dataset.act;

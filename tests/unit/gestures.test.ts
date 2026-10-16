@@ -35,7 +35,7 @@ function start(mode: PointerMode): void {
 }
 
 const down = (id: number, x: number, y: number) => gestures.down(id, x, y, timers.now);
-const move = (id: number, x: number, y: number) => gestures.move(id, x, y);
+const move = (id: number, x: number, y: number) => gestures.move(id, x, y, timers.now);
 const up = (id: number) => gestures.up(id, timers.now);
 const wait = (ms: number) => timers.advance(ms);
 /** What happened, written compactly. */
@@ -310,5 +310,212 @@ describe('trackpad pointer', () => {
     down(1, 300, 300);
     up(1);
     expect(gestures.pointer).toEqual({ x: 50, y: 60 });
+  });
+});
+
+describe('lists', () => {
+  // An inventory down the left of the picture, rows 48 pixels high.
+  const LIST = { left: 40, top: 30, right: 120, bottom: 330, row: 48 };
+  const onList = (x: number, y: number) =>
+    x >= LIST.left && x < LIST.right && y >= LIST.top && y < LIST.bottom ? LIST : null;
+  const ROW = LIST.row;
+
+  /** Moves the clock on a millisecond at a time, and says when each action came. */
+  function timeline(ms: number): number[] {
+    const at: number[] = [];
+    for (let i = 0; i < ms; i++) {
+      const before = actions.length;
+      wait(1);
+      for (let n = before; n < actions.length; n++) at.push(timers.now);
+    }
+    return at;
+  }
+
+  describe('direct pointer', () => {
+    beforeEach(() => {
+      start('direct');
+      gestures.listAt = onList;
+    });
+
+    it('a finger dragged up or down a list scrolls it a row at a time, following the finger', () => {
+      down(1, 80, 100);
+      wait(10);
+      move(1, 80, 120);
+      wait(10);
+      move(1, 80, 100 + ROW * 2.5);
+      wait(10);
+      // Back up past where it landed, slowly: the list goes back as far, and one row further.
+      move(1, 80, 100 - ROW * 0.5);
+      wait(10);
+      move(1, 80, 100 - ROW * 1.2);
+      wait(300);
+      up(1);
+      wait(2000);
+      expect(log()).toEqual(['move 80,100', 'scroll 0,2', 'scroll 0,-2', 'scroll 0,-1']);
+      // The pointer stayed on the list, where the finger landed: the wheel turns there.
+      expect(gestures.pointer).toEqual({ x: 80, y: 100 });
+      expect(gestures.busy).toBe(false);
+    });
+
+    it('the finger may leave the list and go on scrolling it', () => {
+      down(1, 80, 300);
+      move(1, 80, 300 + ROW * 3);
+      up(1);
+      expect(log()).toEqual(['move 80,300', 'scroll 0,3']);
+    });
+
+    it('flicked, a list glides on, slowing down, and stops by itself', () => {
+      down(1, 80, 100);
+      for (let i = 1; i <= 3; i++) {
+        wait(10);
+        move(1, 80, 100 + i * 30);
+      }
+      up(1);
+      expect(log()).toEqual(['move 80,100', 'scroll 0,1']);
+      const at = timeline(3000);
+      expect(log().slice(2).every((entry) => entry === 'scroll 0,1')).toBe(true);
+      // Three pixels a millisecond: the glide reaches about a second's worth of rows.
+      expect(at.length).toBeGreaterThan(10);
+      expect(at.length).toBeLessThan(21);
+      const gaps = at.map((time, i) => time - (at[i - 1] ?? timers.now - 3000));
+      for (let i = 1; i < gaps.length; i++) expect(gaps[i]).toBeGreaterThanOrEqual(gaps[i - 1]!);
+      expect(at[at.length - 1]! - (timers.now - 3000)).toBeLessThanOrEqual(1200);
+    });
+
+    it('a list let go of after the finger stopped does not glide', () => {
+      down(1, 80, 100);
+      wait(10);
+      move(1, 80, 160);
+      wait(10);
+      move(1, 80, 220);
+      wait(150);
+      up(1);
+      wait(2000);
+      expect(log()).toEqual(['move 80,100', 'scroll 0,1', 'scroll 0,1']);
+    });
+
+    it('a finger on a gliding list stops it, and clicks nothing', () => {
+      down(1, 80, 100);
+      wait(10);
+      move(1, 80, 160);
+      wait(10);
+      move(1, 80, 220);
+      up(1);
+      wait(30);
+      const glided = actions.length;
+      expect(glided).toBeGreaterThan(2);
+      down(1, 80, 200);
+      wait(60);
+      up(1);
+      wait(2000);
+      expect(log().slice(glided)).toEqual(['move 80,200']);
+      // The next tap clicks again.
+      down(1, 80, 210);
+      up(1);
+      expect(log().slice(-1)).toEqual(['click left']);
+    });
+
+    it('a glide comes no faster than the games take the wheel, and stops when the list goes', () => {
+      let shown = true;
+      gestures.listAt = (x, y) => (shown ? onList(x, y) : null);
+      down(1, 80, 100);
+      wait(5);
+      move(1, 80, 160);
+      wait(5);
+      move(1, 80, 220);
+      up(1);
+      const at = timeline(200);
+      for (let i = 1; i < at.length; i++) expect(at[i]! - at[i - 1]!).toBeGreaterThanOrEqual(40);
+      const glided = actions.length;
+      expect(at.length).toBeGreaterThan(2);
+      // The inventory is closed: nothing more, though the glide had further to go.
+      shown = false;
+      wait(2000);
+      expect(actions.length).toBe(glided);
+    });
+
+    it('a glide stops when something beside the picture is pressed', () => {
+      down(1, 80, 100);
+      wait(10);
+      move(1, 80, 160);
+      wait(10);
+      move(1, 80, 220);
+      up(1);
+      wait(100);
+      const glided = actions.length;
+      gestures.stopGlide();
+      wait(2000);
+      expect(actions.length).toBe(glided);
+    });
+
+    it('a tap on a list clicks, and a held finger picks up what is there', () => {
+      down(1, 80, 100);
+      up(1);
+      expect(log()).toEqual(['move 80,100', 'click left']);
+      actions.length = 0;
+      down(1, 80, 150);
+      wait(HOLD);
+      move(1, 300, 200);
+      up(1);
+      expect(log()).toEqual(['move 80,150', 'press left', 'move 300,200', 'release left']);
+    });
+
+    it('sideways across a list moves the pointer', () => {
+      down(1, 80, 100);
+      move(1, 110, 105);
+      move(1, 300, 110);
+      up(1);
+      expect(log()).toEqual(['move 80,100', 'move 110,105', 'move 300,110']);
+    });
+
+    it('two fingers on a list put the pointer on it and scroll it by its rows', () => {
+      down(1, 60, 100);
+      down(2, 100, 100);
+      actions.length = 0;
+      move(1, 60, 100 + ROW * 2.2);
+      move(2, 100, 100 + ROW * 2.2);
+      up(1);
+      up(2);
+      // The pointer goes to where they landed, then each finger carries the middle half as far.
+      expect(log()).toEqual(['move 80,100', 'scroll 0,1', 'scroll 0,1']);
+    });
+
+    it('two fingers beside a list scroll the map as before, the pointer staying put', () => {
+      down(1, 300, 100);
+      down(2, 340, 100);
+      actions.length = 0;
+      move(1, 300, 100 + DEFAULT_TUNING.scrollStepY * 2);
+      move(2, 340, 100 + DEFAULT_TUNING.scrollStepY * 2);
+      up(1);
+      up(2);
+      expect(log()).toEqual(['scroll 0,1', 'scroll 0,1']);
+      expect(gestures.pointer).toEqual({ x: 320, y: 240 });
+    });
+  });
+
+  describe('trackpad pointer', () => {
+    beforeEach(() => {
+      start('trackpad');
+      gestures.listAt = onList;
+    });
+
+    it('one finger on a list moves the pointer, as anywhere', () => {
+      down(1, 80, 100);
+      move(1, 80, 200);
+      up(1);
+      expect(log().every((entry) => entry.startsWith('move'))).toBe(true);
+    });
+
+    it('two fingers scroll the list under the pointer by its rows', () => {
+      gestures.pointerMovedTo(80, 200);
+      down(1, 300, 100);
+      down(2, 340, 100);
+      move(1, 300, 100 + ROW * 2);
+      move(2, 340, 100 + ROW * 2);
+      up(1);
+      up(2);
+      expect(log()).toEqual(['scroll 0,1', 'scroll 0,1']);
+      expect(gestures.pointer).toEqual({ x: 80, y: 200 });
+    });
   });
 });

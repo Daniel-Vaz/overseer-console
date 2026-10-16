@@ -56,7 +56,17 @@ export interface OverseerApi {
   onQuick(handler: (kind: QuickKind, outcome: QuickOutcome) => void): void;
   /** Holds a key (a DirectInput scan code) down for the game's scripts alone, or lets go of it. Fallout 2's engine only. */
   holdScriptKey(key: number, held: boolean): void;
+  /** The list that takes the mouse wheel at (x, y), in pixels of the game's screen (an inventory), or null. */
+  scrollListAt(x: number, y: number): ScreenRect | null;
   stats(): OverseerStats;
+}
+
+/** A rectangle on the game's screen, in its pixels, edges included. */
+export interface ScreenRect {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
 }
 
 export type QuickKind = 'save' | 'load';

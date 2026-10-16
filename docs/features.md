@@ -71,7 +71,8 @@ own **Operations manual** (entry 6 of the main directory) explains each of these
 Tap, drag, press-and-hold and two-finger gestures stand in for the mouse, with on-screen mouse buttons,
 one-tap shortcuts for the inventory, map, character screen, Pip-Boy, skilldex, the end of a turn, quick save
 and quick load, a switch that keeps what lies on the ground highlighted, and a keyboard that appears when a
-game asks for text.
+game asks for text. Inventories, containers and traders' goods scroll under a swiping finger, as a phone's
+lists do.
 
 ## Saves
 

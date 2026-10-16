@@ -186,6 +186,7 @@ const touch = new TouchControls(
     turns: () => engine?.module.overseer.stats().sleeps ?? 0,
     playing: () => phase === 'running',
     playerTurn: () => engine?.playerTurn(),
+    scrollListAt: (x, y) => engine?.scrollListAt(x, y),
     wantsText: () => {
       const module = engine?.module;
       if (!module?._SDL_IsTextInputActive || !module._SDL_StopTextInput) return undefined;
@@ -417,7 +418,7 @@ function openTouchHelp(): void {
   const trackpad = settings.touchPointer === 'trackpad';
   for (const [what, meaning] of [
     ['Tap', trackpad ? 'Click where the pointer is' : 'Click'],
-    ['Drag', 'Move the pointer. Nothing is clicked'],
+    ['Drag', trackpad ? 'Move the pointer. Nothing is clicked' : 'Move the pointer, or scroll a list'],
     ['Hold', 'Keep the button pressed: action menus, dragging items'],
     ['2 fingers', 'Drag to scroll. Tap to switch the cursor'],
     ['CLICK', 'Clicks where the pointer is: drag to aim, then press it'],

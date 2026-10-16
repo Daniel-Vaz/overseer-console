@@ -339,6 +339,11 @@
             <dd>Click. In the games, tap the small round buttons, not the words beside them</dd>
             <dt>Drag</dt>
             <dd>Move the pointer without clicking, to look before you act</dd>
+            <dt>Swipe a list</dt>
+            <dd>
+              Up or down an inventory, a container's contents or a trader's goods: the list follows the finger. Flicked, it
+              keeps going for a moment, and a touch stops it
+            </dd>
             <dt>Press and hold</dt>
             <dd>Hold the button down: opens the action menu on a person or thing, picks up an item to drag</dd>
             <dt>Two fingers</dt>

@@ -1,6 +1,6 @@
 import type { CDPSession, Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { fakeFallout2Folder, openConsole, pickFolder } from './helpers';
+import { fakeFallout2Folder, openConsole, pickFolder, waitForPicture } from './helpers';
 
 /**
  * Playing by touch, on a screen the size of a phone held sideways.
@@ -156,12 +156,15 @@ class Fingers {
     return this.cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points.map(([x, y], id) => ({ x: Math.round(x), y: Math.round(y), id })) });
   }
 
-  /** Drags one or two fingers from one game point to another, at the pace of a deliberate hand. */
-  async drag(from: Point, to: Point, fingers: 1 | 2): Promise<void> {
+  /**
+   * Drags one or two fingers from one game point to another, at the pace of a
+   * deliberate hand. A short drag wants fewer steps: a finger that takes too
+   * long to get going is held, not dragged.
+   */
+  async drag(from: Point, to: Point, fingers: 1 | 2, steps = 30): Promise<void> {
     const a = await at(this.page, ...from);
     const b = await at(this.page, ...to);
     const points = (x: number, y: number): [number, number][] => (fingers === 2 ? [[x, y], [x + 70, y]] : [[x, y]]);
-    const steps = 30;
     await this.send('touchStart', points(...a));
     for (let step = 1; step <= steps; step++) {
       await pause(this.page, 40);
@@ -176,6 +179,18 @@ class Fingers {
     const [cx, cy] = await at(this.page, x, y);
     await this.send('touchStart', [[cx, cy], [cx + 70, cy + 8]]);
     await pause(this.page, 90);
+    await this.lift();
+  }
+
+  /** One finger flicked from one game point to another, as fast as the browser takes it, lifting while still moving. */
+  async flick(from: Point, to: Point): Promise<void> {
+    const a = await at(this.page, ...from);
+    const b = await at(this.page, ...to);
+    const steps = 3;
+    await this.send('touchStart', [a]);
+    for (let step = 1; step <= steps; step++) {
+      await this.send('touchMove', [[a[0] + ((b[0] - a[0]) * step) / steps, a[1] + ((b[1] - a[1]) * step) / steps]]);
+    }
     await this.lift();
   }
 
@@ -406,6 +421,161 @@ for (const game of GAMES) {
     await expect(page.getByRole('heading', { name: new RegExp(`${game.title}$`) })).toBeVisible();
     await page.goto(`#/saves/${game.id}`);
     await expect(page.locator('.menu li').first()).toContainText('Touch1');
+
+    expect(faults).toEqual([]);
+    await expect(page.getByText('System fault')).toHaveCount(0);
+  });
+}
+
+// ---------------------------------------------------------------------
+// A long inventory, scrolled with fingers
+// ---------------------------------------------------------------------
+
+/**
+ * Things both games have, to fill an inventory with more than it shows at
+ * once: enough for Fallout 2's two columns to scroll several rows.
+ */
+const MORE_THINGS = [
+  'rope', 'flare', 'radaway', 'rad-x', 'mentats', 'buffout', 'psycho', 'geiger', 'stealth boy', 'crowbar', 'sledgehammer',
+  'first aid', 'nuka-cola', 'beer', 'booze', 'brass knuckles', 'dynamite', 'spear', "doctor's bag", 'super stim',
+  'motion sensor', 'rock',
+];
+
+/** Past the gate with a tap. The explanation of the controls was seen before. */
+async function begin(page: Page): Promise<void> {
+  await expect(page.getByText(/TAP TO BEGIN|PRESS ANY KEY/)).toBeVisible({ timeout: 60_000 });
+  await pause(page, 1500);
+  await page.touchscreen.tap(422, 150);
+  await expect(page.locator('#terminal')).toBeHidden();
+}
+
+type Rect = { left: number; top: number; right: number; bottom: number };
+
+/** The list the game says takes the wheel, looked for across the middle of the screen; null if none. */
+function findList(page: Page): Promise<Rect | null> {
+  return page.evaluate(() => {
+    const engine = (window as unknown as { overseerEngine: { scrollListAt(x: number, y: number): Rect | null } }).overseerEngine;
+    for (let x = 0; x < 640; x += 4) {
+      const list = engine.scrollListAt(x, 200);
+      if (list) return list;
+    }
+    return null;
+  });
+}
+
+for (const game of GAMES) {
+  test(`${game.title}: a long inventory scrolls under a finger`, async ({ page, browserName }) => {
+    test.skip(!game.dir, `set ${game.id.toUpperCase()}_DIR to your ${game.title} folder to run this`);
+    test.skip(browserName !== 'chromium', 'fingers that drag are sent through Chromium alone');
+    test.setTimeout(600_000);
+    const faults: string[] = [];
+    page.on('pageerror', (error) => faults.push(error.message));
+    await page.addInitScript(() => localStorage.setItem('overseer-console:touch-help', '1'));
+    await openConsole(page, game.id, { skipIntro: true });
+    await pickFolder(page, game.dir!);
+    await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 300_000 });
+
+    // A new game, quick saved at once.
+    await pause(page, 1500);
+    await page.locator('.menu button', { hasText: 'Begin simulation' }).tap();
+    await page.waitForURL(/play\.html/);
+    await begin(page);
+    await waitForPicture(page, 4000);
+    await page.keyboard.press('n');
+    await pause(page, 3500);
+    await page.keyboard.press('t');
+    await pause(page, 4500);
+    await page.keyboard.press('Escape');
+    await pause(page, 9000);
+    await page.keyboard.press('F6');
+    await expect(page.locator('#toast')).toHaveText('QUICK SAVED IN SLOT 07', { timeout: 30_000 });
+    await page.keyboard.press('F9');
+    await expect(page.getByText('Simulation suspended')).toBeVisible();
+    await page.keyboard.press('x');
+    await page.keyboard.press('y');
+    await expect(page.getByRole('heading', { name: new RegExp(`${game.title}$`) })).toBeVisible({ timeout: 30_000 });
+
+    // More things than the inventory shows at once, given by the save editor.
+    const selected = page.locator('.ledger li.selected');
+    await page.goto(`#/saves/${game.id}/modify/7`);
+    await expect(selected).toContainText('Name');
+    await page.keyboard.press('7');
+    for (const name of MORE_THINGS) {
+      await page.keyboard.press('a');
+      await page.keyboard.type(name);
+      await page.keyboard.press('ArrowDown');
+      await expect(selected).toContainText(new RegExp(name, 'i'));
+      await page.keyboard.press('Enter');
+      await page.keyboard.press('Escape');
+    }
+    await page.keyboard.press('0');
+    await page.keyboard.press('w');
+    await expect(page.getByText(/SLOT 07 MODIFIED/)).toBeVisible();
+    await page.goto(`#/saves/${game.id}/7`);
+    await expect(page.locator('.menu button').filter({ hasText: 'Load this save' })).toBeVisible();
+    await pause(page, 1500);
+    await page.keyboard.press('l');
+    await page.waitForURL(/play\.html/);
+    await begin(page);
+    await waitForPicture(page, 6000);
+
+    // The inventory, and the list the game says is in it: six rows or more, down its left side.
+    await page.keyboard.press('i');
+    await pause(page, 2000);
+    await expect.poll(() => findList(page), { timeout: 10_000 }).not.toBeNull();
+    const list = (await findList(page))!;
+    expect(list.bottom - list.top).toBeGreaterThanOrEqual(5 * 48);
+    expect(list.right).toBeLessThan(320);
+    const mid = (list.left + list.right) / 2;
+    const low = list.bottom - 30;
+    const ROW = 48;
+
+    const fingers = await Fingers.on(page);
+    /** The list, with the pointer taken off it first: one finger dragged across the middle of the window. */
+    const look = async () => {
+      await fingers.drag([400, 120], [420, 130], 1);
+      await pause(page, 800);
+      const [x, y] = await at(page, list.left, list.top);
+      const [right, bottom] = await at(page, list.right, list.bottom);
+      return page.screenshot({ clip: { x, y, width: right - x, height: bottom - y } });
+    };
+    const top = await look();
+
+    // One finger up the list: it follows, row by row. Back down as far: it is back at the top.
+    await fingers.drag([mid, low], [mid, low - ROW * 2.5], 1);
+    await pause(page, 1000);
+    const twoDown = await look();
+    expect(twoDown.equals(top)).toBe(false);
+    await fingers.drag([mid, low - ROW * 2.5], [mid, low], 1);
+    await pause(page, 1000);
+    expect((await look()).equals(top)).toBe(true);
+
+    // Two fingers either side of the list scroll it too, the pointer having been elsewhere: as far as one did.
+    const box = (await page.locator('#canvas').boundingBox())!;
+    const spread = 70 / (box.width / 640);
+    await fingers.drag([mid - spread / 2, low], [mid - spread / 2, low - ROW * 2.5], 2);
+    await pause(page, 1000);
+    expect((await look()).equals(twoDown)).toBe(true);
+    await fingers.drag([mid - spread / 2, low - ROW * 2.5], [mid - spread / 2, low], 2);
+    await pause(page, 1000);
+    expect((await look()).equals(top)).toBe(true);
+
+    // Flicked, the list glides on past where the finger let go.
+    await fingers.drag([mid, low], [mid, low - ROW * 1.5], 1, 12);
+    await pause(page, 1000);
+    const oneDown = await look();
+    await fingers.drag([mid, low - ROW * 3], [mid, low], 1);
+    await pause(page, 1000);
+    expect((await look()).equals(top)).toBe(true);
+    await fingers.flick([mid, low], [mid, low - ROW * 1.5]);
+    await pause(page, 2500);
+    const glided = await look();
+    expect(glided.equals(top)).toBe(false);
+    expect(glided.equals(oneDown)).toBe(false);
+
+    // Closed, the inventory's list is gone.
+    await page.locator('#deck button[data-act="esc"]').tap();
+    await expect.poll(() => findList(page), { timeout: 5000 }).toBeNull();
 
     expect(faults).toEqual([]);
     await expect(page.getByText('System fault')).toHaveCount(0);

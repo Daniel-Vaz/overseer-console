@@ -1,0 +1,53 @@
+Tell the page where the inventory lists are
+
+The inventories scroll with the mouse wheel only while the pointer is over
+the list. Each of their lists now says where it lies on the screen, every
+time its screen goes round its loop, so that the page can scroll it when a
+finger swipes over it: it puts the pointer there and turns the wheel.
+---
+diff --git a/src/inventory.cc b/src/inventory.cc
+index db5bdb8..bf26ab9 100644
+--- a/src/inventory.cc
++++ b/src/inventory.cc
+@@ -54,6 +54,13 @@
+ #include "tile.h"
+ #include "window_manager.h"
+ 
++#if defined(__EMSCRIPTEN__)
++// Overseer Console: tells the page where a list that takes the mouse wheel
++// lies on the screen (engines/lib/overseer.js), so that a finger swiping over
++// it can scroll it.
++extern "C" void overseer_scroll_list(int left, int top, int right, int bottom);
++#endif
++
+ namespace fallout {
+ 
+ #define INVENTORY_WINDOW_X 80
+@@ -1114,8 +1121,27 @@ static void inventoryScrollerPage(const InventoryScroller& scroller, int directi
+     inventoryScrollerJumpTo(scroller, *scroller.offsetPtr + direction * scroller.visibleSlots);
+ }
+ 
++// Overseer Console: says where a list is, each time its screen goes round its
++// loop. The page forgets a list it is no longer told of.
++static void inventoryScrollerReport(const InventoryScroller& scroller)
++{
++#if defined(__EMSCRIPTEN__)
++    Window* window = windowGetWindow(gInventoryWindow);
++    if (window == nullptr) {
++        return;
++    }
++
++    overseer_scroll_list(window->rect.left + scroller.hitRect.left,
++        window->rect.top + scroller.hitRect.top,
++        window->rect.left + scroller.hitRect.right,
++        window->rect.top + scroller.hitRect.bottom);
++#endif
++}
++
+ static void inventoryScrollerHandleInput(const InventoryScroller& scroller, int keyCode, int mouseEvent)
+ {
++    inventoryScrollerReport(scroller);
++
+     if (scroller.keyUp != -1 && keyCode == scroller.keyUp) {
+         inventoryScrollerScroll(scroller, -1);
+     } else if (scroller.keyDown != -1 && keyCode == scroller.keyDown) {
