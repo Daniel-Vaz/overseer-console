@@ -7,6 +7,7 @@ import { readParty } from '../../src/lib/modify/party';
 import { readSave, type Original } from '../../src/lib/modify/record';
 import { parseSaveHeader } from '../../src/lib/savefile';
 import type { GameData } from '../../src/lib/gamedata';
+import { registerMod } from '../../src/lib/games';
 import { folderGameData, layeredGameData } from '../gamedata';
 import { recruit } from '../party';
 import { expect, test } from './fixtures';
@@ -29,6 +30,9 @@ test.use({ onDisk: true });
 const FO1 = process.env.FO1_DIR;
 const FO2 = process.env.FO2_DIR;
 const ETTU = process.env.ETTU;
+
+// What the test reads of Fallout Et Tu itself, it reads as a mod of Fallout 2, as the console does.
+registerMod({ id: 'ettu', known: 'ettu', title: 'Fallout Et Tu', base: 'fo2', donor: 'fo1' });
 
 /** Starts a new game with the first ready-made character, past the opening movie. */
 async function newGame(page: Page): Promise<void> {
@@ -288,8 +292,9 @@ test('Fallout Et Tu: a save changed in the console is the save the game plays', 
   await page.goto('#/fo2');
   await pickFolder(page, FO2!);
   await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 300_000 });
-  await page.goto('#/ettu');
+  await page.goto('#/mods/load');
   await pickFolder(page, ETTU!);
+  await expect(page.getByRole('heading', { name: 'Fallout Et Tu' })).toBeVisible({ timeout: 900_000 });
   await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 900_000 });
   const mods = ['fo1_maps_mountains', 'Anim_ImprovedSMutantDeath', 'fo1_interface', 'fo1_base'];
   await roundTrip(page, 'ettu', /Fallout Et Tu$/, () =>

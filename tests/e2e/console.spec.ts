@@ -1,7 +1,7 @@
 import { expect, test } from './fixtures';
 import { zipSync } from 'fflate';
 import type { Page } from '@playwright/test';
-import { fakeFallout1Folder, fakeFallout2Folder, fakeFallout2WithPlaces, fakeSaveDat, junkFolder, openConsole, pickFolder } from './helpers';
+import { fakeEttuZip, fakeFallout1Folder, fakeFallout2Folder, fakeFallout2WithPlaces, fakeSaveDat, junkFolder, openConsole, pickFolder } from './helpers';
 
 test('plays the power-on sequence once, then shows the main directory', async ({ page }) => {
   await page.goto('');
@@ -113,18 +113,33 @@ test('is fully usable from the keyboard and remembers settings', async ({ page }
 
 test('a game starts at the picture it was made for, until the player chooses another', async ({ page }) => {
   await openConsole(page, 'settings');
-  await expect(page.locator('.menu li').filter({ hasText: 'Picture' })).toContainText('CLASSIC / CLASSIC / HIGH');
+  await expect(page.locator('.menu li').filter({ hasText: 'Picture' })).toContainText('CLASSIC 4:3');
   await page.keyboard.press('1');
   const decks = page.locator('.menu li');
+  await expect(decks).toContainText(['Deck A: Fallout', 'Deck B: Fallout 2', 'Back']);
   await expect(decks.nth(0)).toContainText('CLASSIC 4:3');
   await expect(decks.nth(1)).toContainText('CLASSIC 4:3');
-  await expect(decks.nth(2)).toContainText('HIGH RESOLUTION');
+
+  // A mod starts at the one its makers meant: Fallout Et Tu at high resolution.
+  await page.goto('#/fo1');
+  await pickFolder(page, await fakeFallout1Folder());
+  await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 60_000 });
+  await page.goto('#/mods/load');
+  await page.locator('input[accept*="zip"]').setInputFiles(fakeEttuZip());
+  await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 60_000 });
+  await page.goto('#/settings');
+  await expect(page.locator('.menu li').filter({ hasText: 'Picture' })).toContainText('EACH ITS OWN');
+  await page.keyboard.press('1');
+  await expect(page.locator('.menu li:not(.group)')).toContainText(['Deck A: Fallout', 'Deck B: Fallout 2', 'Fallout Et Tu', 'Back']);
+  await expect(page.locator('.menu .group')).toContainText(['Games', 'Mods']);
+  const ettu = page.locator('.menu li').filter({ hasText: 'Fallout Et Tu' });
+  await expect(ettu).toContainText('HIGH RESOLUTION');
 
   // The original picture is there for Et Tu too, and stays chosen.
   await page.keyboard.press('3');
-  await expect(decks.nth(2)).toContainText('CLASSIC 4:3');
+  await expect(ettu).toContainText('CLASSIC 4:3');
   await page.reload();
-  await expect(decks.nth(2)).toContainText('CLASSIC 4:3');
+  await expect(ettu).toContainText('CLASSIC 4:3');
   await page.keyboard.press('Escape');
   await expect(page.locator('.menu li').filter({ hasText: 'Picture' })).toContainText('CLASSIC 4:3');
 });
@@ -139,10 +154,7 @@ test('every game has a picture of its own', async ({ page }) => {
   await expect(page.getByText('OVERSEER CONSOLE // PICTURE')).toBeVisible();
 
   const decks = page.locator('.menu li');
-  await expect(decks).toContainText(['Deck A: Fallout', 'Deck B: Fallout 2', 'Deck C: Fallout Et Tu', 'Back']);
-  await page.keyboard.press('3');
-  await expect(decks.nth(2)).toContainText('HIGH RESOLUTION');
-  await expect(page.locator('.menu-note')).toContainText('The picture Fallout Et Tu was laid out for.');
+  await expect(decks).toContainText(['Deck A: Fallout', 'Deck B: Fallout 2', 'Back']);
   await page.keyboard.press('Home');
   await page.keyboard.press('ArrowLeft');
   await expect(decks.nth(0)).toContainText('CLASSIC 4:3');
@@ -152,10 +164,9 @@ test('every game has a picture of its own', async ({ page }) => {
   await page.reload();
   await expect(decks.nth(0)).toContainText('CLASSIC 4:3');
   await expect(decks.nth(1)).toContainText('WIDE');
-  await expect(decks.nth(2)).toContainText('HIGH RESOLUTION');
   await page.keyboard.press('Escape');
   await expect(page.getByRole('heading', { name: 'Terminal settings' })).toBeVisible();
-  await expect(summary).toContainText('CLASSIC / WIDE / HIGH');
+  await expect(summary).toContainText('CLASSIC / WIDE');
 
   // A deck has the same choice for its own game, and the game is started at it.
   await page.goto('#/fo2');
@@ -163,9 +174,9 @@ test('every game has a picture of its own', async ({ page }) => {
   await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 60_000 });
   const entry = page.locator('.menu li').filter({ hasText: 'Picture' });
   await expect(entry).toContainText('WIDE');
-  await page.keyboard.press('3');
+  await page.keyboard.press('4');
   await expect(entry).toContainText('HIGH RESOLUTION');
-  await page.keyboard.press('3');
+  await page.keyboard.press('4');
   await expect(entry).toContainText('CLASSIC 4:3');
   // The cursor is on the entry: the left arrow steps it back.
   await page.keyboard.press('ArrowLeft');
@@ -182,7 +193,8 @@ test('every game has a picture of its own', async ({ page }) => {
   expect(size).toEqual({ width: 1152, height: 720 });
   await page.keyboard.press('Escape');
   await expect(page.getByRole('heading', { name: 'SIMULATION 02: Fallout 2' })).toBeVisible();
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('overseer-console:settings')!).picture)).toEqual({ fo1: 'classic', fo2: 'high', ettu: 'high' });
+  // Et Tu had the one picture for all games too, then: it is kept for it.
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('overseer-console:settings')!).picture)).toEqual({ fo1: 'classic', fo2: 'high', ettu: 'wide' });
 });
 
 test('the switches on the housing turn the tube effects and sounds off', async ({ page }) => {
@@ -253,8 +265,8 @@ test('imports a game folder into browser storage, and ejects it again', async ({
   await page.keyboard.press('2');
   await expect(page.locator('.menu button').first()).toContainText('Begin simulation');
   // What is done to the game data itself (loading it again, taking it out) is one entry, not four beside the one that plays.
-  await expect(page.locator('.menu button')).toContainText(['Begin simulation', 'Save archives', 'Picture', 'Holodisk', 'Back']);
-  await page.keyboard.press('4');
+  await expect(page.locator('.menu button')).toContainText(['Begin simulation', 'Mod', 'Save archives', 'Picture', 'Holodisk', 'Back']);
+  await page.keyboard.press('5');
   await expect(page.locator('.menu button')).toContainText(['Replace holodisk: select the game folder', 'Replace holodisk: select a zip of the game folder', 'Eject holodisk', 'Back']);
   await page.keyboard.press('e');
   await expect(page.getByText('EJECT THE FALLOUT 2 HOLODISK?')).toBeVisible();
@@ -596,7 +608,7 @@ test('Fallout 2 starts with what its engine adds, and as the original when that 
   await expect(entry).toContainText('ON');
   await page.keyboard.press('6');
   await expect(entry).toContainText('OFF');
-  await expect(page.locator('.menu-note')).toContainText('Fallout 2 as the original played.');
+  await expect(page.locator('.menu-note')).toContainText('Fallout 2 and its mods as the original engine played them.');
 
   await toTheGate(page, 'fo2', folder);
   const original = await game();
@@ -669,7 +681,7 @@ test('the manual is a list of chapters, each read on its own and leading to the 
   await openConsole(page);
   await page.keyboard.press('6');
   await expect(page.getByRole('heading', { name: 'Operations manual' })).toBeVisible();
-  const chapters = ['Loading a game', 'Fallout Et Tu', 'Controls', 'Picture and speed', 'Touch screens', 'Saving', 'Save archives', 'Your Dropbox', 'If something fails'];
+  const chapters = ['Loading a game', 'Mods', 'Controls', 'Picture and speed', 'Touch screens', 'Saving', 'Save archives', 'Your Dropbox', 'If something fails'];
   await expect(page.locator('.menu .label')).toHaveText([...chapters, 'Back'], { ignoreCase: true });
 
   // The board lists the sections of the chapter under the cursor: the headings that chapter has.

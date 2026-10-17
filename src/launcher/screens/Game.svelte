@@ -1,38 +1,36 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { whereabouts } from '../../lib/gamefacts';
-  import { GAMES, GAME_IDS, type GameId } from '../../lib/games';
-  import { loadGameStats } from '../../lib/settings';
+  import { gameDef, isGameId, type BaseGameId, type GameId } from '../../lib/games';
+  import { loadGameStats, picturesFor } from '../../lib/settings';
   import { sourcesFromFileList } from '../../lib/storage/importer';
   import { formatBytes } from '../../lib/storage/manifest';
   import { removeInstall } from '../../lib/storage/opfs';
   import Deck from '../components/Deck.svelte';
   import Glyph from '../components/Glyph.svelte';
+  import JobResult from '../components/JobResult.svelte';
+  import Loading from '../components/Loading.svelte';
   import Menu from '../components/Menu.svelte';
   import { ago, exportedState, stamp } from '../format';
   import { launchGame } from '../launch';
-  import { PICTURE_NAMES, PICTURE_NOTES, nextPicture } from '../picture';
+  import { modName } from '../mods';
+  import { PICTURE_NAMES, PICTURE_NOTES, step } from '../picture';
   import { sfx } from '../sfx';
   import { consoleState as sys } from '../state.svelte';
   import type { MenuItem } from '../types';
 
-  let { go, game }: { go: (path: string) => void; game: GameId } = $props();
+  let { go, game }: { go: (path: string) => void; game: BaseGameId } = $props();
 
-  const def = $derived(GAMES[game]);
+  const def = $derived(gameDef(game));
   const install = $derived(sys.installs[game]);
-  const stats = $derived(loadGameStats(game));
-  // A conversion is not sold: it is put together from its own package and two games that are.
-  const conversion = $derived(def.conversion ?? null);
-  const base = $derived(conversion ? GAMES[conversion.base] : null);
-  const donor = $derived(conversion ? GAMES[conversion.donor] : null);
   // Folder selection is a desktop browser feature; phones only pick files.
   const canPickFolder = 'webkitdirectory' in HTMLInputElement.prototype;
 
   /**
    * main: the deck. stores: where the game is sold. holodisk: loading the
-   * game again, or taking it out. eject, stop: asked before it is done.
+   * game again, or taking it out. eject: asked before it is done.
    */
-  let view = $state<'main' | 'stores' | 'holodisk' | 'eject' | 'stop'>('main');
+  let view = $state<'main' | 'stores' | 'holodisk' | 'eject'>('main');
   let folderInput: HTMLInputElement | undefined = $state();
   let filesInput: HTMLInputElement | undefined = $state();
   let zipInput: HTMLInputElement | undefined = $state();
@@ -40,9 +38,14 @@
   // The import in progress, when it concerns this deck.
   const job = $derived(sys.job.phase !== 'idle' && (sys.job.game === undefined || sys.job.game === game) ? sys.job : null);
   const loading = $derived(job?.phase === 'reading' || job?.phase === 'copying');
-  const percent = $derived(job && job.totalBytes ? Math.min(100, (job.doneBytes / job.totalBytes) * 100) : 0);
-  // Another game that lies in the folder this deck was just loaded from, or this deck's own game found beside another.
-  const offered = $derived(sys.offer && !sys.busy ? GAMES[sys.offer.game] : null);
+  // A mod that lies in the folder this deck was just loaded from.
+  const offered = $derived(sys.offer && !sys.busy ? sys.offer : null);
+
+  /** What the deck plays: the game, or the mod put in it. */
+  const playing = $derived(sys.deckGame(game));
+  const mods = $derived(sys.modsOf(game));
+  const modded = $derived(playing !== game);
+  const stats = $derived(loadGameStats(playing));
 
   onMount(() => {
     sys.hints = [
@@ -69,21 +72,19 @@
   }
 
   $effect(() => {
-    // The folder turned out to hold another game, or the console went on to one: follow it to its deck.
-    if ((sys.job.phase === 'copying' || sys.job.phase === 'reading') && sys.job.game && sys.job.game !== game) go(sys.job.game);
+    // The folder turned out to hold another game, or a mod, or the console went on to one: follow it to its screen.
+    const going = sys.job.game;
+    if ((sys.job.phase === 'copying' || sys.job.phase === 'reading') && going && going !== game && going !== 'mod' && isGameId(going)) {
+      go(gameDef(going).mod ? `mods/${going}` : going);
+    }
   });
 
-  // Games in other decks that play from this one's data.
-  const dependents = $derived(GAME_IDS.filter((other) => GAMES[other].conversion?.base === game && sys.installs[other]).map((other) => GAMES[other]));
+  // Mods that play from this deck's data.
+  const dependents = $derived(mods.filter((other) => sys.installs[other]).map((other) => gameDef(other)));
 
   $effect(() => {
     if (job?.phase === 'done') sfx.done();
     else if (job?.phase === 'failed') sfx.deny();
-  });
-
-  $effect(() => {
-    // A copy that ended while it was asked about needs no answer any more.
-    if (!loading && view === 'stop') view = 'main';
   });
 
   async function picked(input: HTMLInputElement | undefined): Promise<void> {
@@ -107,11 +108,6 @@
     await sys.refresh();
   }
 
-  function stop(): void {
-    view = 'main';
-    sys.stopImport();
-  }
-
   type Entry = Omit<MenuItem, 'key'> & { key?: string };
 
   /** Gives the entries that came without a key the numbers 1, 2, 3... in the order they stand in. */
@@ -120,38 +116,15 @@
     return entries.map((entry) => ({ ...entry, key: entry.key ?? String(next++) }));
   }
 
-  const dropboxNote = $derived(
-    conversion
-      ? `Fetches ${def.title} from the zip or folder you put in the console's app folder in your Dropbox.`
-      : `Fetches ${def.title} from the game folder you put in the console's app folder in your Dropbox.`,
-  );
+  const dropboxNote = $derived(`Fetches ${def.title} from the game folder you put in the console's app folder in your Dropbox.`);
 
   /**
    * Ways of handing the console the game from this device: its folder, loose
-   * files where a folder cannot be picked, or one zip. A conversion comes as
-   * the zip it is downloaded as, or as its folder.
+   * files where a folder cannot be picked, or one zip.
    */
   const sourceItems = $derived.by((): Entry[] => {
     const verb = install ? 'Replace' : 'Load';
     const kept = install ? ' Saved games are kept.' : '';
-    if (conversion) {
-      return [
-        {
-          label: `${verb} holodisk: select the package zip`,
-          note: `The file ${def.title} is downloaded as. It is read where it lies, and nothing leaves this device.${kept}`,
-          action: () => zipInput?.click(),
-        },
-        ...(canPickFolder
-          ? [
-              {
-                label: `${verb} holodisk: select its folder`,
-                note: `The ${def.steamFolder.split('/').pop()} folder of a desktop install, or the ${base!.title} folder it sits in.${kept}`,
-                action: () => folderInput?.click(),
-              },
-            ]
-          : []),
-      ];
-    }
     return [
       {
         label: `${verb} holodisk: select the game ${canPickFolder ? 'folder' : 'files'}`,
@@ -172,60 +145,43 @@
 
   const loadItems = $derived(
     numbered([
-      // Found beside the game that was loaded a moment ago: no need to pick the folder twice.
-      ...(offered?.id === game
-        ? [
-            {
-              key: 'e',
-              label: 'Load holodisk from the folder you just picked',
-              note: `That folder holds ${def.title} as well.`,
-              action: () => void sys.importOffered(),
-            },
-          ]
-        : []),
       ...sourceItems,
       {
         label: 'Load holodisk from Dropbox',
         state: sys.dropbox.linked ? undefined : 'NOT LINKED',
         note: sys.dropbox.linked
           ? dropboxNote
-          : `Optional. Link your own Dropbox, put your ${def.title} ${conversion ? 'package' : 'folder'} in it, and load the game from there on any device.`,
+          : `Optional. Link your own Dropbox, put your ${def.title} folder in it, and load the game from there on any device.`,
         action: () => (sys.dropbox.linked ? void fromDropbox() : go('settings/dropbox')),
       },
-      ...(conversion
-        ? [
-            {
-              label: `Get ${def.title}`,
-              state: 'OPENS A NEW TAB',
-              note: 'A free download from the people who make it. Take the newest package there.',
-              action: () => void window.open(conversion.download, '_blank', 'noopener'),
-            },
-            {
-              label: 'What it is put together from',
-              note: 'The package and the two games, and what the console does with them.',
-              action: () => go('manual/ettu'),
-            },
-          ]
-        : [
-            {
-              label: 'Where are the game files?',
-              note: 'Steam, GOG and Epic install locations.',
-              action: () => go('manual/files'),
-            },
-            {
-              label: `Get ${def.title}`,
-              note: 'The console needs a copy you own. It is sold on GOG, Steam and Epic.',
-              action: () => (view = 'stores'),
-            },
-          ]),
+      {
+        label: 'Where are the game files?',
+        note: 'Steam, GOG and Epic install locations.',
+        action: () => go('manual/files'),
+      },
+      {
+        label: `Get ${def.title}`,
+        note: 'The console needs a copy you own. It is sold on GOG, Steam and Epic.',
+        action: () => (view = 'stores'),
+      },
       { key: '0', label: 'Back', action: () => go('') },
     ]),
   );
 
-  // This game's latest save, when there is one.
-  const resume = $derived(sys.continueFrom(game)?.save ?? null);
-  const playable = $derived(sys.playable(game));
-  const picture = $derived(sys.settings.picture[game]);
+  // The latest save of what the deck plays, when there is one.
+  const resume = $derived(sys.continueFrom(playing)?.save ?? null);
+  const playable = $derived(sys.playable(playing));
+  const pictures = $derived(picturesFor(playing));
+  const picture = $derived(sys.picture(playing));
+  const playingDef = $derived(gameDef(playing));
+  /** Said of what the deck plays, where it is a mod. */
+  const forMod = $derived(modded ? ` of ${playingDef.title}` : '');
+
+  /** The deck's choice of what it plays: the game itself, or one of the mods loaded for it. */
+  const modChoice = $derived([game, ...mods.filter((other) => sys.installs[other])] as GameId[]);
+  function stepMod(direction: 1 | -1 = 1): void {
+    sys.setDeckGame(game, step(modChoice, modChoice.includes(playing) ? playing : game, direction));
+  }
 
   const readyItems = $derived(
     numbered([
@@ -235,37 +191,49 @@
               key: 'c',
               label: 'Continue',
               state: `SLOT ${String(resume.slot).padStart(2, '0')}, ${ago(resume.savedAt)}`,
-              note: `Straight into your latest save: "${resume.description || 'no description'}", ${resume.character}${resume.level ? ` (level ${resume.level})` : ''}, ${whereabouts(sys.places[game], resume)}, ${resume.gameDate}.`,
-              action: () => void launchGame(game, resume.slot),
+              note: `Straight into your latest save${forMod}: "${resume.description || 'no description'}", ${resume.character}${resume.level ? ` (level ${resume.level})` : ''}, ${whereabouts(sys.places[playing], resume)}, ${resume.gameDate}.`,
+              action: () => void launchGame(playing, resume.slot, game),
             },
           ]
         : []),
       {
         label: 'Begin simulation',
-        state: playable || !base ? undefined : `NEEDS DECK ${base.deck}`,
+        state: playable ? undefined : 'MOD NOT LOADED',
         tone: playable ? undefined : 'amber',
         disabled: !playable,
-        note:
-          !playable && base
-            ? `${def.title} runs on ${base.title}: load it into deck ${base.deck} first.`
+        note: !playable
+          ? `${playingDef.title} is not loaded any more: choose another mod, or load it again in the Mod library.`
+          : modded
+            ? `Starts at the main menu of ${modName(playing)}, played on ${def.title}: new game, load game, options.`
             : `Starts at the main menu of ${def.title}: new game, load game, options.`,
-        action: () => void launchGame(game),
+        action: () => void launchGame(playing, undefined, game),
+      },
+      {
+        label: 'Mod',
+        state: modded ? playingDef.short : 'NONE',
+        note: modded
+          ? `Deck ${def.deck} plays ${modName(playing)}, with saves of its own. ${modChoice.length > 2 ? 'The arrows choose another, or none' : 'The arrows go back to none'}: ${def.title} as it was sold.`
+          : mods.length
+            ? `${def.title} as it was sold. The arrows put one of its mods in this deck instead.`
+            : `${def.title} as it was sold. Mods for it are loaded in the Mod library: open it to load one.`,
+        action: () => (modChoice.length > 1 ? stepMod() : go('mods')),
+        adjust: modChoice.length > 1 ? stepMod : undefined,
       },
       {
         label: 'Save archives',
-        state: sys.saves[game] ? `${sys.saves[game]} ${sys.saves[game] === 1 ? 'SAVE' : 'SAVES'}${sys.exported[game] ? '' : ', NEVER EXPORTED'}` : 'EMPTY',
-        tone: sys.unexported.includes(game) ? 'amber' : undefined,
-        note: sys.unexported.includes(game)
-          ? "Back up, restore or delete saved games. These have never been exported: they are only in this browser's storage, which the browser may clear."
-          : 'Back up, restore or delete saved games.',
-        action: () => go(`saves/${game}`),
+        state: sys.saves[playing] ? `${sys.saves[playing]} ${sys.saves[playing] === 1 ? 'SAVE' : 'SAVES'}${sys.exported[playing] ? '' : ', NEVER EXPORTED'}` : 'EMPTY',
+        tone: sys.unexported.includes(playing) ? 'amber' : undefined,
+        note: sys.unexported.includes(playing)
+          ? `Back up, restore or delete saved games${forMod}. These have never been exported: they are only in this browser's storage, which the browser may clear.`
+          : `Back up, restore or delete saved games${forMod}.`,
+        action: () => go(`saves/${playing}`),
       },
       {
         label: 'Picture',
         state: PICTURE_NAMES[picture],
-        note: `${PICTURE_NOTES[picture]} For this game only.`,
-        action: () => sys.setPicture(game, nextPicture(picture)),
-        adjust: (direction) => sys.setPicture(game, nextPicture(picture, direction)),
+        note: `${PICTURE_NOTES[picture]} For ${modded ? playingDef.title : 'this game'} only.`,
+        action: () => sys.setPicture(playing, step(pictures, picture)),
+        adjust: (direction) => sys.setPicture(playing, step(pictures, picture, direction)),
       },
       {
         label: 'Holodisk',
@@ -273,13 +241,13 @@
         note: 'Load the game files again, for example after patching your copy, or eject them from this browser. Saved games are kept either way.',
         action: () => (view = 'holodisk'),
       },
-      // A conversion installed inside this game's folder came along in the selection.
-      ...(offered && offered.id !== game
+      // A mod installed inside this game's folder came along in the selection.
+      ...(offered
         ? [
             {
               key: 'e',
               label: `Load ${offered.title} from the same folder`,
-              note: `The folder you picked holds ${offered.title} as well. This loads it into deck ${offered.deck} without picking the folder again.`,
+              note: `The folder you picked holds ${offered.title} as well. This loads it into the Mod library without picking the folder again.`,
               action: () => void sys.importOffered(),
             },
           ]
@@ -329,20 +297,6 @@
     { key: 'n', label: 'No, keep it', action: () => (view = 'holodisk') },
     { key: 'y', label: 'Yes, eject', danger: true, action: () => void eject() },
   ];
-
-  const loadingItems: MenuItem[] = [
-    {
-      key: 'x',
-      label: 'Stop loading',
-      note: 'Calls the copy off. What was copied so far is thrown away, and the deck stays as it was.',
-      action: () => (view = 'stop'),
-    },
-  ];
-
-  const stopItems: MenuItem[] = [
-    { key: 'n', label: 'No, carry on', action: () => (view = 'main') },
-    { key: 'y', label: 'Yes, stop loading', danger: true, action: stop },
-  ];
 </script>
 
 <h1>{def.label}: {def.title}</h1>
@@ -370,87 +324,13 @@
   onchange={() => picked(zipInput)}
 />
 
-<!-- The games a conversion is put together from, and whether each is in its deck. -->
-{#snippet needs()}
-  {#if base && donor}
-    <dt>Runs on</dt>
-    <dd class:amber={sys.installs[base.id] === null}>
-      {base.title.toUpperCase()}, DECK {base.deck}{sys.installs[base.id] ? ': LOADED' : sys.installs[base.id] === null ? ': NOT LOADED' : ''}
-    </dd>
-    {#if !install}
-      <dt>Built from</dt>
-      <dd class:amber={sys.installs[donor.id] === null}>
-        {donor.title.toUpperCase()}, DECK {donor.deck}{sys.installs[donor.id] ? ': LOADED' : sys.installs[donor.id] === null ? ': NOT LOADED' : ''}
-      </dd>
-    {/if}
-  {/if}
-{/snippet}
-
 <div class="columns">
 <div>
 {#if loading && job}
-  {#if job.phase === 'reading'}
-    <p class="gap">READING HOLODISK<span class="cursor"></span></p>
-    <p class="dim">Looking for {def.title} in {job.remote ? 'your Dropbox' : 'what you selected'}.</p>
-  {:else}
-    <p class="gap">{job.remote ? 'FETCHING HOLODISK FROM DROPBOX' : 'LOADING HOLODISK'} INTO PRIVATE STORAGE</p>
-    <div class="meter gap" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(percent)}>
-      <div class="track"><div class="fill" style:width="{percent}%"></div></div>
-      <span>{Math.round(percent)}%</span>
-      <span class="dim">{formatBytes(job.doneBytes)} / {formatBytes(job.totalBytes)}</span>
-    </div>
-    <p class="dim">{job.path ? `COPYING ${job.path.toUpperCase()}` : 'PREPARING'}</p>
-    <p class="gap amber">KEEP THIS TAB OPEN UNTIL THE COPY FINISHES.</p>
-  {/if}
-  {#if view === 'stop'}
-    <div class="signed ask gap">
-      <Glyph name="warning" tone="amber" />
-      <div>
-        <p class="amber">STOP LOADING THE {def.title.toUpperCase()} HOLODISK?</p>
-        <p>What was copied so far is thrown away. The deck stays as it was, and the holodisk can be loaded again.</p>
-      </div>
-    </div>
-    <Menu items={stopItems} label="Confirm stop" />
-  {:else}
-    <Menu items={loadingItems} label="While loading" />
-  {/if}
+  <Loading {job} what={def.title} place="the deck" />
 {:else}
-  {#if job?.phase === 'failed'}
-    <div class="panel signed bad" role="alert">
-      <Glyph name="fault" tone="alert" />
-      <div>
-        <p class="alert">HOLODISK REJECTED</p>
-        <p>{job.error}</p>
-      </div>
-    </div>
-  {:else if job?.phase === 'stopped'}
-    <div class="panel signed" role="status">
-      <Glyph name="warning" tone="amber" />
-      <div>
-        <p class="amber">LOADING STOPPED</p>
-        <p>Nothing was changed: the deck is as it was.</p>
-      </div>
-    </div>
-  {:else if job?.phase === 'done' && job.plan}
-    <div class="panel signed" role="status">
-      <Glyph name="ok" />
-      <div>
-        <p class="hot">HOLODISK LOADED</p>
-        <p>
-          {job.plan.sourceFiles.toLocaleString('en-US')} files, {formatBytes(job.plan.totalBytes)}.
-          {#if job.plan.saves.length}Saved games found in the folder were added to the save archives.{/if}
-        </p>
-        {#each job.plan.notes as note (note)}
-          <p>{note}</p>
-        {/each}
-        {#each job.plan.warnings as warning (warning)}
-          <p class="amber">{warning}</p>
-        {/each}
-        {#if offered && offered.id !== game}
-          <p class="hot">{offered.title.toUpperCase()} IS IN THAT FOLDER AS WELL.</p>
-        {/if}
-      </div>
-    </div>
+  {#if job}
+    <JobResult {job} beside={offered?.title ?? null} place="the deck" />
   {/if}
 
   {#if view === 'stores'}
@@ -463,7 +343,7 @@
         <p class="amber">EJECT THE {def.title.toUpperCase()} HOLODISK?</p>
         <p>The game data is removed from this browser. Your saved games stay, and you can load the holodisk again later.</p>
         {#each dependents as other (other.id)}
-          <p class="amber">{other.title} in deck {other.deck} runs on this holodisk, and will not start without it.</p>
+          <p class="amber">{other.title}, in the Mod library, is played on this holodisk, and will not start without it.</p>
         {/each}
       </div>
     </div>
@@ -480,12 +360,15 @@
       <dd>LOADED, {formatBytes(install.totalBytes)}, {stamp(install.importedAt, false)}</dd>
       <dt>Engine</dt>
       <dd>{def.engine.name.toUpperCase()}</dd>
-      {@render needs()}
+      {#if modded}
+        <dt>Mod</dt>
+        <dd class:amber={!playable}>{modName(playing).toUpperCase()}{playable ? '' : ': NOT LOADED'}</dd>
+      {/if}
       <dt>Saved games</dt>
-      <dd>{sys.saves[game] || 'NONE'}</dd>
-      {#if sys.saves[game]}
+      <dd>{sys.saves[playing] || 'NONE'}</dd>
+      {#if sys.saves[playing]}
         <dt>Last exported</dt>
-        <dd class:amber={!sys.exported[game]}>{exportedState(sys.exported[game])}</dd>
+        <dd class:amber={!sys.exported[playing]}>{exportedState(sys.exported[playing] ?? null)}</dd>
       {/if}
       <dt>Last session</dt>
       <dd>{stats.lastPlayed ? stamp(stats.lastPlayed) : 'NEVER'}</dd>
@@ -495,25 +378,15 @@
     <dl class="readout gap">
       <dt>Holodisk</dt>
       <dd class="amber">NOT LOADED</dd>
-      {@render needs()}
     </dl>
-    {#if base && donor}
-      <p class="gap prose">
-        {def.title} is the first {donor.title} rebuilt as a game for the engine of {base.title}: made by fans, free of
-        charge. The console puts it together from its package, from your {base.title} in deck {base.deck}, which it
-        plays on, and from your {donor.title} in deck {donor.deck}, where its speech, movies and map tiles come from.
-        Nothing is uploaded.
-      </p>
-    {:else}
-      <p class="gap prose">
-        This console plays {def.title} from your own copy of the game. Point it at the folder the game is installed in
-        and the data files are copied into this browser's private storage. Nothing is uploaded.
-      </p>
-    {/if}
+    <p class="gap prose">
+      This console plays {def.title} from your own copy of the game. Point it at the folder the game is installed in
+      and the data files are copied into this browser's private storage. Nothing is uploaded.
+    </p>
     {#if sys.supported}
       <Menu items={loadItems} label={`Load ${def.title}`} />
       {#if canPickFolder}
-        <p class="gap dim">OR DROP THE {conversion ? 'PACKAGE' : 'GAME FOLDER, OR A ZIP OF IT,'} ANYWHERE ON THIS SCREEN.</p>
+        <p class="gap dim">OR DROP THE GAME FOLDER, OR A ZIP OF IT, ANYWHERE ON THIS SCREEN.</p>
       {/if}
     {:else}
       <p class="gap alert">THIS BROWSER CANNOT STORE GAME DATA. SEE THE MAIN DIRECTORY.</p>
@@ -525,17 +398,11 @@
 </div>
 
 <aside class="board gap" aria-label="Holodisk deck">
-  <Deck
-    label={`DECK ${def.deck}`}
-    title={def.title.toUpperCase()}
-    loaded={!!install}
-    spinning={loading}
-  />
+  <Deck label={`DECK ${def.deck}`} title={def.title.toUpperCase()} loaded={!!install} spinning={loading} />
   <p class="dim">
     {#if install}
       Loaded {stamp(install.importedAt, false)}. {install.files} files, {formatBytes(install.totalBytes)}.
-    {:else if base && donor}
-      Holds {def.title}, put together from decks {donor.deck} and {base.deck}.
+      {#if modded}Plays {playingDef.title}.{/if}
     {:else}
       Holds the data files of your copy of {def.title}.
     {/if}

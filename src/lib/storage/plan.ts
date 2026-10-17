@@ -1,12 +1,15 @@
 /** What an import is given, and what it works out before anything is copied. */
 import type { DatArchive } from '../dat';
-import type { DatFormat, GameId } from '../games';
-import type { SourceBlob } from './opfs';
+import type { BaseGameId, DatFormat, GameId } from '../games';
+import type { ModInstall } from './manifest';
+import type { Install, SourceBlob } from './opfs';
 
 export interface SourceFile {
   /** Path as the browser (or the player's Dropbox, or a zip archive) reported it, forward slashes. */
   path: string;
   file: SourceBlob;
+  /** The name of the zip it came out of, if it came out of one. */
+  zip?: string;
 }
 
 export class ImportError extends Error {
@@ -33,14 +36,22 @@ export interface ImportPlan {
   warnings: string[];
   /** Things worth saying about what was put together, that are not warnings. */
   notes: string[];
-  /** Other games the selection holds, besides the one planned here. */
-  also: GameId[];
+  /** Other games the selection holds, besides the one planned here: the two by their ids, mods as 'mod'. */
+  also: (GameId | 'mod')[];
+  /** For a mod: what it is, and how it meets the game it is played on. */
+  mod?: ModInstall;
 }
 
 /** What planning may ask of the games already in this browser. */
 export interface ImportContext {
   /** The MASTER.DAT of an installed game, or null when the game is not installed. */
   archiveOf?(game: GameId): Promise<DatArchive | null>;
+  /** The installed copy of a game, or null. A mod is compared with the game it is played on. */
+  installOf?(game: GameId): Promise<Install | null>;
+  /** The files come from the player's Dropbox: each byte read is a download. */
+  remote?: boolean;
+  /** Says what planning is busy with, when that takes a while. */
+  status?(text: string): void;
 }
 
 const JUNK = new Set(['thumbs.db', 'desktop.ini', '.ds_store']);
@@ -55,9 +66,11 @@ export function isSave(key: string): boolean {
 }
 
 /**
- * State of whatever game was last played in an install; the engine rebuilds
- * it and stale copies only cause trouble.
+ * State of whatever game was last played in an install: the maps, and in
+ * Fallout 2 the item and critter protos, which its engine writes there and
+ * wipes at each new game. Stale copies only cause trouble. Fallout's engine
+ * leaves protos alone: there they are data, as a mod's lists are in both.
  */
-export function isLeftoverState(key: string): boolean {
-  return /^data\/maps\/[^/]+\.sav$/.test(key) || key.startsWith('data/proto/');
+export function isLeftoverState(key: string, game: BaseGameId): boolean {
+  return /^data\/maps\/[^/]+\.sav$/.test(key) || (game === 'fo2' && /^data\/proto\/(critters|items)\/[^/]+\.pro$/.test(key));
 }

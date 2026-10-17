@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { AUTOSAVE_MINUTES } from '../../lib/autosave';
-  import { GAME_IDS } from '../../lib/games';
+  import { gameDef } from '../../lib/games';
   import { FAST_FORWARD_SPEEDS, type Settings } from '../../lib/settings';
   import { formatBytes } from '../../lib/storage/manifest';
   import { requestPersistence, storageStatus } from '../../lib/storage/opfs';
@@ -61,10 +61,13 @@
     return { action: () => move(), adjust: move };
   }
 
-  // The same picture for every game is named once; otherwise each deck's, in the order of the decks.
+  // The same picture for every game is named once; otherwise each deck's, in the order of the decks, and
+  // where mods are loaded besides, only that the games differ.
   const pictures = $derived.by(() => {
-    const names = GAME_IDS.map((game) => PICTURE_NAMES[s.picture[game]]);
-    return names.every((name) => name === names[0]) ? names[0]! : names.map((name) => name.split(' ')[0]).join(' / ');
+    const games = sys.games.filter((game) => !gameDef(game).mod || sys.installs[game]);
+    const names = games.map((game) => PICTURE_NAMES[sys.picture(game)]);
+    if (names.every((name) => name === names[0])) return names[0]!;
+    return games.length > 2 ? 'EACH ITS OWN' : names.map((name) => name.split(' ')[0]).join(' / ');
   });
 
   const items = $derived<MenuItem[]>([
@@ -131,8 +134,8 @@
       state: s.improvements ? 'ON' : 'OFF',
       // Kept to two lines: the list is long, and the manual has the whole of it.
       note: s.improvements
-        ? 'Fallout 2 with what its engine adds: SHIFT lights up what lies on the ground, a wider inventory, doors that open by themselves. The manual lists it all.'
-        : 'Fallout 2 as the original played.',
+        ? 'Fallout 2 and its mods with what the engine adds: SHIFT lights up what lies on the ground, a wider inventory, doors that open by themselves. The manual lists it all.'
+        : 'Fallout 2 and its mods as the original engine played them.',
       ...toggle('improvements'),
     },
     {

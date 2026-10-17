@@ -4,12 +4,14 @@
  * names of perks, traits and skills, and the names of places, all in the
  * game's own words.
  *
- * They are read out of the player's MASTER.DAT once per install and then
- * remembered, so that saves can still be described after a game is ejected.
+ * They are read out of the player's game files once per install, the way
+ * the engine finds them (a mod's own words over those of the game it is
+ * played on), and then remembered, so that saves can still be described
+ * after a game is ejected.
  */
-import { findInDat, readDatEntry } from './dat';
-import { GAMES, GAME_IDS, type EngineId, type GameId } from './games';
-import { loadInstall, openInstalled } from './storage/opfs';
+import { openGameData } from './gamedata';
+import { GAMES, gameDef, gameIds, type EngineId, type GameId } from './games';
+import { loadInstall } from './storage/opfs';
 
 const KEY = 'overseer-console:facts';
 
@@ -228,35 +230,18 @@ function remember(game: GameId, facts: GameFacts): void {
 }
 
 async function readFacts(game: GameId): Promise<GameFacts | null> {
-  const install = await loadInstall(game);
-  if (!install) return null;
-  // A conversion keeps its own words in its own archive, not in the MASTER.DAT it runs on.
-  const def = GAMES[game];
-  const archive = await openInstalled(install, def.factsArchive);
-  if (!archive) return null;
-  const format = def.datFormat;
-  const found = await findInDat(archive, format, [PALETTE, ...Object.values(TEXT), ...Object.values(PLACE_FILES)]);
+  const def = gameDef(game);
+  const data = def ? await openGameData(game) : null;
+  if (!def || !data) return null;
+  const file = async (path: string): Promise<Uint8Array | undefined> => (await data.read(path).catch(() => null)) ?? undefined;
 
-  const paletteEntry = found.get(PALETTE);
-  const palette = paletteEntry ? decodePalette(await readDatEntry(archive, format, paletteEntry)) : null;
+  const paletteFile = await file(PALETTE);
+  const palette = paletteFile ? decodePalette(paletteFile) : null;
   if (!palette) return null;
 
   const names = async (kind: keyof typeof TEXT): Promise<string[]> => {
-    const entry = found.get(TEXT[kind]);
-    if (!entry) return [];
-    try {
-      return messageNames(await readDatEntry(archive, format, entry), NAMES[kind].first, NAMES[kind].count[def.engine.id]);
-    } catch {
-      return [];
-    }
-  };
-  const file = async (path: string): Promise<Uint8Array | undefined> => {
-    const entry = found.get(path);
-    try {
-      return entry ? await readDatEntry(archive, format, entry) : undefined;
-    } catch {
-      return undefined;
-    }
+    const bytes = await file(TEXT[kind]);
+    return bytes ? messageNames(bytes, NAMES[kind].first, NAMES[kind].count[def.engine.id]) : [];
   };
   let places: Places = { areas: [], levels: [] };
   try {
@@ -265,7 +250,7 @@ async function readFacts(game: GameId): Promise<GameFacts | null> {
     // A save is then described by the name of its map file, as before.
   }
   return {
-    install: install.manifest.install,
+    install: data.key,
     palette,
     perks: await names('perks'),
     traits: await names('traits'),
@@ -285,8 +270,12 @@ export function gameFacts(game: GameId): Promise<GameFacts | null> {
       try {
         const install = await loadInstall(game);
         if (!install) return known;
+        // A mod's words may change with the game it is played on.
+        const mod = GAMES[game]?.mod;
+        const base = mod ? await loadInstall(mod.base) : null;
+        const key = `${install.manifest.install}/${base?.manifest.install ?? ''}`;
         // Facts remembered from before the console read the names of places are read once more.
-        if (known?.install === install.manifest.install && known.places) return known;
+        if ((known?.install === key || known?.install === install.manifest.install) && known.places) return known;
         const fresh = await readFacts(game);
         if (fresh) remember(game, fresh);
         return fresh ?? known;
@@ -309,7 +298,7 @@ export function gameFacts(game: GameId): Promise<GameFacts | null> {
 export async function paletteFor(game: GameId): Promise<Uint8Array | null> {
   const own = await gameFacts(game);
   if (own) return own.palette;
-  for (const other of GAME_IDS) {
+  for (const other of gameIds()) {
     if (other === game) continue;
     const facts = await gameFacts(other);
     if (facts) return facts.palette;

@@ -13,7 +13,7 @@
  */
 import { messages, sections } from '../gamefacts';
 import type { GameData } from '../gamedata';
-import { GAMES } from '../games';
+import { gameDef } from '../games';
 import { Ini } from '../ini';
 import {
   FO1_DRUGS,
@@ -191,7 +191,7 @@ async function townList(data: GameData): Promise<number[][] | null> {
 
 /** Reads what a game's world is made of. */
 export async function readWorld(data: GameData): Promise<World> {
-  const def = GAMES[data.game];
+  const def = gameDef(data.game);
   const engine = def.engine.id;
   const text = async (name: string): Promise<Map<number, string>> => {
     const bytes = await data.read(`text/english/game/${name}`);
@@ -295,7 +295,8 @@ export async function readWorld(data: GameData): Promise<World> {
     townNotes: Array.from({ length: 7 }, (_, line) => word(editor!, 2100 + line)),
     kills,
     areas,
-    water: data.game === 'ettu' && days !== undefined && chip !== undefined ? { days, chip } : null,
+    // The first Fallout's story on the engine of the second (Fallout Et Tu) counts Vault 13's water too.
+    water: def.world === 'fo1' && days !== undefined && chip !== undefined ? { days, chip } : null,
   };
 }
 

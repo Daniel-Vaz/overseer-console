@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { GAMES, GAME_IDS, type GameId } from '../../lib/games';
+  import { BASE_GAMES, gameDef, type BaseGameId } from '../../lib/games';
   import { sfx } from '../sfx';
   import { consoleState as sys } from '../state.svelte';
 
@@ -16,13 +16,18 @@
   let greeting = $state(false);
   let finished = false;
 
-  function deck(game: GameId): Line {
+  function deck(game: BaseGameId): Line {
     const install = sys.installs[game];
     return {
-      label: `HOLODISK DECK ${GAMES[game].deck}`,
-      value: install ? `${GAMES[game].title.toUpperCase()} LOADED` : 'EMPTY',
+      label: `HOLODISK DECK ${gameDef(game).deck}`,
+      value: install ? `${gameDef(game).title.toUpperCase()} LOADED` : 'EMPTY',
       tone: install ? undefined : 'amber',
     };
+  }
+
+  function library(): Line {
+    const mods = sys.games.filter((game) => gameDef(game).mod && sys.installs[game]).length;
+    return { label: 'MOD LIBRARY', value: mods ? `${mods} ${mods === 1 ? 'MOD' : 'MODS'} ON FILE` : 'EMPTY' };
   }
 
   // Every line reports something real about this browser.
@@ -33,7 +38,8 @@
       sys.supported
         ? { label: 'PRIVATE STORAGE', value: sys.storage?.persisted ? 'SEALED' : 'AVAILABLE' }
         : { label: 'PRIVATE STORAGE', value: 'UNAVAILABLE', tone: 'alert' },
-    ...GAME_IDS.map((game) => () => deck(game)),
+    ...BASE_GAMES.map((game) => () => deck(game)),
+    library,
     () => ({ label: 'EXTERNAL NETWORK', value: 'NOT REQUIRED' }),
   ];
 

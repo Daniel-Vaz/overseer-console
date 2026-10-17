@@ -13,16 +13,18 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { indexDat, readDatEntry, type DatArchive } from '../../src/lib/dat';
 import type { GameData } from '../../src/lib/gamedata';
-import type { GameId } from '../../src/lib/games';
 import { readCatalog, type Catalog, type ItemProto } from '../../src/lib/modify/catalog';
 import { readMapWith } from '../../src/lib/modify/party';
 import { Pictures } from '../../src/lib/modify/pictures';
 import { copyRecord, readSave, writeSave } from '../../src/lib/modify/record';
 import { PRIMARY, choosable, experienceFor, readRules, type Rules } from '../../src/lib/modify/rules';
-import { GAMES } from '../../src/lib/games';
+import { gameDef, registerMod, type GameId } from '../../src/lib/games';
 import { TOWN_PICTURES, readWorld } from '../../src/lib/modify/world';
 import { folderGameData, layeredGameData } from '../gamedata';
 import { buildSave, type Item } from '../saves';
+
+// Fallout Et Tu is a mod of Fallout 2 here, as in any browser it was loaded in.
+registerMod({ id: 'ettu', known: 'ettu', title: 'Fallout Et Tu', base: 'fo2', donor: 'fo1' });
 
 const FO1 = process.env.FO1_DIR;
 const FO2 = process.env.FO2_DIR;
@@ -58,7 +60,7 @@ async function mapsOf(game: GameId): Promise<[string, Uint8Array][]> {
   }
   const folder = game === 'fo1' ? FO1! : FO2!;
   const name = readdirSync(folder).find((entry) => entry.toLowerCase() === 'master.dat')!;
-  const format = GAMES[game].datFormat;
+  const format = gameDef(game).datFormat;
   const archive = (await openAsBlob(join(folder, name))) as unknown as DatArchive;
   const index = await indexDat(archive, format);
   const out: [string, Uint8Array][] = [];
@@ -73,7 +75,7 @@ function sample(catalog: Catalog, kind: ItemProto['kind'], quantity = 1, flags?:
 }
 
 for (const [game, available, open] of games) {
-  describe.skipIf(!available)(`the save editor with ${GAMES[game].title}`, () => {
+  describe.skipIf(!available)(`the save editor with ${gameDef(game).title}`, () => {
     let data: GameData;
     let rules: Rules;
     let catalog: Catalog;
@@ -152,7 +154,7 @@ for (const [game, available, open] of games) {
     }, 300_000);
 
     it('changes a save made of real items, and proves it', async () => {
-      const layout = GAMES[game].engine.id;
+      const layout = gameDef(game).engine.id;
       const bag = sample(catalog, 'container');
       const save = buildSave({
         game: layout,

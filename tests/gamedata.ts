@@ -8,7 +8,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { indexDat, readDatEntry, type DatArchive, type DatEntry } from '../src/lib/dat';
 import type { GameData } from '../src/lib/gamedata';
-import { GAMES, type GameId } from '../src/lib/games';
+import { gameDef, type GameId } from '../src/lib/games';
 
 const key = (path: string) => path.replace(/\\/g, '/').toLowerCase();
 
@@ -30,7 +30,7 @@ export type Layer = { folder: string } | { archive: string };
  * given (the engine's: highest first). Plain files come from `root`.
  */
 export async function layeredGameData(game: GameId, root: string, layers: Layer[]): Promise<GameData> {
-  const format = GAMES[game].datFormat;
+  const format = gameDef(game).datFormat;
   const opened: ({ files: Map<string, string> } | { archive: DatArchive; index: Map<string, DatEntry> })[] = [];
   for (const layer of layers) {
     if ('folder' in layer) {

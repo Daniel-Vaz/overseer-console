@@ -1,10 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { GAMES, GAME_IDS } from '../../lib/games';
-  import { PICTURES } from '../../lib/settings';
+  import { gameDef } from '../../lib/games';
+  import { PICTURES, picturesFor } from '../../lib/settings';
   import Glyph from '../components/Glyph.svelte';
   import Menu from '../components/Menu.svelte';
-  import { PICTURE_NAMES, PICTURE_NOTES, nextPicture } from '../picture';
+  import { PICTURE_NAMES, PICTURE_NOTES, step } from '../picture';
   import { consoleState as sys } from '../state.svelte';
   import type { MenuItem } from '../types';
 
@@ -22,15 +22,22 @@
     ];
   });
 
+  // The two games, and the mods that are loaded: one that is not has no picture to speak of.
+  const games = $derived(sys.games.filter((game) => !gameDef(game).mod || sys.installs[game]));
+
   const items = $derived<MenuItem[]>([
-    ...GAME_IDS.map((game, index): MenuItem => {
-      const picture = sys.settings.picture[game];
-      const move = (direction: 1 | -1 = 1) => sys.setPicture(game, nextPicture(picture, direction));
+    ...games.map((game, index): MenuItem => {
+      const def = gameDef(game);
+      const picture = sys.picture(game);
+      const choices = picturesFor(game);
+      const move = (direction: 1 | -1 = 1) => sys.setPicture(game, step(choices, picture, direction));
       return {
-        key: String(index + 1),
-        label: `Deck ${GAMES[game].deck}: ${GAMES[game].title}`,
+        key: '123456789abcdefghijklmnopqrstuvwxyz'[index] ?? `p${index}`,
+        // Headed games and mods, where there are mods.
+        group: games.length > 2 ? (def.mod ? 'Mods' : 'Games') : undefined,
+        label: def.mod ? def.title : `Deck ${def.deck}: ${def.title}`,
         state: PICTURE_NAMES[picture],
-        note: PICTURE_NOTES[picture],
+        note: choices.length < PICTURES.length ? `${PICTURE_NOTES[picture]} ${def.title} needs a picture at least ${def.mod?.minHeight} lines tall.` : PICTURE_NOTES[picture],
         icon: 'picture',
         action: () => move(),
         adjust: move,

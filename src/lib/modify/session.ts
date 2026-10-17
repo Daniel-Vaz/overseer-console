@@ -4,7 +4,7 @@
  * save as it is in its slot, with the party that travels in it.
  */
 import { openGameData, type GameData } from '../gamedata';
-import { GAMES, type GameId } from '../games';
+import { gameDef, type GameId } from '../games';
 import { parseSaveHeader, slotPrefix } from '../savefile';
 import { replaceInSlot } from '../storage/history';
 import { listOverlay } from '../storage/overlay';
@@ -60,12 +60,12 @@ function library(data: GameData): Library {
 
 /** Opens a save for changing. Throws SessionError, saying why, when it cannot be. */
 export async function openSession(game: GameId, slot: number): Promise<EditorSession> {
-  const def = GAMES[game];
+  const def = gameDef(game);
   const data = await openGameData(game);
   if (!data) {
     throw new SessionError(
-      def.conversion
-        ? `${def.title} and ${GAMES[def.conversion.base].title} must both be loaded: the editor reads the game's own items, pictures and rules.`
+      def.mod
+        ? `${def.title} and ${gameDef(def.mod.base).title} must both be loaded: the editor reads the game's own items, pictures and rules.`
         : 'Load the holodisk first: the editor reads the game\'s own items, pictures and rules from it.',
     );
   }

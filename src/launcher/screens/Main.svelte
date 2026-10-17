@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import mark from '../../assets/mark.webp';
   import { whereabouts } from '../../lib/gamefacts';
-  import { GAMES, GAME_IDS } from '../../lib/games';
+  import { BASE_GAMES, gameDef } from '../../lib/games';
   import { PROJECT_NAME } from '../../lib/project';
   import { formatBytes } from '../../lib/storage/manifest';
   import Emblem from '../components/Emblem.svelte';
@@ -23,17 +23,19 @@
     ];
   });
 
-  const totalSaves = $derived(GAME_IDS.reduce((sum, game) => sum + sys.saves[game], 0));
+  const totalSaves = $derived(sys.games.reduce((sum, game) => sum + (sys.saves[game] ?? 0), 0));
   // Saves that have never left this browser are worth a word: a browser short of room may clear them.
   const unexported = $derived(sys.unexported);
   // The game whose saves went out longest ago speaks for all of them.
-  const exportedAt = $derived(Math.min(...GAME_IDS.filter((game) => sys.saves[game]).map((game) => sys.exported[game]?.at ?? 0)));
-  const ICONS = { fo1: 'holodisk-01', fo2: 'holodisk-02', ettu: 'gamedata' } as const;
+  const exportedAt = $derived(Math.min(...sys.games.filter((game) => sys.saves[game]).map((game) => sys.exported[game]?.at ?? 0)));
+  const ICONS = { fo1: 'holodisk-01', fo2: 'holodisk-02' } as const;
+  const mods = $derived(sys.games.filter((game) => gameDef(game).mod));
+  const loadedMods = $derived(mods.filter((game) => sys.installs[game]));
   let selected = $state(0);
 
   // An unsealed store is worth a word once it holds something a browser short of room could clear.
   const unsealed = $derived(
-    sys.storage !== null && !sys.storage.persisted && (totalSaves > 0 || GAME_IDS.some((game) => !!sys.installs[game])),
+    sys.storage !== null && !sys.storage.persisted && (totalSaves > 0 || sys.games.some((game) => !!sys.installs[game])),
   );
 
   // The games kept a surprise for whoever held Shift and asked for the credits. So does the console:
@@ -61,7 +63,7 @@
       ? [
           {
             key: 'c',
-            label: `Continue: ${GAMES[resume.game].title}`,
+            label: `Continue: ${gameDef(resume.game).title}`,
             state: `SLOT ${String(resume.save.slot).padStart(2, '0')}, ${ago(resume.save.savedAt)}`,
             note: `Straight into your latest save: "${resume.save.description || 'no description'}", ${resume.save.character}${resume.save.level ? ` (level ${resume.save.level})` : ''}, ${whereabouts(sys.places[resume.game], resume.save)}, ${resume.save.gameDate}.`,
             icon: 'play',
@@ -69,36 +71,44 @@
           } satisfies MenuItem,
         ]
       : []),
-    ...GAME_IDS.map((game, index): MenuItem => {
-      const def = GAMES[game];
+    ...BASE_GAMES.map((game, index): MenuItem => {
+      const def = gameDef(game);
       const install = sys.installs[game];
       const copying = sys.job.game === game && sys.busy;
-      // A conversion is loaded but idle while the game it runs on is not.
-      const base = def.conversion ? GAMES[def.conversion.base] : null;
-      const stranded = !!install && !sys.playable(game) && base !== null;
+      // What the deck plays, where it is a mod.
+      const playing = sys.deckGame(game);
+      const mod = playing === game ? null : gameDef(playing);
       return {
         key: String(index + 1),
         label: `${def.label}: ${def.title} (${def.year})`,
-        state: copying ? 'LOADING...' : install === undefined ? 'CHECKING' : stranded ? `NEEDS DECK ${base.deck}` : install ? 'READY' : 'NO HOLODISK',
-        tone: (install && !stranded) || install === undefined ? undefined : 'amber',
-        note: stranded
-          ? `Runs on ${base.title}: load it into deck ${base.deck}.`
-          : install
-            ? def.blurb
-            : def.conversion
-              ? `A free conversion, put together from its package and your own ${GAMES[def.conversion.donor].title} and ${base!.title}. Open to load it.`
-              : `Needs your own copy of ${def.title}. Open to load it.`,
+        state: copying ? 'LOADING...' : install === undefined ? 'CHECKING' : install ? (mod ? `READY, ${mod.short}` : 'READY') : 'NO HOLODISK',
+        tone: install || install === undefined ? undefined : 'amber',
+        note: install
+          ? mod
+            ? `Plays ${mod.title}, a mod of it. The deck has the choice of mods.`
+            : def.blurb
+          : `Needs your own copy of ${def.title}. Open to load it.`,
         icon: ICONS[game],
         action: () => go(game),
       };
     }),
+    {
+      key: '3',
+      label: 'Mod library',
+      state: sys.job.game === 'mod' && sys.busy ? 'LOADING...' : loadedMods.length ? `${loadedMods.length} ${loadedMods.length === 1 ? 'MOD' : 'MODS'}` : 'EMPTY',
+      note: loadedMods.length
+        ? `${loadedMods.map((game) => gameDef(game).title).join(', ')}. Each is played on its own game, with saves of its own.`
+        : 'Mods for Fallout and Fallout 2, from their zips or folders: Fallout Et Tu, the Restoration Project, Sonora and more.',
+      icon: 'gamedata',
+      action: () => go('mods'),
+    },
     {
       key: '4',
       label: 'Save archives',
       state: totalSaves ? `${totalSaves} ${totalSaves === 1 ? 'SAVE' : 'SAVES'}${unexported.length ? ', NEVER EXPORTED' : ''}` : 'EMPTY',
       tone: unexported.length ? 'amber' : undefined,
       note: unexported.length
-        ? `Back up, restore or delete saved games. Those of ${unexported.map((game) => GAMES[game].title).join(' and ')} have never been exported: they are only in this browser's storage, which the browser may clear.`
+        ? `Back up, restore or delete saved games. Those of ${unexported.map((game) => gameDef(game).title).join(' and ')} have never been exported: they are only in this browser's storage, which the browser may clear.`
         : 'Back up, restore or delete saved games.',
       icon: 'save',
       action: () => go('saves'),
@@ -133,7 +143,7 @@
   <img class="mark" src={mark} alt={PROJECT_NAME} width="288" height="288" />
   <div>
     <h1>Main directory</h1>
-    <p class="sub">Fallout, Fallout 2 and Fallout Et Tu in this browser, from your own copy of the games.</p>
+    <p class="sub">Fallout and Fallout 2 in this browser, with their mods, from your own copy of the games.</p>
   </div>
 </header>
 
@@ -167,12 +177,14 @@
       <Emblem />
     {/if}
     <dl class="readout">
-      {#each GAME_IDS as game (game)}
-        <dt>Deck {GAMES[game].deck}</dt>
+      {#each BASE_GAMES as game (game)}
+        <dt>Deck {gameDef(game).deck}</dt>
         <dd class:amber={sys.installs[game] === null}>
-          {sys.installs[game] === undefined ? '...' : sys.installs[game] ? GAMES[game].title.toUpperCase() : 'EMPTY'}
+          {sys.installs[game] === undefined ? '...' : sys.installs[game] ? gameDef(game).title.toUpperCase() : 'EMPTY'}
         </dd>
       {/each}
+      <dt>Mods</dt>
+      <dd>{loadedMods.length || 'NONE'}</dd>
       <dt>Archives</dt>
       <dd>{totalSaves} {totalSaves === 1 ? 'SAVE' : 'SAVES'}</dd>
       {#if totalSaves}

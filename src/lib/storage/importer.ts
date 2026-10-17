@@ -5,10 +5,12 @@
  * tools next to the data that matters. Importing finds the game inside it,
  * keeps what the engine reads and leaves the rest.
  */
-import { GAMES, gameForDatFormat, type DatFormat, type GameId } from '../games';
+import { GAMES, gameDef, gameForDatFormat, isBaseGame, registerMod, type BaseGameId, type DatFormat, type GameId } from '../games';
 import { Ini } from '../ini';
+import { KNOWN_MODS, isKnownMod } from '../mods/catalog';
 import { ZipError, looksLikeZip, readZip } from '../zip';
 import { findEttu, planEttu } from './ettu';
+import { findMod, installerOf, isInstaller, isOtherArchive, planFoundMod } from './mods';
 import { MANIFEST_VERSION, basename, dirname, pathKey, type Manifest } from './manifest';
 import { writeInstall, type ImportProgress, type SourceBlob } from './opfs';
 import { clearOverlay, commitOverlay, countOverlay } from './overlay';
@@ -37,7 +39,8 @@ export async function openArchives(sources: SourceFile[], anywhere = false): Pro
     }
     try {
       const inside = dirname(source.path);
-      for (const { path, file } of await readZip(source.file)) out.push({ path: inside ? `${inside}/${path}` : path, file });
+      const zip = basename(source.path);
+      for (const { path, file } of await readZip(source.file)) out.push({ path: inside ? `${inside}/${path}` : path, file, zip });
     } catch (err) {
       if (!(err instanceof ZipError)) throw err;
       if (!anywhere) throw new ImportError(`${basename(source.path)}: ${err.message}`);
@@ -105,17 +108,17 @@ export async function detectDatFormat(file: SourceBlob): Promise<DatFormat | nul
   return null;
 }
 
-function wanted(key: string, game: GameId): boolean {
+function wanted(key: string, game: BaseGameId): boolean {
   const parts = key.split('/');
   const name = parts[parts.length - 1] ?? '';
   if (isJunk(name)) return false;
   if (parts.length === 1) {
     // Game archives, plus the settings file as a reference.
-    return name.endsWith('.dat') || name === GAMES[game].configFile;
+    return name.endsWith('.dat') || name === gameDef(game).configFile;
   }
   const top = parts[0];
   if (top !== 'data' && top !== 'sound' && top !== 'mods') return false;
-  return !isLeftoverState(key);
+  return !isLeftoverState(key, game);
 }
 
 export interface Survey {
@@ -124,7 +127,7 @@ export interface Survey {
   /** How many files are called MASTER.DAT, archives or not. */
   masters: number;
   /** The games sold as such that the selection holds. */
-  stock: GameId[];
+  stock: BaseGameId[];
   /** Where a copy of Fallout Et Tu lies (see findEttu), or null. */
   conversion: string | null;
 }
@@ -148,27 +151,75 @@ export async function surveySources(sources: SourceFile[]): Promise<Survey> {
   };
 }
 
+/** Whether what is asked for is a mod: any mod ('mod'), or one already loaded here by its id. */
+export function wantsMod(preferred: GameId | 'mod' | undefined): boolean {
+  return preferred !== undefined && !isBaseGame(preferred);
+}
+
+/**
+ * Works out how to store a mod found in a selection. `target` is the mod
+ * whose files are being replaced, if any.
+ */
+async function planMod(sources: SourceFile[], survey: Survey, target: GameId | undefined, context: ImportContext): Promise<ImportPlan> {
+  // A mod asked for by its own name may not be loaded yet.
+  const known = target ? (GAMES[target]?.mod?.known ?? (isKnownMod(target) ? target : undefined)) : undefined;
+  if (survey.conversion !== null) {
+    if (target && known !== 'ettu') throw new ImportError(`That is Fallout Et Tu, not ${GAMES[target]?.title ?? 'the mod that was asked for'}.`);
+    return { ...(await planEttu(sources, survey.conversion, context)), also: survey.stock };
+  }
+  if (known === 'ettu') {
+    throw new ImportError('No Fallout Et Tu in that selection. Pick the zip it is downloaded as, or its folder: the one that holds the MODS folder.');
+  }
+  if (isInstaller(sources)) {
+    const mod = installerOf(sources);
+    throw new ImportError(
+      `That is a Windows installer: the console cannot run it. ${mod ? `${mod.handOver}` : 'Run it on a desktop, then hand the console the game folder it installed into, as a folder or a zip.'}`,
+    );
+  }
+  const archive = isOtherArchive(sources);
+  if (archive) throw new ImportError(`${archive}: the console opens zip archives only. Unpack it and pick the folder, or make a zip of it.`);
+  const found = findMod(sources, survey.candidates);
+  if (!found) {
+    throw new ImportError(
+      'No mod the console can load was found in that selection. Pick the zip a mod is downloaded as, its folder, or a game folder it was installed in.',
+    );
+  }
+  if (target && known && found.known && found.known !== known) {
+    throw new ImportError(`That is ${GAMES[found.known]?.title ?? found.known}, not ${GAMES[target]?.title ?? target}.`);
+  }
+  return planFoundMod(sources, found, context, target);
+}
+
 /**
  * Works out what to import. Throws ImportError with a message meant for the
  * user when the selection is not a usable game folder.
  *
- * A selection may hold more than one game: both in one folder, or a
- * conversion installed inside the game it runs on. The one asked for is
- * taken; the others are named in the plan.
+ * A selection may hold more than one game: both in one folder, or a mod
+ * installed inside the game it is played on. The one asked for is taken
+ * ('mod' for a mod); the others are named in the plan.
  */
-export async function planImport(sources: SourceFile[], preferred?: GameId, context: ImportContext = {}): Promise<ImportPlan> {
+export async function planImport(sources: SourceFile[], preferred?: GameId | 'mod', context: ImportContext = {}): Promise<ImportPlan> {
   if (!sources.length) throw new ImportError('Nothing was selected.');
 
-  const { candidates, masters, stock, conversion } = await surveySources(sources);
+  const survey = await surveySources(sources);
+  const { candidates, masters, stock, conversion } = survey;
 
-  if (preferred && GAMES[preferred].conversion && conversion === null) {
-    throw new ImportError(
-      `No ${GAMES[preferred].title} in that selection. Pick the zip it is downloaded as, or its folder: the one that holds the MODS folder.`,
-    );
+  if (wantsMod(preferred)) return planMod(sources, survey, preferred === 'mod' ? undefined : preferred, context);
+  // Nothing asked for, and nothing but a mod picked.
+  if (conversion !== null && !candidates.length) return planMod(sources, survey, undefined, context);
+  // A mod the console knows by a file of its own: for the Mod library, not for a deck.
+  const mod = findMod(sources, candidates);
+  const known = mod?.known ? KNOWN_MODS[mod.known] : undefined;
+  if (mod && known && mod.byFile) {
+    if (preferred === undefined) return planMod(sources, survey, undefined, context);
+    if (known.standalone || !mod.complete) {
+      throw new ImportError(
+        `That is ${known.title}, a mod of ${GAMES[known.base]?.title}: it is loaded in the Mod library, and played over the game in deck ${GAMES[known.base]?.deck}.`,
+      );
+    }
   }
-  if (conversion !== null && (!candidates.length || (preferred && GAMES[preferred].conversion))) {
-    return { ...(await planEttu(sources, conversion, context)), also: stock };
-  }
+  // Nothing asked for, no game in it, and what a mod unpacks into a game folder.
+  if (!masters && preferred === undefined && mod) return planMod(sources, survey, undefined, context);
   if (!masters) {
     throw new ImportError(
       'No MASTER.DAT in that selection. Pick the folder the game was installed to: the one that contains MASTER.DAT and CRITTER.DAT.',
@@ -184,7 +235,7 @@ export async function planImport(sources: SourceFile[], preferred?: GameId, cont
   });
   const chosen = candidates[0]!;
   const game = gameForDatFormat(chosen.format);
-  const def = GAMES[game];
+  const def = gameDef(game);
   const rootPrefix = chosen.root ? `${chosen.root}/` : '';
 
   const entries: SourceFile[] = [];
@@ -233,6 +284,12 @@ export async function planImport(sources: SourceFile[], preferred?: GameId, cont
 
   const warnings: string[] = [];
   if (!hasMusic) warnings.push('No music files were found. The game will run without background music.');
+  if (known && mod?.byFile && mod.complete && mod.root === chosen.root.toLowerCase()) {
+    warnings.push(
+      `This folder has ${known.title} installed in it: deck ${def.deck} now holds that, not ${def.title} as it was sold. ` +
+        `To keep the two apart, load the game's own folder here, and the mod in the Mod library.`,
+    );
+  }
   let language: string | undefined;
   if (installConfig) language = Ini.parse(installConfig).get('system', 'language');
 
@@ -254,7 +311,7 @@ export async function planImport(sources: SourceFile[], preferred?: GameId, cont
     hasMusic,
     warnings,
     notes: [],
-    also: [...stock.filter((other) => other !== game), ...(conversion === null ? [] : (['ettu'] as const))],
+    also: [...stock.filter((other) => other !== game), ...(conversion === null ? [] : (['mod'] as const))],
   };
 }
 
@@ -279,10 +336,13 @@ export async function runImport(plan: ImportPlan, onProgress?: (p: ImportProgres
       files,
       dirs: plan.dirs,
       installConfig: plan.installConfig,
+      mod: plan.mod,
     }),
     onProgress,
     signal,
   );
+  // A mod is one of the games here from now on, under its own name.
+  if (plan.mod) registerMod(plan.mod.record);
 
   // The engine of Fallout 2 writes settings it derives from the files of a
   // mod into the game's data folder, and from then on prefers its copy. That

@@ -110,6 +110,26 @@ export async function fakeFallout2WithEttu(): Promise<string> {
   return root;
 }
 
+/** Files laid out as a folder on disk, below a folder called `name`. */
+export function writeFolder(files: Record<string, Uint8Array | string | Blob>, name: string): Promise<string> {
+  const root = join(mkdtempSync(join(tmpdir(), 'overseer-e2e-')), name);
+  return Promise.all(
+    Object.entries(files).map(async ([path, data]) => {
+      mkdirSync(dirname(join(root, path)), { recursive: true });
+      writeFileSync(join(root, path), typeof data === 'string' ? data : data instanceof Blob ? Buffer.from(await data.arrayBuffer()) : data);
+    }),
+  ).then(() => root);
+}
+
+/** Files as one zip, as a mod is downloaded; `folder` puts them in a folder inside it. */
+export async function zipOf(files: Record<string, Uint8Array | string | Blob>, name: string, folder = ''): Promise<{ name: string; mimeType: string; buffer: Buffer }> {
+  const entries: Record<string, Uint8Array> = {};
+  for (const [path, data] of Object.entries(files)) {
+    entries[`${folder ? `${folder}/` : ''}${path}`] = typeof data === 'string' ? ascii(data) : data instanceof Blob ? new Uint8Array(await data.arrayBuffer()) : data;
+  }
+  return { name, mimeType: 'application/zip', buffer: Buffer.from(zipSync(entries, { level: 1 })) };
+}
+
 /** A folder as one zip, the way it is carried to a device that cannot pick folders. */
 export function zipFolder(folder: string, name: string): { name: string; mimeType: string; buffer: Buffer } {
   const files: Record<string, Uint8Array> = {};

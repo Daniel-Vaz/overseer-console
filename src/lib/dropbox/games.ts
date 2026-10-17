@@ -2,15 +2,16 @@
  * Game files in the player's Dropbox.
  *
  * The player puts their game folder into the app folder with Dropbox's own
- * app or website; the console only ever reads it. To the importer a file
- * there is like a file on disk, except that reading it is a download.
+ * app or website, and their mods into a Mods folder inside it; the console
+ * only ever reads them. To the importer a file there is like a file on disk,
+ * except that reading it is a download.
  */
 import { buffered } from '../blobs';
-import { GAMES, type GameId } from '../games';
+import { gameDef, type BaseGameId } from '../games';
 import { ImportError, openArchives, type SourceFile } from '../storage/importer';
 import type { SourceBlob } from '../storage/opfs';
 import { looksLikeZip } from '../zip';
-import { DropboxError, download, fromDropboxTime, listFiles } from './api';
+import { DropboxError, download, fromDropboxTime, listFiles, type DropboxFile } from './api';
 import { loadConfig, showFolder } from './link';
 
 class DropboxBlob implements SourceBlob {
@@ -38,50 +39,102 @@ class DropboxBlob implements SourceBlob {
   }
 }
 
-/**
- * Everything below the games folder, for the importer to find a game in.
- * Throws an ImportError when there is plainly nothing to find.
- */
-export async function dropboxGameFiles(game: GameId): Promise<SourceFile[]> {
-  const folder = loadConfig().gamesFolder;
-  const where = folder ? `the folder ${showFolder(folder)} of the console's app folder` : "the console's app folder";
-  let files;
+/** Where mods are kept, inside the games folder: each zip or folder in it is one mod. */
+export const MODS_FOLDER = 'Mods';
+
+/** The Mods folder, as a path below the app folder. */
+export function modsFolder(): string {
+  return `${loadConfig().gamesFolder}/${MODS_FOLDER}`;
+}
+
+function source(file: DropboxFile, folder: string): SourceFile {
+  const blob = new DropboxBlob(file.id ?? file.path_lower, file.size, fromDropboxTime(file.client_modified));
+  return {
+    // Relative to the folder that was listed.
+    path: file.path_display.slice(folder.length + 1),
+    // A zip is walked through file by file: read ahead, or every one of them is a request.
+    file: looksLikeZip(file.name) ? buffered(blob) : blob,
+  };
+}
+
+/** Lists a folder of the app folder and everything below it; the error says where it was looked for. */
+async function listed(folder: string, missing: string): Promise<SourceFile[]> {
   try {
-    files = await listFiles(folder, true);
+    return (await listFiles(folder, true)).map((file) => source(file, folder));
   } catch (err) {
-    if (err instanceof DropboxError && err.notFound) {
-      throw new ImportError(`There is no folder ${showFolder(folder)} in the console's app folder in your Dropbox. Create it, or change the games folder under Dropbox link in Terminal settings.`);
-    }
+    if (err instanceof DropboxError && err.notFound) throw new ImportError(missing);
     throw err;
   }
-  const listed = files.map((file): SourceFile => {
-    const blob = new DropboxBlob(file.id ?? file.path_lower, file.size, fromDropboxTime(file.client_modified));
-    return {
-      // Relative to the folder that was listed.
-      path: file.path_display.slice(folder.length + 1),
-      // A zip is walked through file by file: read ahead, or every one of them is a request.
-      file: looksLikeZip(file.name) ? buffered(blob) : blob,
-    };
-  });
+}
 
-  const def = GAMES[game];
-  if (def.conversion) {
-    // A conversion is kept there as the zip it is downloaded as, or as its folder.
-    // The zip is the one to have: a folder is thousands of small downloads.
-    const zipped = listed.some((source) => looksLikeZip(source.path));
-    if (!zipped && !listed.some((source) => /(^|\/)mods\/mods_order\.txt$/i.test(source.path))) {
-      throw new ImportError(
-        `No ${def.title} in ${where} in your Dropbox. Upload the zip it is downloaded as there, wait until Dropbox has finished, then try again.`,
-      );
-    }
-    return zipped ? openArchives(listed, true) : listed;
-  }
+/**
+ * Everything below the games folder but the mods, for the importer to find
+ * a game in. Throws an ImportError when there is plainly nothing to find.
+ */
+export async function dropboxGameFiles(game: BaseGameId): Promise<SourceFile[]> {
+  const folder = loadConfig().gamesFolder;
+  const where = folder ? `the folder ${showFolder(folder)} of the console's app folder` : "the console's app folder";
+  const files = (
+    await listed(
+      folder,
+      `There is no folder ${showFolder(folder)} in the console's app folder in your Dropbox. Create it, or change the games folder under Dropbox link in Terminal settings.`,
+    )
+  ).filter((file) => !file.path.toLowerCase().startsWith(`${MODS_FOLDER.toLowerCase()}/`));
 
-  if (!listed.some((source) => /(^|\/)master\.dat$/i.test(source.path))) {
+  if (!files.some((file) => /(^|\/)master\.dat$/i.test(file.path))) {
     throw new ImportError(
-      `No MASTER.DAT in ${where} in your Dropbox. Upload the folder ${def.title} is installed in ` +
+      `No MASTER.DAT in ${where} in your Dropbox. Upload the folder ${gameDef(game).title} is installed in ` +
         '(the one that contains MASTER.DAT and CRITTER.DAT) there, wait until Dropbox has finished, then try again.',
     );
   }
-  return listed;
+  return files;
+}
+
+/** A mod in the Mods folder: a zip, or a folder. */
+export interface CloudMod {
+  /** Its name in the Mods folder. */
+  name: string;
+  zip: boolean;
+  bytes: number;
+  files: number;
+}
+
+/** What the Mods folder holds. None when there is no such folder yet. */
+export async function listDropboxMods(): Promise<CloudMod[]> {
+  const folder = modsFolder();
+  let files: DropboxFile[];
+  try {
+    files = await listFiles(folder, true);
+  } catch (err) {
+    if (err instanceof DropboxError && err.notFound) return [];
+    throw err;
+  }
+  const mods = new Map<string, CloudMod>();
+  for (const file of files) {
+    const rest = file.path_display.slice(folder.length + 1);
+    const slash = rest.indexOf('/');
+    const name = slash < 0 ? rest : rest.slice(0, slash);
+    const zip = slash < 0 && looksLikeZip(name);
+    // A loose file among the mods is none of them.
+    if (slash < 0 && !zip) continue;
+    const mod = mods.get(name.toLowerCase()) ?? { name, zip, bytes: 0, files: 0 };
+    mod.bytes += file.size;
+    mod.files += 1;
+    mods.set(name.toLowerCase(), mod);
+  }
+  return [...mods.values()].sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }));
+}
+
+/** The files of one mod of the Mods folder (`name` as listDropboxMods gives it), for the importer. */
+export async function dropboxModFiles(name: string): Promise<SourceFile[]> {
+  const folder = modsFolder();
+  const missing = `There is no ${name} in the Mods folder of your Dropbox (${showFolder(folder)} in the console's app folder) any more.`;
+  if (looksLikeZip(name)) {
+    const file = (await listed(folder, missing)).find((entry) => entry.path.toLowerCase() === name.toLowerCase());
+    if (!file) throw new ImportError(missing);
+    // The zip as if it had been picked: what it holds.
+    return openArchives([file]);
+  }
+  // A folder: as if it had been picked, its name and all.
+  return (await listed(`${folder}/${name}`, missing)).map((file) => ({ ...file, path: `${name}/${file.path}` }));
 }

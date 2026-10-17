@@ -2,18 +2,20 @@
 import { lastExport, recordExport, type ExportMark, type ExportedTo } from '../lib/backup';
 import { DropboxError } from '../lib/dropbox/api';
 import { LinkError } from '../lib/dropbox/auth';
-import { dropboxGameFiles } from '../lib/dropbox/games';
+import { dropboxGameFiles, dropboxModFiles } from '../lib/dropbox/games';
 import { loadLink } from '../lib/dropbox/link';
 import { gameFacts, type Places } from '../lib/gamefacts';
-import { GAMES, GAME_IDS, type GameId } from '../lib/games';
+import { gameDef, gameIds, isBaseGame, isGameId, registerMod, type BaseGameId, type GameId } from '../lib/games';
+import { syncMods } from '../lib/mods/sync';
 import { briefSaves, latestOf, type LatestSave } from '../lib/saves';
-import { loadSettings, loadSquashed, saveSettings, saveSquashed, type Picture, type Settings } from '../lib/settings';
+import { deckGame, loadSettings, loadSquashed, pictureOf, saveSettings, saveSquashed, type Picture, type Settings } from '../lib/settings';
 import {
   ImportError,
   openArchives,
   planImport,
   runImport,
   surveySources,
+  wantsMod,
   type ImportContext,
   type ImportPlan,
   type SourceFile,
@@ -40,7 +42,10 @@ export interface InstallInfo {
 export interface ImportJob {
   /** stopped: the player called it off, and the deck is as it was. */
   phase: 'idle' | 'reading' | 'copying' | 'done' | 'failed' | 'stopped';
-  game?: GameId;
+  /** What is being loaded: one of the games, or a mod ('mod' until it is known which). */
+  game?: GameId | 'mod';
+  /** What reading the selection is busy with, when that takes a while. */
+  doing?: string;
   /** The files come from the player's Dropbox, not from this device. */
   remote?: boolean;
   plan?: ImportPlan;
@@ -52,13 +57,15 @@ export interface ImportJob {
 
 const IDLE: ImportJob = { phase: 'idle', doneBytes: 0, totalBytes: 0, path: '' };
 
-/** A game found in what the player just picked, beside the one that was loaded from it. */
+/** A mod found in what the player just picked, beside the game that was loaded from it. */
 export interface Offer {
-  game: GameId;
+  game: 'mod';
+  /** What it is called, as far as can be told without loading it. */
+  title: string;
   sources: SourceFile[];
 }
 
-const perGame = <T>(value: T): Record<GameId, T> => Object.fromEntries(GAME_IDS.map((game) => [game, value])) as Record<GameId, T>;
+const perGame = <T>(value: T): Record<GameId, T> => Object.fromEntries(gameIds().map((game) => [game, value])) as Record<GameId, T>;
 
 /** What planning an import may read from the games already here. */
 const CONTEXT: ImportContext = {
@@ -66,6 +73,7 @@ const CONTEXT: ImportContext = {
     const install = await loadInstall(game);
     return install ? openInstalled(install, 'master.dat') : null;
   },
+  installOf: (game) => loadInstall(game),
 };
 
 export interface DropboxStatus {
@@ -85,6 +93,8 @@ interface WakeLock {
 
 class ConsoleState {
   settings = $state<Settings>(loadSettings());
+  /** Every game here: the two in their decks, then the mods. */
+  games = $state<GameId[]>(gameIds());
   /** undefined: not looked at yet. null: not installed. */
   installs = $state<Record<GameId, InstallInfo | null | undefined>>(perGame(undefined));
   saves = $state<Record<GameId, number>>(perGame(0));
@@ -144,6 +154,30 @@ class ConsoleState {
     this.update({ picture: { ...this.settings.picture, [game]: picture } });
   }
 
+  /** The picture a game is played at: the player's choice, or the one it was made for. */
+  picture(game: GameId): Picture {
+    return pictureOf(this.settings, game);
+  }
+
+  /** The mods loaded for a game, in the order they were first loaded. */
+  modsOf(base: BaseGameId): GameId[] {
+    return this.games.filter((game) => gameDef(game).mod?.base === base);
+  }
+
+  /** What a deck plays: the mod put in it, or the game itself. */
+  deckGame(deck: BaseGameId): GameId {
+    void this.games;
+    return deckGame(this.settings, deck);
+  }
+
+  /** Puts a mod in its game's deck, or with the game itself takes it out again. */
+  setDeckGame(deck: BaseGameId, game: GameId): void {
+    const decks = { ...this.settings.decks };
+    if (game === deck) delete decks[deck];
+    else decks[deck] = game;
+    this.update({ decks });
+  }
+
   /**
    * Says what the entry under the cursor of a menu does (`any`: whether any
    * of its entries has something to say), or with null that the menu is gone.
@@ -179,7 +213,7 @@ class ConsoleState {
   /** The link may have been made, dropped or found dead since it was last looked at, and saves sent through it. */
   refreshDropbox(): void {
     this.dropbox = dropboxStatus();
-    this.exported = Object.fromEntries(GAME_IDS.map((game) => [game, lastExport(game)])) as Record<GameId, ExportMark | null>;
+    this.exported = Object.fromEntries(this.games.map((game) => [game, lastExport(game)])) as Record<GameId, ExportMark | null>;
   }
 
   /** All of a game's saves were just exported. */
@@ -190,19 +224,31 @@ class ConsoleState {
 
   /** The games with saves that have never left this browser. */
   get unexported(): GameId[] {
-    return GAME_IDS.filter((game) => this.saves[game] > 0 && !this.exported[game]);
+    return this.games.filter((game) => (this.saves[game] ?? 0) > 0 && !this.exported[game]);
   }
 
   /** Looks at what is installed and saved in this browser. */
   async refresh(): Promise<void> {
-    this.refreshDropbox();
     this.supported = await probeStorage();
     if (!this.supported) {
+      this.refreshDropbox();
       this.installs = perGame(null);
       return;
     }
+    // Mods come and go with their files and saves; one on its way in has neither yet.
+    const loading = this.busy && this.job.game !== 'mod' ? this.job.game : undefined;
+    await syncMods(loading).catch((err: unknown) => console.error('[mods] could not look at the stored mods', err));
+    const games = gameIds();
+    for (const game of games) {
+      // A game new to this list is not looked at yet.
+      if (!(game in this.installs)) this.installs[game] = undefined;
+      this.saves[game] ??= 0;
+      this.latest[game] ??= null;
+    }
+    this.games = games;
+    this.refreshDropbox();
     await Promise.all(
-      GAME_IDS.map(async (game) => {
+      games.map(async (game) => {
         try {
           const install = await loadInstall(game);
           this.installs[game] = install
@@ -228,15 +274,20 @@ class ConsoleState {
 
   /**
    * Whether a game can be started: its data is here, and so is the game it
-   * runs on when it is a conversion.
+   * is played on when it is a mod.
    */
   playable(game: GameId): boolean {
-    const base = GAMES[game].conversion?.base;
+    if (!isGameId(game)) return false;
+    const base = gameDef(game).mod?.base;
     return !!this.installs[game] && (!base || !!this.installs[base]);
   }
 
-  /** Imports whatever the user picked or dropped: folders, loose files, or a zip of either. */
-  importFrom(sources: SourceFile[], preferred?: GameId): Promise<GameId | null> {
+  /**
+   * Imports whatever the user picked or dropped: folders, loose files, or a
+   * zip of either. `preferred` says what is wanted: one of the two games, a
+   * mod ('mod'), or new files for a mod already here (its id).
+   */
+  importFrom(sources: SourceFile[], preferred?: GameId | 'mod'): Promise<GameId | null> {
     return this.importWith(() => openArchives(sources), preferred);
   }
 
@@ -252,8 +303,17 @@ class ConsoleState {
    * a folder picked by hand, a search of that folder must turn up the game
    * that was asked for: nobody wants the other one downloaded by surprise.
    */
-  importFromDropbox(game: GameId): Promise<GameId | null> {
+  importFromDropbox(game: BaseGameId): Promise<GameId | null> {
     return this.importWith(() => dropboxGameFiles(game), game, true);
+  }
+
+  /**
+   * Imports a mod from the console's Mods folder in the player's Dropbox:
+   * `entry` is the zip or folder there that holds it. `replacing` is the mod
+   * whose files these are, when it is one already here.
+   */
+  importModFromDropbox(entry: string, replacing?: GameId): Promise<GameId | null> {
+    return this.importWith(() => dropboxModFiles(entry), replacing ?? 'mod', true);
   }
 
   /**
@@ -264,7 +324,7 @@ class ConsoleState {
     this.stopper?.abort();
   }
 
-  private async importWith(find: () => Promise<SourceFile[]>, preferred?: GameId, remote = false): Promise<GameId | null> {
+  private async importWith(find: () => Promise<SourceFile[]>, preferred?: GameId | 'mod', remote = false): Promise<GameId | null> {
     if (this.busy) return null;
     const stopper = (this.stopper = new AbortController());
     const { signal } = stopper;
@@ -280,17 +340,16 @@ class ConsoleState {
       const sources = await unless(find());
       const survey = await unless(surveySources(sources));
       const plan = await this.plan(sources, survey, preferred, remote, signal, unless);
-      if (remote && preferred && plan.game !== preferred) {
-        throw new ImportError(`${GAMES[preferred].title} was not found in your Dropbox. What is there is ${GAMES[plan.game].title}.`);
+      if (remote && preferred && isBaseGame(preferred) && plan.game !== preferred) {
+        throw new ImportError(`${gameDef(preferred).title} was not found in your Dropbox. What is there is ${plan.mod?.record.title ?? gameDef(plan.game).title}.`);
       }
       await this.copy(plan, remote, signal);
       // Best effort: ask the browser to keep this data when disk space runs low.
       // Not awaited: Firefox answers only after the user responds to a prompt.
       void requestPersistence().then(() => this.refresh());
       this.job = { ...this.job, phase: 'done', doneBytes: plan.totalBytes };
-      // A conversion in the folder that was just picked can be loaded from it without a second pick.
-      const beside = remote ? undefined : plan.also.find((game) => GAMES[game].conversion);
-      if (beside) this.offer = { game: beside, sources };
+      // A mod in the folder that was just picked can be loaded from it without a second pick.
+      if (!remote && plan.also.includes('mod') && !plan.mod) this.offer = { game: 'mod', title: 'Fallout Et Tu', sources };
       await this.refresh();
       return plan.game;
     } catch (err) {
@@ -316,38 +375,39 @@ class ConsoleState {
   }
 
   /**
-   * Plans the import of what was asked for. A conversion is put together
-   * from two games: where the selection holds one of them that is not loaded
-   * yet (the conversion sits in the folder of the game it runs on), that one
-   * is loaded first, from the same pick.
+   * Plans the import of what was asked for. A mod like Fallout Et Tu is put
+   * together from two games: where the selection holds one of them that is
+   * not loaded yet (the mod sits in the folder of the game it is played on),
+   * that one is loaded first, from the same pick.
    */
   private async plan(
     sources: SourceFile[],
     survey: Awaited<ReturnType<typeof surveySources>>,
-    preferred: GameId | undefined,
+    preferred: GameId | 'mod' | undefined,
     remote: boolean,
     signal: AbortSignal,
     unless: <T>(work: Promise<T>) => Promise<T>,
   ): Promise<ImportPlan> {
-    const conversion = preferred ? GAMES[preferred].conversion : undefined;
+    const context: ImportContext = { ...CONTEXT, remote, status: (doing) => (this.job.doing = doing) };
     // (Not from Dropbox: nobody wants a second game downloaded by surprise.)
-    if (!conversion || survey.conversion === null || remote) return unless(planImport(sources, preferred, CONTEXT));
+    const mod = wantsMod(preferred) || (preferred === undefined && survey.conversion !== null && !survey.candidates.length);
+    if (!mod || survey.conversion === null || remote) return unless(planImport(sources, preferred, context));
 
-    const here = (game: GameId) => !this.installs[game] && survey.stock.includes(game);
-    // After loading another game the console is back to reading this one.
-    const resume = () => (this.job = { ...IDLE, phase: 'reading', game: preferred, remote });
-    if (here(conversion.base)) {
-      await this.copy(await unless(planImport(sources, conversion.base, CONTEXT)), remote, signal);
+    const here = (game: BaseGameId) => !this.installs[game] && survey.stock.includes(game);
+    // After loading another game the console is back to reading the mod.
+    const resume = () => (this.job = { ...IDLE, phase: 'reading', game: preferred ?? 'mod', remote });
+    if (here('fo2')) {
+      await this.copy(await unless(planImport(sources, 'fo2', context)), remote, signal);
       resume();
     }
     try {
-      return await unless(planImport(sources, preferred, CONTEXT));
+      return await unless(planImport(sources, preferred ?? 'mod', context));
     } catch (err) {
       // What it needs of the other game is not at hand, and that game is in the selection as well.
-      if (!(err instanceof ImportError) || !here(conversion.donor)) throw err;
-      await this.copy(await unless(planImport(sources, conversion.donor, CONTEXT)), remote, signal);
+      if (!(err instanceof ImportError) || !here('fo1')) throw err;
+      await this.copy(await unless(planImport(sources, 'fo1', context)), remote, signal);
       resume();
-      return unless(planImport(sources, preferred, CONTEXT));
+      return unless(planImport(sources, preferred ?? 'mod', context));
     }
   }
 
@@ -356,8 +416,17 @@ class ConsoleState {
     const status = await storageStatus().catch(() => null);
     if (status && status.quota > 0 && status.quota - status.usage < plan.totalBytes * 1.05) {
       throw new ImportError(
-        `Not enough browser storage is available for ${GAMES[plan.game].title}. Free some disk space, or eject a game you are not playing.`,
+        `Not enough browser storage is available for ${plan.mod?.record.title ?? gameDef(plan.game).title}. Free some disk space, or eject a game or mod you are not playing.`,
       );
+    }
+    // A mod has a page of its own from the moment it is known what it is: the copy is shown there.
+    // One that never arrives is forgotten again (see syncMods).
+    if (plan.mod && !isGameId(plan.mod.record.id)) {
+      registerMod(plan.mod.record);
+      this.installs[plan.mod.record.id] = null;
+      this.saves[plan.mod.record.id] = 0;
+      this.latest[plan.mod.record.id] = null;
+      this.games = gameIds();
     }
     this.job = { phase: 'copying', game: plan.game, remote, plan, doneBytes: 0, totalBytes: plan.totalBytes, path: '' };
     await runImport(
@@ -396,7 +465,7 @@ class ConsoleState {
   /** The save to continue from: the latest one of a game that can be played. */
   continueFrom(only?: GameId): { game: GameId; save: LatestSave } | null {
     let best: { game: GameId; save: LatestSave } | null = null;
-    for (const game of only ? [only] : GAME_IDS) {
+    for (const game of only ? [only] : this.games) {
       const save = this.latest[game];
       if (!save || !this.playable(game)) continue;
       if (!best || save.touchedAt > best.save.touchedAt) best = { game, save };

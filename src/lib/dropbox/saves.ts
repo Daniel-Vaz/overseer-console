@@ -9,7 +9,7 @@
  * only ever replaces an older one, and what it replaces in this browser goes
  * into the slot's history.
  */
-import { GAMES, type GameId } from '../games';
+import { gameDef, type GameId } from '../games';
 import { briefSaves, packSlot, readSaveArchive } from '../saves';
 import { DropboxError, download, fromDropboxTime, listFiles, remove, upload } from './api';
 import { loadConfig, loadSynced, storeSynced, type SyncedSave } from './link';
@@ -48,7 +48,9 @@ export interface SlotStanding {
 
 /** The folder a game's saves are kept in. */
 export function cloudSavesFolder(game: GameId): string {
-  return `${loadConfig().savesFolder}/${GAMES[game].title}`;
+  // Dropbox will not have some characters in a name, and a mod's may hold any.
+  const name = gameDef(game).title.replace(/[\\/:*?"<>|]/g, '-').trim() || game;
+  return `${loadConfig().savesFolder}/${name}`;
 }
 
 function zipName(slot: number): string {

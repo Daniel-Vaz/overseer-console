@@ -1,7 +1,7 @@
 {
   "name": "Overseer Console",
   "short_name": "Overseer",
-  "description": "Play Fallout, Fallout 2 and Fallout Et Tu in your browser from your own copy of the games. Unofficial fan project.",
+  "description": "Play Fallout and Fallout 2, and their mods, in your browser from your own copy of the games. Unofficial fan project.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

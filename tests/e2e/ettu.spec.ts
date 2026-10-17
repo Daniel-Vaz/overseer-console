@@ -4,8 +4,8 @@ import { zipSync } from 'fflate';
 import { fakeEttuZip, fakeFallout1Folder, fakeFallout2Folder, fakeFallout2WithEttu, fakeSaveDat, openConsole, pickFolder, zipFolder } from './helpers';
 
 /**
- * Fallout Et Tu: a conversion the console puts together from its package and
- * the two games. These run on made-up data, which is enough for everything
+ * Fallout Et Tu: a mod of Fallout 2 the console puts together from its package
+ * and the two games. These run on made-up data, which is enough for everything
  * up to the moment the engine is started; playing it needs the real thing
  * (see game.spec.ts).
  */
@@ -48,24 +48,30 @@ async function stored(page: Page, game: string): Promise<{ files: string[]; dire
   }, game);
 }
 
-test('the third deck says what Fallout Et Tu is put together from', async ({ page }) => {
+test('the Mod library says what Fallout Et Tu is put together from', async ({ page }) => {
   await openConsole(page);
   const entry = page.locator('.menu li').nth(2);
-  await expect(entry).toContainText('SIMULATION 03: Fallout Et Tu');
-  await expect(entry).toContainText('NO HOLODISK');
+  await expect(entry).toContainText('Mod library');
+  await expect(entry).toContainText('EMPTY');
   await page.keyboard.press('3');
+  await expect(page.getByRole('heading', { name: 'Mod library' })).toBeVisible();
+  await expect(page.getByText('OVERSEER CONSOLE // MOD LIBRARY')).toBeVisible();
 
-  await expect(page.getByRole('heading', { name: 'SIMULATION 03: Fallout Et Tu' })).toBeVisible();
-  await expect(page.getByText('HOLODISK DECK C')).toBeVisible();
+  // The mods it knows, Et Tu among them, with what each is built from.
+  await page.keyboard.press('k');
+  await expect(page.getByRole('heading', { name: 'Mods the console knows' })).toBeVisible();
+  await page.locator('.menu button', { hasText: 'Fallout Et Tu' }).click();
+  await expect(page.getByRole('heading', { name: 'Fallout Et Tu' })).toBeVisible();
   const readout = page.locator('.readout').first();
-  await expect(readout).toContainText('FALLOUT 2, DECK B: NOT LOADED');
-  await expect(readout).toContainText('FALLOUT, DECK A: NOT LOADED');
-  await expect(page.locator('.menu button').first()).toContainText('Load holodisk: select the package zip');
+  await expect(readout).toContainText('FALLOUT 2, DECK B');
+  await expect(readout).toContainText('FALLOUT, DECK A, WHILE IT IS LOADED');
+  await expect(readout).toContainText('TESTED HERE');
   await expect(page.locator('.menu li').filter({ hasText: 'Get Fallout Et Tu' })).toContainText('OPENS A NEW TAB');
+  await expect(page.getByText('Hand the console: Fallout1in2.zip as it is downloaded')).toBeVisible();
 });
 
 test('puts Fallout Et Tu together from its zip and the two games, and starts its engine', async ({ page }) => {
-  await openConsole(page, 'ettu');
+  await openConsole(page, 'mods/load');
   const zip = page.locator('input[accept*="zip"]');
 
   // Its speech and movies come out of Fallout: without that in its deck there is nothing to take them from.
@@ -74,18 +80,19 @@ test('puts Fallout Et Tu together from its zip and the two games, and starts its
   await expect(page.getByRole('alert')).toContainText('Load Fallout into deck A first');
 
   await loadDeck(page, 'fo1', await fakeFallout1Folder());
-  await page.goto('#/ettu');
-  await expect(page.locator('.readout').first()).toContainText('FALLOUT, DECK A: LOADED');
+  await page.goto('#/mods/load');
   await zip.setInputFiles(fakeEttuZip());
+  // Known for what it is, it is shown on a page of its own.
+  await expect(page.getByRole('heading', { name: 'Fallout Et Tu' })).toBeVisible({ timeout: 60_000 });
   await loaded(page);
   const status = page.getByRole('status');
-  await expect(status).toContainText('19 files');
+  await expect(status).toContainText('21 files');
   await expect(status).toContainText('3 files taken from your Fallout in deck A.');
-  await expect(status).toContainText('2 optional mods switched off in mods_order.txt were left out.');
+  await expect(status).toContainText('2 optional parts switched off in mods_order.txt can be switched on under Components.');
   // A package from before Et Tu took up the engine is loaded, with a word of caution.
   await expect(status).toContainText('no fallout2-ce.exe');
 
-  // Stored as archives where it was folders: the mods that are switched on, and what was borrowed.
+  // Stored as archives where it was folders: its mods, those switched off as well, and what was borrowed.
   const ettu = await stored(page, 'ettu');
   expect(ettu.files).toEqual([
     'config/Perks.ini',
@@ -95,8 +102,10 @@ test('puts Fallout Et Tu together from its zip and the two games, and starts its
     'ddraw.ini',
     'f2_res.ini',
     'fallout1.dat',
+    'mods/InterfaceUpscaled',
     'mods/fo1_base',
     'mods/fo1_interface',
+    'mods/fo1_lang_german',
     'mods/mods_order.txt',
     'mods/sfall-mods.ini',
   ]);
@@ -104,17 +113,21 @@ test('puts Fallout Et Tu together from its zip and the two games, and starts its
   expect(ettu.directory['mods/fo1_base']).toContain('scripts\\gl_fo1mechanics.int');
   expect(ettu.directory['mods/fo1_interface']).toEqual(['art\\intrface\\IFACE.FRM']);
 
-  // It is loaded, and cannot play: the game it runs on is not here.
+  // It is loaded, and cannot play: the game it is played on is not here.
+  await expect(page.locator('.readout').first()).toContainText('FALLOUT 2, DECK B: NOT LOADED');
   const begin = page.locator('.menu li').filter({ hasText: 'Begin simulation' });
   await expect(begin).toContainText('NEEDS DECK B');
   await expect(begin.locator('button')).toBeDisabled();
   await page.goto('#/');
-  await expect(page.locator('.menu li').nth(2)).toContainText('NEEDS DECK B');
+  await expect(page.locator('.menu li').nth(2)).toContainText('1 MOD');
+  await page.goto('#/mods');
+  await expect(page.locator('.menu li').filter({ hasText: 'Fallout Et Tu' })).toContainText('NEEDS DECK B');
 
   await loadDeck(page, 'fo2', await fakeFallout2Folder());
-  await page.goto('#/');
-  await expect(page.locator('.menu li').nth(2)).toContainText('READY');
-  await page.goto('#/ettu');
+  await page.goto('#/mods');
+  await expect(page.locator('.menu li').filter({ hasText: 'Fallout Et Tu' })).toContainText('READY');
+  await page.keyboard.press('1');
+  await expect(page.getByRole('heading', { name: 'Fallout Et Tu' })).toBeVisible();
   await expect(page.locator('.readout').first()).toContainText('FALLOUT 2, DECK B: LOADED');
   await expect(begin.locator('button')).toBeEnabled();
   // Nobody chose a picture here: Et Tu starts at the one it is laid out for.
@@ -125,7 +138,8 @@ test('puts Fallout Et Tu together from its zip and the two games, and starts its
 
   // The engine of Fallout 2 is up, with Et Tu's files and the archives of the game underneath.
   await expect(page.getByText('PRESS ANY KEY')).toBeVisible({ timeout: 60_000 });
-  await expect(page.getByText('SIMULATION 03 ready')).toBeVisible();
+  await expect(page.getByText('SIMULATION 02 ready')).toBeVisible();
+  await expect(page.locator('#bar-title')).toHaveText('OVERSEER CONSOLE // SIMULATION 02 // ET TU');
   await expect(page.getByText('Fallout Et Tu - Fallout 2 Community Edition')).toBeVisible();
   const game = await page.evaluate(() => {
     const { FS } = (window as unknown as { overseerEngine: { module: { FS: { analyzePath(path: string): { exists: boolean }; readFile(path: string): Uint8Array } } } }).overseerEngine.module;
@@ -172,7 +186,7 @@ test('puts Fallout Et Tu together from its zip and the two games, and starts its
 
   // Its saves are its own.
   await page.keyboard.press('Escape');
-  await expect(page.getByRole('heading', { name: 'SIMULATION 03: Fallout Et Tu' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Fallout Et Tu' })).toBeVisible();
   await page.goto('#/saves');
   await expect(page.locator('.menu button')).toContainText(['Fallout', 'Fallout 2', 'Fallout Et Tu', 'Back']);
   await page.keyboard.press('3');
@@ -197,7 +211,7 @@ test('finds Et Tu inside the Fallout 2 folder and offers it without a second pic
   await openConsole(page, 'fo2');
   await pickFolder(page, await fakeFallout2WithEttu());
   await loaded(page);
-  // Fallout 2 took its own five files and nothing of the conversion.
+  // Fallout 2 took its own five files and nothing of the mod.
   await expect(page.getByRole('status')).toContainText('5 files');
   await expect(page.getByRole('status')).toContainText('FALLOUT ET TU IS IN THAT FOLDER AS WELL.');
   expect((await stored(page, 'fo2')).files).toEqual(['critter.dat', 'data/worldmap.dat', 'master.dat', 'patch000.dat', 'sound/music/01hub.acm']);
@@ -205,8 +219,8 @@ test('finds Et Tu inside the Fallout 2 folder and offers it without a second pic
   const offer = page.locator('.menu li').filter({ hasText: 'Load Fallout Et Tu from the same folder' });
   await expect(offer).toBeVisible();
   await page.keyboard.press('e');
-  // The console follows the game to its own deck.
-  await expect(page.getByRole('heading', { name: 'SIMULATION 03: Fallout Et Tu' })).toBeVisible();
+  // The console follows the mod to its own page.
+  await expect(page.getByRole('heading', { name: 'Fallout Et Tu' })).toBeVisible();
   await loaded(page);
   // Its own tool had been run in the folder: nothing needed taking from Fallout, which is not even loaded.
   await expect(page.getByRole('status')).not.toContainText('taken from your Fallout');
@@ -215,30 +229,115 @@ test('finds Et Tu inside the Fallout 2 folder and offers it without a second pic
   await expect(page.locator('.menu li').filter({ hasText: 'Begin simulation' }).locator('button')).toBeEnabled();
 });
 
-test('one pick of that folder on the third deck loads the game it runs on first', async ({ page }) => {
-  await openConsole(page, 'ettu');
+test('one pick of that folder in the Mod library loads the game it is played on first', async ({ page }) => {
+  await openConsole(page, 'mods/load');
   await pickFolder(page, await fakeFallout2WithEttu());
-  await expect(page.getByRole('heading', { name: 'SIMULATION 03: Fallout Et Tu' })).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByRole('heading', { name: 'Fallout Et Tu' })).toBeVisible({ timeout: 60_000 });
   await loaded(page);
   await expect(page.locator('.readout').first()).toContainText('FALLOUT 2, DECK B: LOADED');
   await page.goto('#/');
   await expect(page.locator('.menu li').nth(1)).toContainText('READY');
-  await expect(page.locator('.menu li').nth(2)).toContainText('READY');
+  await expect(page.locator('.menu li').nth(2)).toContainText('1 MOD');
 
-  // Ejecting the game underneath is allowed, and said to leave the conversion stranded.
+  // Ejecting the game underneath is allowed, and said to leave the mod stranded.
   await page.keyboard.press('2');
   await page.locator('.menu button', { hasText: 'Holodisk' }).click();
   await page.keyboard.press('e');
   await expect(page.getByText('EJECT THE FALLOUT 2 HOLODISK?')).toBeVisible();
-  await expect(page.getByText('Fallout Et Tu in deck C runs on this holodisk, and will not start without it.')).toBeVisible();
+  await expect(page.getByText('Fallout Et Tu, in the Mod library, is played on this holodisk, and will not start without it.')).toBeVisible();
   await page.keyboard.press('y');
   await expect(page.getByText('NOT LOADED')).toBeVisible();
-  await page.goto('#/');
-  await expect(page.locator('.menu li').nth(2)).toContainText('NEEDS DECK B');
-  // Asked to play all the same, the player page hands back to the deck that says what is missing.
+  await page.goto('#/mods');
+  await expect(page.locator('.menu li').filter({ hasText: 'Fallout Et Tu' })).toContainText('NEEDS DECK B');
+  // Asked to play all the same, the player page hands back to the mod's page, which says what is missing.
   await page.goto('play.html?game=ettu');
-  await expect(page.getByRole('heading', { name: 'SIMULATION 03: Fallout Et Tu' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Fallout Et Tu' })).toBeVisible();
   await expect(page.locator('.readout').first()).toContainText('FALLOUT 2, DECK B: NOT LOADED');
+});
+
+test('a deck plays the mod put in it, and goes back to the game as it was sold', async ({ page }) => {
+  await openConsole(page, 'fo1');
+  await loadDeck(page, 'fo1', await fakeFallout1Folder());
+  await loadDeck(page, 'fo2', await fakeFallout2Folder(true));
+  const mod = page.locator('.menu li').filter({ has: page.locator('.label', { hasText: /^Mod$/ }) });
+  await expect(mod).toContainText('NONE');
+  await expect(page.locator('.menu-note')).toBeVisible();
+  // No mod for it yet: the entry leads to the library.
+  await page.keyboard.press('2');
+  await expect(page.getByRole('heading', { name: 'Mod library' })).toBeVisible();
+  await page.keyboard.press('l');
+  await page.locator('input[accept*="zip"]').setInputFiles(fakeEttuZip({ forEngine: true }));
+  await expect(page.getByRole('heading', { name: 'Fallout Et Tu' })).toBeVisible({ timeout: 60_000 });
+  await loaded(page);
+
+  // Not in the deck until it is put there, on its page or on the deck.
+  const inDeck = page.locator('.menu li').filter({ hasText: 'In deck B' });
+  await expect(inDeck).toContainText('NO');
+  await page.goto('#/fo2');
+  await expect(mod).toContainText('NONE');
+  await page.keyboard.press('2');
+  await expect(mod).toContainText('ET TU');
+  await expect(page.locator('.readout').first()).toContainText('Mod FALLOUT ET TU');
+  // The deck's picture and saves are the mod's now.
+  await expect(page.locator('.menu li').filter({ hasText: 'Picture' })).toContainText('HIGH RESOLUTION');
+  await page.goto('#/');
+  await expect(page.locator('.menu li').nth(1)).toContainText('READY, ET TU');
+  await page.goto('#/mods/ettu');
+  await expect(inDeck).toContainText('YES');
+
+  // Begun from the deck, the mod plays; left, the console is back on the deck.
+  await page.goto('#/fo2');
+  await page.waitForTimeout(1500);
+  await page.keyboard.press('1');
+  await page.waitForURL(/play\.html\?game=ettu&from=fo2$/);
+  await expect(page.getByText('PRESS ANY KEY')).toBeVisible({ timeout: 60_000 });
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('heading', { name: 'SIMULATION 02: Fallout 2' })).toBeVisible();
+  await expect(page.locator('.menu li.selected')).toContainText('Begin simulation');
+
+  // One key back to the game as it was sold.
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator('.menu li.selected')).toContainText('Mod');
+  await page.keyboard.press('ArrowRight');
+  await expect(mod).toContainText('NONE');
+  await expect(page.locator('.menu li').filter({ hasText: 'Picture' })).toContainText('CLASSIC 4:3');
+  await page.goto('#/mods/ettu');
+  await expect(inDeck).toContainText('NO');
+  await page.keyboard.press('2');
+  await expect(inDeck).toContainText('YES');
+});
+
+test('saves of Fallout Et Tu from the days of its own deck are found in the Mod library', async ({ page }) => {
+  await openConsole(page);
+  await expect(page.locator('.menu li').nth(2)).toContainText('EMPTY');
+  // As an earlier console kept them: in the overlay under its name, with nothing that says it is a mod.
+  await page.evaluate(async (data) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('overseer-console', 1);
+      request.onupgradeneeded = () => request.result.createObjectStore('overlay', { keyPath: ['game', 'key'] });
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('overlay', 'readwrite');
+      tx.objectStore('overlay').put({ game: 'ettu', key: 'data/savegame/slot01/save.dat', path: 'data/SAVEGAME/SLOT01/SAVE.DAT', mtime: Date.now(), deleted: false, data: new Uint8Array(data) });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+    localStorage.removeItem('overseer-console:mods');
+  }, [...fakeSaveDat('Albert', 'before the move')]);
+  await page.reload();
+  await expect(page.locator('.menu li').first()).not.toContainText('Continue');
+  await page.goto('#/mods');
+  const entry = page.locator('.menu li').filter({ hasText: 'Fallout Et Tu' });
+  await expect(entry).toContainText('NO HOLODISK');
+  await entry.locator('button').click();
+  await expect(page.getByRole('heading', { name: 'Fallout Et Tu' })).toBeVisible();
+  await expect(page.locator('.menu li').filter({ hasText: 'Save archives' })).toContainText('1 SAVE');
+  await page.locator('.menu button', { hasText: 'Save archives' }).click();
+  await expect(page.getByRole('heading', { name: 'Save archives: Fallout Et Tu' })).toBeVisible();
+  await expect(page.locator('.menu li').first()).toContainText('before the move');
 });
 
 test('either game loads from one zip of its folder as well', async ({ page }) => {
@@ -293,8 +392,9 @@ for (const borrowed of [false, true]) {
     await openConsole(page, 'fo1');
     await loadDeck(page, 'fo1', await fakeFallout1Folder());
     await loadDeck(page, 'fo2', await fakeFallout2Folder(true));
-    await page.goto('#/ettu');
+    await page.goto('#/mods/load');
     await page.locator('input[accept*="zip"]').setInputFiles(fakeEttuZip({ forEngine: true, engineLog: true, borrow: borrowed ? ['FONT0.FON'] : [] }));
+    await expect(page.getByRole('heading', { name: 'Fallout Et Tu' })).toBeVisible({ timeout: 60_000 });
     await loaded(page);
     await page.waitForTimeout(1500);
     await page.keyboard.press('1');
@@ -319,12 +419,12 @@ for (const borrowed of [false, true]) {
       await expect(fault).toContainText("Fallout Et Tu stopped. The engine reports: Couldn't find/load text fonts");
     }
     // Either way it stopped while starting, and the screen says what that points at.
-    await expect(fault).toContainText('Load the holodisk again from the complete game folder');
+    await expect(fault).toContainText("which points at the mod's files");
     // The browser's own message box never came up.
     expect(dialogs).toEqual([]);
 
-    // From there it is one key back to the deck.
+    // From there it is one key back to the mod's page.
     await page.keyboard.press('c');
-    await expect(page.getByRole('heading', { name: 'SIMULATION 03: Fallout Et Tu' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Fallout Et Tu' })).toBeVisible();
   });
 }

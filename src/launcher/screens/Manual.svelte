@@ -32,11 +32,11 @@
       topics: ['Where the game files are', 'Loading the folder', 'From a zip', 'On a phone or tablet', 'Stopping and ejecting'],
     },
     {
-      id: 'ettu',
-      title: 'Fallout Et Tu',
+      id: 'mods',
+      title: 'Mods',
       icon: 'gamedata',
-      summary: 'The first Fallout rebuilt for the engine of Fallout 2: what it is put together from, and how.',
-      topics: ['What it needs', 'Loading it', 'Its options'],
+      summary: 'Fallout Et Tu, the Restoration Project, Sonora and others: loading a mod, and playing it on its game.',
+      topics: ['What a mod is', 'Loading one', 'Playing it', 'How well they play'],
     },
     {
       id: 'controls',
@@ -149,9 +149,9 @@
   <div class="columns">
     <div>
       <p class="gap manual-lead">
-        Overseer Console runs Fallout, Fallout 2 and the conversion Fallout Et Tu inside your browser, on the open
-        source Community Edition engines. It does not include the games: you bring your own copy, the console copies
-        its data files into this browser's private storage on this device, and plays from there.
+        Overseer Console runs Fallout and Fallout 2, and mods of them such as Fallout Et Tu, inside your browser, on
+        the open source Community Edition engines. It does not include the games: you bring your own copy, the console
+        copies its data files into this browser's private storage on this device, and plays from there.
       </p>
       <Menu items={contents} label="Chapters" bind:selected />
     </div>
@@ -224,46 +224,51 @@
             away, and the deck is as it was before. Loading a holodisk again, and ejecting it, are under
             <span class="hot">Holodisk</span> on the deck of a game that is loaded; saved games are kept either way.
           </p>
-        {:else if current.id === 'ettu'}
-          <h2>What it needs</h2>
+        {:else if current.id === 'mods'}
+          <h2>What a mod is</h2>
           <p>
-            Deck C plays <span class="hot">Fallout Et Tu</span>: the first Fallout rebuilt, by fans, as a game for the engine
-            of Fallout 2. It is free, and it is not a game by itself. The console puts it together from three things.
+            A mod is played on the game it was made for: its own files over the game's, on that game's engine, with
+            saves of its own. The game itself stays as it was sold, in its deck. Mods are kept in the
+            <span class="hot">Mod library</span> on the main directory; the ones the console knows by name are listed
+            there, with where to get each and what of it to hand over.
           </p>
           <dl class="readout gap">
-            <dt>Its package</dt>
-            <dd>
-              One zip, downloaded from the project; deck C has the link. Hand the console the zip as it is. The
-              <span class="hot">Fallout1in2</span> folder of a desktop install does as well, and so does the Fallout 2 folder
-              that folder sits in.
-            </dd>
             <dt>Fallout 2</dt>
-            <dd>Deck B. Et Tu plays on its engine and from its archives, so deck B has to stay loaded.</dd>
+            <dd>Fallout Et Tu, the Restoration Project, the Megamod, Sonora, Nevada, Olympus 2207, and others like them</dd>
             <dt>Fallout</dt>
-            <dd>
-              Deck A. Several thousand of its files (speech, movies, map tiles) are copied out of
-              <span class="hot">MASTER.DAT</span> while Et Tu is loaded: the work of the UNDAT tool on a desktop. After that
-              deck A may be ejected. A folder UNDAT was already run in needs no deck A at all.
-            </dd>
+            <dd>Fallout Fixt, and others like it</dd>
           </dl>
 
-          <h2>Loading it</h2>
+          <h2>Loading one</h2>
           <p>
-            Load decks A and B first, then deck C. Count on about 1 GB of storage for Et Tu, on top of the two games. Its
-            saved games are its own, with their own archives.
+            Load the game it is played on into its deck first. Then, in the Mod library, choose
+            <span class="hot">Load a mod</span> and hand the console the mod as it is downloaded (a zip, or its folder),
+            or a game folder it was installed in on a desktop. Of that, the console keeps only what differs from the game
+            in the deck: the rest is not stored twice. Installers and the programs they bring are left out; the console
+            does what an installer does.
           </p>
           <p>
-            Et Tu on the engine the console runs is young: its makers call it playable, and not yet finished. Take the
-            newest package. One made for this engine holds a file called <span class="hot">fallout2-ce.exe</span>; the
-            console says so when the package you load does not.
+            Fallout Et Tu is built from Fallout as well: while it is loaded, several thousand of Fallout's files (speech,
+            movies, map tiles) are copied out of its <span class="hot">MASTER.DAT</span>, so Fallout must be in deck A
+            then. With your Dropbox linked, a mod can be loaded from the <span class="hot">Mods</span> folder inside your
+            games folder there: put each mod in it as its zip or its folder.
           </p>
 
-          <h2>Its options</h2>
+          <h2>Playing it</h2>
           <p>
-            The console loads the mods that <span class="hot">mods\mods_order.txt</span> in the package switches on, and
-            takes the settings in its <span class="hot">config</span> folder as they are. To play with a language pack or
-            another choice of options, change those files in a copy of the folder and load that. Et Tu starts at
-            <span class="hot">HIGH RESOLUTION</span>, the picture it was laid out for; deck C has the others.
+            A mod's own page starts it, and holds its save archives and its picture. Put it in its game's deck with
+            <span class="hot">In deck B</span> (or A), and the deck plays it from then on: its Begin and Continue start
+            the mod. The deck's own <span class="hot">Mod</span> entry switches between the mods loaded for it and none:
+            the game as it was sold. Each mod starts at the picture its makers meant; Fallout Et Tu at high resolution.
+          </p>
+
+          <h2>How well they play</h2>
+          <p>
+            The engines the console runs have the scripting additions of sfall built in, which most mods need, so there
+            is nothing to switch on. What a mod changes in a game's program itself cannot come along, and a few mods
+            reach further into the original engine than its Community Edition follows. The Mod library says how each
+            mod the console knows plays: tested here, supported by the engine's makers, or experimental. A mod it does
+            not know loads all the same, and is marked not tested.
           </p>
         {:else if current.id === 'controls'}
           <h2>Mouse and keys</h2>
@@ -293,9 +298,11 @@
         {:else if current.id === 'picture'}
           <h2>Picture</h2>
           <p>
-            Every game is played at a picture of its own, chosen on its deck (all three are side by side under Terminal
-            settings, <span class="hot">Picture</span>). Fallout and Fallout 2 start at the original picture, Fallout Et Tu
-            at high resolution. A change takes hold the next time the game is started.
+            Every game and every mod is played at a picture of its own, chosen on its deck or its page (all of them side
+            by side under Terminal settings, <span class="hot">Picture</span>). Fallout and Fallout 2 start at the
+            original picture, a mod at the one its makers meant: Fallout Et Tu at high resolution. Olympus 2207 needs a
+            picture at least 600 lines tall, and is played at high resolution only. A change takes hold the next time the
+            game is started.
           </p>
           <dl class="readout gap">
             <dt>Classic 4:3</dt>
@@ -321,7 +328,7 @@
             that on and off); the inventory has a second column; companions' own
             inventories can be reached when looting and bartering; doors that are neither locked nor special open as you
             walk into them; the interface shows up to 16 action points; and with the HIGH RESOLUTION picture the barter
-            screen has a fourth row. Switched off, Fallout 2 plays as the original did.
+            screen has a fourth row. Switched off, Fallout 2 plays as the original did. Its mods follow the same switch.
           </p>
           <p>
             Fallout Et Tu comes with its makers' own choice of these and keeps it, save for the key:
@@ -444,8 +451,8 @@
             its karma, reputations, standing in each town, addictions and kills, the companions who travel with it (their
             hit points and what they carry), and what the Pip-Boy keeps: the date, the quests, the holodisks, the places on
             the world map, Vault 13's water and the car's fuel where the game counts them. The editor reads the game's own
-            rules, words, pictures and items out of your game files, so the game's holodisk must be loaded (for Fallout Et
-            Tu, Fallout 2's as well).
+            rules, words, pictures and items out of your game files, so the game's holodisk must be loaded (for a mod,
+            that of the game it is played on as well).
           </p>
           <p>
             Move between its sections with <kbd>TAB</kbd> or <kbd>1</kbd> to <kbd>9</kbd> and <kbd>0</kbd>, change a value
@@ -539,10 +546,10 @@
             <dd>The selection must contain MASTER.DAT. Pick the folder that holds it, not a folder above or below.</dd>
             <dt>Stutter</dt>
             <dd>Close heavy tabs. Of the pictures on a game's deck, CLASSIC is the lightest.</dd>
-            <dt>Et Tu rejected</dt>
+            <dt>Mod rejected</dt>
             <dd>
-              It needs Fallout in deck A while it is loaded, and Fallout 2 in deck B to play. The message names which one
-              is missing.
+              A mod needs its game in its deck, and Fallout Et Tu needs Fallout in deck A while it is loaded as well. A
+              Windows installer cannot be loaded: hand over what it installed, or the mod's zip. The message says which.
             </dd>
             <dt>System fault</dt>
             <dd>

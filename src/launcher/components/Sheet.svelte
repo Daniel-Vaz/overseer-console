@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { GameFacts } from '../../lib/gamefacts';
-  import { GAMES, type GameId } from '../../lib/games';
+  import { gameDef, type GameId } from '../../lib/games';
   import { SKILL_NAMES, SPECIAL_NAMES, traitNames, type Character } from '../../lib/savefile';
 
   // What a save says about its character. Names come from the player's own
@@ -9,7 +9,7 @@
 
   const skills = $derived(facts?.skills.length ? facts.skills : SKILL_NAMES);
   // What things are called follows the world the game is set in, not the engine it runs on.
-  const world = $derived(GAMES[game].world);
+  const world = $derived(gameDef(game).world);
   const traits = $derived(facts?.traits.length ? facts.traits : traitNames(world));
 
   /** "Awareness, Toughness x2", or just how many when the game's names are not at hand. */

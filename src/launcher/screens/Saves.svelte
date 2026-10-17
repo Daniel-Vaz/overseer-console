@@ -3,7 +3,7 @@
   import { DropboxError } from '../../lib/dropbox/api';
   import { eraseCloudSave, fetchSave, isSynced, sendSave, surveySaves, type SlotStanding } from '../../lib/dropbox/saves';
   import { gameFacts, paletteFor, whereabouts, type GameFacts } from '../../lib/gamefacts';
-  import { GAMES, GAME_IDS, type GameId } from '../../lib/games';
+  import { gameDef, isGameId, type GameId } from '../../lib/games';
   import { parseCharacter, parseSaveHeader, type Character } from '../../lib/savefile';
   import { deleteSave, exportSaves, listSaves, markForContinue, readSaveArchive, type SaveImport, type SaveSlot } from '../../lib/saves';
   import { ERASED_KEPT_MS, listErased, listVersions, readVersionSave, restoreVersion, type ErasedSlot, type SaveVersion } from '../../lib/storage/history';
@@ -60,7 +60,7 @@
   let selected = $state(0);
   let zipInput: HTMLInputElement | undefined = $state();
 
-  const def = $derived(game ? GAMES[game] : null);
+  const def = $derived(game && isGameId(game) ? gameDef(game) : null);
 
   onMount(() => {
     sys.hints = [
@@ -154,7 +154,7 @@
     void readVersionSave(version)
       .then((data) => {
         if (stale || !data) return;
-        preview = { id: version.id, thumbnail: parseSaveHeader(data)?.thumbnail, sheet: parseCharacter(data, GAMES[current].engine.id) };
+        preview = { id: version.id, thumbnail: parseSaveHeader(data)?.thumbnail, sheet: parseCharacter(data, gameDef(current).engine.id) };
       })
       .catch(() => undefined);
     return () => {
@@ -394,13 +394,19 @@
   }
 
   const gameItems = $derived<MenuItem[]>([
-    ...GAME_IDS.map(
+    ...sys.games.map(
       (id, index): MenuItem => ({
-        key: String(index + 1),
-        label: GAMES[id].title,
+        key: '123456789abcdefghijklmnopqrstuvwxyz'[index] ?? `g${index}`,
+        // Headed games and mods, where there are mods.
+        group: sys.games.length > 2 ? (gameDef(id).mod ? 'Mods' : 'Games') : undefined,
+        label: gameDef(id).title,
         state: sys.saves[id] ? `${sys.saves[id]} ${sys.saves[id] === 1 ? 'SAVE' : 'SAVES'}${sys.exported[id] ? '' : ', NEVER EXPORTED'}` : 'EMPTY',
         tone: sys.unexported.includes(id) ? 'amber' : undefined,
-        note: sys.unexported.includes(id) ? "Never exported: these saves are only in this browser's storage." : undefined,
+        note: sys.unexported.includes(id)
+          ? "Never exported: these saves are only in this browser's storage."
+          : gameDef(id).mod
+            ? `${gameDef(id).title} keeps saves of its own, played on ${gameDef(gameDef(id).mod!.base).title}.`
+            : undefined,
         action: () => go(`saves/${id}`),
       }),
     ),
@@ -511,7 +517,7 @@
         : game && !sys.installs[game]
           ? 'Load the holodisk first: the game data is not in this browser.'
           : game && !sys.playable(game)
-            ? `Load ${GAMES[GAMES[game].conversion!.base].title} first: this game runs on it.`
+            ? `Load ${gameDef(gameDef(game).mod!.base).title} first: this game is played on it.`
             : 'Starts the game and goes straight into this save.',
       action: () => game && open && void launchGame(game, open.slot),
     },

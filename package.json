@@ -2,7 +2,7 @@
   "name": "overseer-console",
   "version": "0.1.0",
   "private": true,
-  "description": "Play Fallout, Fallout 2 and Fallout Et Tu in the browser with your own game files. Unofficial fan project.",
+  "description": "Play Fallout and Fallout 2, and their mods, in the browser with your own game files. Unofficial fan project.",
   "type": "module",
   "scripts": {
     "dev": "vite",

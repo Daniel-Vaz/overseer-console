@@ -1,5 +1,8 @@
-import { readFileSync, statSync } from 'node:fs';
+import { linkSync, mkdirSync, mkdtempSync, openAsBlob, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { unzipSync } from 'fflate';
+import { indexDat, readDatEntry, type DatArchive } from '../../src/lib/dat';
 import { expect, test } from './fixtures';
 import { distance, engineStats, fingerprint, inProgress, launch, openConsole, pause, pickFolder, showsPicture, waitForPicture } from './helpers';
 
@@ -202,9 +205,10 @@ test('Fallout Et Tu: put together from both games and its package, started, and 
   await pickFolder(page, fallout2!);
   await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 300_000 });
 
-  await page.goto('#/ettu');
+  await page.goto('#/mods/load');
   if (statSync(ettu!).isDirectory()) await pickFolder(page, ettu!);
   else await page.locator('input[accept*="zip"]').setInputFiles(ettu!);
+  await expect(page.getByRole('heading', { name: 'Fallout Et Tu' })).toBeVisible({ timeout: 900_000 });
   await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 900_000 });
   console.log(`Fallout Et Tu: ${(await page.getByRole('status').innerText()).replace(/\s+/g, ' ')}`);
 
@@ -235,5 +239,147 @@ test('Fallout Et Tu: put together from both games and its package, started, and 
   await expect.poll(async () => distance(await fingerprint(page), mainMenu), { timeout: 30_000, intervals: [1000] }).toBeLessThan(6);
   await page.keyboard.press('e');
   await expect(page.getByRole('heading', { name: /Fallout Et Tu$/ })).toBeVisible({ timeout: 30_000 });
+  expect(faults).toEqual([]);
+});
+
+/**
+ * The mods the console knows, from their real files, over the real game each
+ * is played on: loaded, started, and taken from the main menu into a new game
+ * with its first ready-made character.
+ *   FO2_DIR=... RPU="/path/to/rpu_v2.4.34.zip" SONORA="/path/to/Fallout_Sonora_1.16.4E.zip"
+ *   OLYMPUS="/path/to/Olympus-2207-English.zip" npm run test:e2e -- game
+ * NEVADA and MEGAMOD (with FO2_DIR) and FIXT (with FO1_DIR) take the folder each was installed in, or a zip of it.
+ */
+const MODS = [
+  // `menu`: how long the game takes to reach its main menu; `save`: whether its first scene leaves the player free to quick save.
+  { id: 'rpu', title: 'Restoration Project', base: 'fo2', env: 'RPU', menu: 8000, save: true },
+  { id: 'sonora', title: 'Fallout: Sonora', base: 'fo2', env: 'SONORA', menu: 8000, save: true },
+  // Its intro is played by its own scripts, before its main menu; its first scene is a conversation.
+  { id: 'olympus', title: 'Olympus 2207', base: 'fo2', env: 'OLYMPUS', menu: 40000, save: false },
+  { id: 'nevada', title: 'Fallout: Nevada', base: 'fo2', env: 'NEVADA', menu: 15000, save: false },
+  { id: 'megamod', title: 'Fallout 2 Megamod', base: 'fo2', env: 'MEGAMOD', menu: 8000, save: false },
+  { id: 'fixt', title: 'Fallout Fixt', base: 'fo1', env: 'FIXT', menu: 8000, save: false },
+] as const;
+
+for (const mod of MODS) {
+  test(`${mod.title}: loaded over the game it is played on, started, and into a new game`, async ({ page }) => {
+    const source = process.env[mod.env];
+    const game = GAMES.find((entry) => entry.id === mod.base)!;
+    test.skip(!source || !game.dir, `set ${game.id.toUpperCase()}_DIR and ${mod.env} to run this`);
+    test.setTimeout(1_800_000);
+    const faults: string[] = [];
+    page.on('pageerror', (error) => faults.push(error.message));
+
+    await openConsole(page, game.id, { skipIntro: true });
+    await pickFolder(page, game.dir!);
+    await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 300_000 });
+    await page.goto('#/mods/load');
+    if (statSync(source!).isDirectory()) await pickFolder(page, source!);
+    else await page.locator('input[accept*="zip"]').setInputFiles(source!);
+    await expect(page.getByRole('heading', { name: mod.title })).toBeVisible({ timeout: 1_800_000 });
+    await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 1_800_000 });
+    console.log(`${mod.title}: ${(await page.getByRole('status').innerText()).replace(/\s+/g, ' ')}`);
+
+    // Its main menu, drawn by an engine that keeps running.
+    await launch(page, 'Begin simulation', '1');
+    const firstPicture = await waitForPicture(page, mod.menu);
+    console.log(`${mod.title}: first picture ${firstPicture} ms after starting`);
+    const mainMenu = await fingerprint(page);
+    expect(await inProgress(page)).toBe(false);
+
+    // A new game with the first ready-made character, past whatever film opens it.
+    await page.keyboard.press('n');
+    await pause(page, 6000);
+    await page.keyboard.press('t');
+    await pause(page, 10000);
+    await page.keyboard.press(' ');
+    await pause(page, 5000);
+    await page.keyboard.press(' ');
+    await expect.poll(() => inProgress(page), { timeout: 120_000, intervals: [1000] }).toBe(true);
+    await pause(page, 10000);
+    expect(distance(await fingerprint(page), mainMenu)).toBeGreaterThan(12);
+
+    if (mod.save) {
+      // Saved, into its own archives.
+      await page.keyboard.press('F6');
+      await expect(page.locator('#toast')).toHaveText('QUICK SAVED IN SLOT 07', { timeout: 30_000 });
+    }
+
+    // Out through the console menu, back to the mod's own page.
+    await page.keyboard.press('F9');
+    await expect(page.getByText('Simulation suspended')).toBeVisible();
+    await page.keyboard.press('x');
+    await page.keyboard.press('y');
+    await expect(page.getByRole('heading', { name: mod.title })).toBeVisible({ timeout: 30_000 });
+    if (mod.save) {
+      await page.goto(`#/saves/${mod.id}`);
+      await expect(page.locator('.menu li', { hasText: 'SLOT 07' })).toContainText(/QUICKSAVE \d\d:\d\d/);
+    }
+    expect(faults).toEqual([]);
+  });
+}
+
+/**
+ * A mod of Fallout made on Windows: its lists end their lines in CR LF, which
+ * the engine of Fallout once read with the CR left on every name when the list
+ * lay loose in the data folder (engines/fallout1/patches, "Read loose text
+ * files the way Windows does"). Fallout Fixt ships its lists that way. Here
+ * the game's own lists of items, critters and scripts are written loose, CR LF
+ * and all, beside a link to the rest of the game, and loaded as a mod.
+ */
+test('Fallout: a mod whose lists end their lines as Windows writes them plays', async ({ page }) => {
+  const fallout = GAMES[0].dir;
+  test.skip(!fallout, 'set FO1_DIR to your Fallout folder to run this');
+  test.setTimeout(900_000);
+  const faults: string[] = [];
+  page.on('pageerror', (error) => faults.push(error.message));
+
+  // The game as it is, linked rather than copied, and its lists out of MASTER.DAT, loose, ending lines in CR LF.
+  const folder = join(mkdtempSync(join(tmpdir(), 'overseer-e2e-')), 'Fallout Made On Windows');
+  const link = (from: string, to: string) => {
+    for (const entry of readdirSync(from, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        mkdirSync(join(to, entry.name), { recursive: true });
+        link(join(from, entry.name), join(to, entry.name));
+      } else linkSync(join(from, entry.name), join(to, entry.name));
+    }
+  };
+  mkdirSync(folder, { recursive: true });
+  link(fallout!, folder);
+  const masterName = readdirSync(fallout!).find((name) => name.toLowerCase() === 'master.dat')!;
+  const master = (await openAsBlob(join(fallout!, masterName))) as unknown as DatArchive;
+  const index = await indexDat(master, 'dat1');
+  for (const list of ['proto/items/items.lst', 'proto/critters/critters.lst', 'scripts/scripts.lst']) {
+    const text = new TextDecoder('latin1').decode(await readDatEntry(master, 'dat1', index.get(list)!));
+    const path = join(folder, 'DATA', ...list.toUpperCase().split('/'));
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, Buffer.from(text.replace(/\r?\n/g, '\r\n'), 'latin1'));
+  }
+
+  await openConsole(page, 'fo1', { skipIntro: true });
+  await pickFolder(page, fallout!);
+  await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 300_000 });
+  await page.goto('#/mods/load');
+  await pickFolder(page, folder);
+  await expect(page.getByRole('heading', { name: 'Fallout Made On Windows' })).toBeVisible({ timeout: 600_000 });
+  await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 600_000 });
+  // Of the whole game folder only the three lists are its own: the rest is the game in deck A.
+  await expect(page.getByRole('status')).toContainText('3 files');
+  await expect(page.getByRole('status')).toContainText('the same as your Fallout in deck A are not stored again');
+
+  await launch(page, 'Begin simulation', '1');
+  await waitForPicture(page, 4000);
+  const mainMenu = await fingerprint(page);
+  await page.keyboard.press('n');
+  await pause(page, 3500);
+  await page.keyboard.press('t');
+  await pause(page, 4500);
+  await page.keyboard.press('Escape');
+  await expect.poll(() => inProgress(page), { timeout: 60_000, intervals: [1000] }).toBe(true);
+  await pause(page, 7500);
+  expect(distance(await fingerprint(page), mainMenu)).toBeGreaterThan(12);
+  // Saved: the game's items and critters, read through the lists, written back into a save of the mod's own.
+  await page.keyboard.press('F6');
+  await expect(page.locator('#toast')).toHaveText('QUICK SAVED IN SLOT 07', { timeout: 30_000 });
   expect(faults).toEqual([]);
 });

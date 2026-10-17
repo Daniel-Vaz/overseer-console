@@ -1,8 +1,13 @@
-import { describe, expect, it } from 'vitest';
-import { CLASSIC_SCREEN, baseFiles, buildConfigFiles, chooseScreen, highScreen, musicPath, wantsEngineData, wideScreen } from '../../src/lib/engine/config';
-import type { GameId } from '../../src/lib/games';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { CLASSIC_SCREEN, buildConfigFiles, chooseScreen, highScreen, musicPath, wantsEngineData, wideScreen } from '../../src/lib/engine/config';
+import { registerMod, type GameId } from '../../src/lib/games';
 import { Ini } from '../../src/lib/ini';
 import type { Manifest } from '../../src/lib/storage/manifest';
+import { mountGame } from '../../src/lib/storage/mount';
+
+beforeAll(() => {
+  registerMod({ id: 'ettu', known: 'ettu', title: 'Fallout Et Tu', base: 'fo2', donor: 'fo1' });
+});
 
 function manifest(game: GameId, paths: string[], installConfig?: string): Manifest {
   return {
@@ -104,7 +109,7 @@ describe('buildConfigFiles', () => {
     expect(res.get('MAIN', 'WINDOWED')).toBe('1');
   });
 
-  it('points a conversion at the game it runs on, and at what it borrowed', () => {
+  it('points Fallout Et Tu at the game it is played on, and at what it borrowed', () => {
     const shipped =
       '[system]\nmaster_dat=..\\master.dat\ncritter_dat=..\\critter.dat\ncritter_patches=data\n[sound]\nmusic_path2=..\\data\\sound\\music\\\n[preferences]\ntext_base_delay=3.5\n';
     const base = manifest('fo2', ['MASTER.DAT', 'critter.dat', 'patch000.dat', 'sound/music/01hub.acm', 'sound/music/02mstrat.acm', 'sound/sfx/x.acm']);
@@ -128,8 +133,10 @@ describe('buildConfigFiles', () => {
     expect(ini.get('screen', 'resolution_y')).toBe('720');
     expect(ini.get('ui', 'skip_opening_movies')).toBe('0');
 
-    // The archives and the music of the game underneath are all it is given of it.
-    expect(baseFiles('fo2', base).sort()).toEqual(['MASTER.DAT', 'critter.dat', 'sound/music/01hub.acm', 'sound/music/02mstrat.acm']);
+    // The archives and the music of the game underneath are all it is given of it, in a folder of their own.
+    const mounted = mountGame('ettu', manifest('ettu', ['mods/fo1_base', 'fallout1.dat']), base);
+    const theirs = [...mounted.files.values()].filter((file) => file.from === 'base').map((file) => file.path);
+    expect(theirs.sort()).toEqual(['fo2/MASTER.DAT', 'fo2/critter.dat', 'fo2/sound/music/01hub.acm', 'fo2/sound/music/02mstrat.acm']);
 
     // A copy whose Fallout files were never borrowed keeps the plain patch folder.
     const bare = buildConfigFiles({ game: 'ettu', manifest: manifest('ettu', ['mods/fo1_base']), base, screen: CLASSIC_SCREEN, skipIntro: true });

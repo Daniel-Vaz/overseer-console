@@ -255,6 +255,21 @@ export async function writeInstall(
   return manifest;
 }
 
+/** The ids of every game that has a folder in the store, installed or half so. */
+export async function storedGames(): Promise<string[]> {
+  try {
+    const root = await storeRoot();
+    const store = await root.getDirectoryHandle(STORE_ROOT);
+    const games = await store.getDirectoryHandle('games');
+    const names: string[] = [];
+    for await (const [name, handle] of games.entries()) if (handle.kind === 'directory') names.push(name);
+    return names.sort();
+  } catch (err) {
+    if (isNotFound(err)) return [];
+    throw err;
+  }
+}
+
 export async function removeInstall(game: GameId): Promise<void> {
   await call({ op: 'remove', dir: ['games'], name: game });
 }

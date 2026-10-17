@@ -336,25 +336,33 @@ test('loads a game from the folder in Dropbox', async ({ page, context }) => {
   await expect(page.locator('.menu li').filter({ hasText: 'Replace holodisk from Dropbox' })).toBeVisible();
 });
 
-test('loads Fallout Et Tu from the zip it is kept as in Dropbox', async ({ page, context }) => {
+test('loads Fallout Et Tu from the zip it is kept as in the Mods folder of Dropbox', async ({ page, context }) => {
   const dropbox = new FakeDropbox();
-  // Not there yet: the console says what to put there.
+  // Not there yet: the console says where to put it.
   dropbox.put('/Games/notes.txt', 'nothing to play');
   await standIn(context, dropbox);
   await linkConsole(page, context, dropbox);
-  await page.goto('#/ettu');
-  const fromDropbox = page.locator('.menu button', { hasText: 'Load holodisk from Dropbox' });
-  await fromDropbox.click();
-  await expect(page.getByRole('alert')).toContainText('No Fallout Et Tu in the console\'s app folder in your Dropbox. Upload the zip it is downloaded as');
+  await page.goto('#/mods/load');
+  await expect(page.locator('.menu li').filter({ hasText: 'From Dropbox' })).not.toContainText('NOT LINKED');
+  await page.keyboard.press('3');
+  await expect(page.getByText("There are no mods in /Mods in the console's app folder in your Dropbox.")).toBeVisible();
+  await page.keyboard.press('Escape');
 
   // The package as it is downloaded, from a folder its own tool was run in: nothing to take from Fallout.
-  dropbox.put('/Games/Fallout1in2.zip', fakeEttuZip({ extracted: true, forEngine: true }).buffer);
-  // A zip that is none is passed over, not held against the one that is.
-  dropbox.put('/Games/broken.zip', 'not a zip');
+  dropbox.put('/Mods/Fallout1in2.zip', fakeEttuZip({ extracted: true, forEngine: true }).buffer);
+  // A mod kept as a folder is listed as well; a loose file is none.
+  dropbox.put('/Mods/Some Mod/mods/some.dat', 'not a mod at all');
+  dropbox.put('/Mods/readme.txt', 'what is in here');
   dropbox.calls.length = 0;
-  await fromDropbox.click();
+  await page.keyboard.press('3');
+  await expect(page.getByText('IN /MODS IN YOUR DROPBOX:')).toBeVisible();
+  await expect(page.locator('.menu .label')).toHaveText(['Fallout1in2.zip', 'Some Mod', 'Back'], { ignoreCase: true });
+  await expect(page.locator('.menu li').first()).toContainText('ZIP');
+  await expect(page.locator('.menu li').nth(1)).toContainText('1 FILE,');
+  await page.keyboard.press('1');
+  await expect(page.getByRole('heading', { name: 'Fallout Et Tu' })).toBeVisible({ timeout: 60_000 });
   await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 60_000 });
-  await expect(page.getByRole('status')).toContainText('19 files');
+  await expect(page.getByRole('status')).toContainText('21 files');
   await expect(page.getByRole('status')).not.toContainText('fallout2-ce.exe');
 
   // Read ahead, not file by file: some forty files came out of the zip in a handful of downloads.
@@ -371,6 +379,16 @@ test('loads Fallout Et Tu from the zip it is kept as in Dropbox', async ({ page,
   });
   expect(files).toContain('mods/fo1_base');
   expect(files).toContain('fallout1.dat');
+
+  // Its files can be fetched again from there, its saves kept.
+  await page.locator('.menu button', { hasText: 'Holodisk' }).click();
+  await expect(page.locator('.menu li').filter({ hasText: 'Replace holodisk from Dropbox' })).toBeVisible();
+
+  // A game is never looked for among the mods.
+  dropbox.put('/Mods/Fallout 2/master.dat', 'not here');
+  await page.goto('#/fo2');
+  await page.locator('.menu button', { hasText: 'Load holodisk from Dropbox' }).click();
+  await expect(page.getByRole('alert')).toContainText("No MASTER.DAT in the console's app folder in your Dropbox.");
 });
 
 test('a game on its way from Dropbox can be called off, and the deck is as it was', async ({ page, context }) => {

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import { gameFacts, paletteFor, type GameFacts } from '../../lib/gamefacts';
-  import { GAMES, type GameId } from '../../lib/games';
+  import { gameDef, type GameId } from '../../lib/games';
   import { WriteError } from '../../lib/modify/record';
   import { STAT } from '../../lib/modify/rules';
   import { SessionError, openSession } from '../../lib/modify/session';
@@ -58,7 +58,7 @@
   let palette = $state<Uint8Array | null>(null);
   let facts = $state<GameFacts | null>(null);
 
-  const def = $derived(GAMES[game]);
+  const def = $derived(gameDef(game));
   const slotName = $derived(`SLOT ${String(slot).padStart(2, '0')}`);
   const index = $derived(SECTIONS.findIndex((entry) => entry.id === section));
 

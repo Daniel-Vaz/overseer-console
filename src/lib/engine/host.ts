@@ -6,16 +6,17 @@
  * ones come from a single packed read, and whatever the engine wrote before
  * (saves, settings) is layered on top from the overlay.
  */
-import { GAMES, type EngineId, type GameId } from '../games';
+import { gameDef, type EngineId, type GameId } from '../games';
 import { isSaveData, slotOf } from '../savefile';
-import type { Settings } from '../settings';
+import { pictureOf, type Settings } from '../settings';
 import { pathKey } from '../storage/manifest';
-import { StorageUnavailableError, loadInstall, openBlob, openInstalled, type Install } from '../storage/opfs';
+import { mountGame, type Mounted, type MountedFile } from '../storage/mount';
+import { StorageUnavailableError, loadInstall, openBlob, openInstalled, type Install, type SourceBlob } from '../storage/opfs';
 
 export { StorageUnavailableError };
 import { commitWithHistory } from '../storage/history';
 import { listOverlay, type OverlayEntry } from '../storage/overlay';
-import { HIGHLIGHT_KEY, HIGHLIGHTING_FILE, baseFiles, baseFolder, buildConfigFiles, chooseScreen, wantsEngineData, type ScreenSize } from './config';
+import { HIGHLIGHT_KEY, HIGHLIGHTING_FILE, buildConfigFiles, chooseScreen, settingsFileOf, wantsEngineData, type ScreenSize } from './config';
 import type { EngineFactory, EngineInfo, EngineModule, PersistBatch, QuickKind, QuickOutcome, ScreenRect } from './types';
 
 const GAME_ROOT = '/game';
@@ -27,7 +28,7 @@ export class NoInstallError extends Error {
   override name = 'NoInstallError';
 }
 
-/** What a game is started from: its own install, and that of the game it runs on when it is a conversion. */
+/** What a game is started from: its own install, and that of the game it is played on when it is a mod. */
 export interface Installed {
   install: Install;
   base?: Install;
@@ -35,13 +36,22 @@ export interface Installed {
 
 /** Looks up what `game` needs to start. Throws NoInstallError naming what is not in this browser. */
 export async function loadInstalled(game: GameId): Promise<Installed> {
-  const def = GAMES[game];
+  const def = gameDef(game);
+  if (!def) throw new NoInstallError('That game is not known in this browser.');
   const install = await loadInstall(game);
   if (!install) throw new NoInstallError(`${def.title} has not been imported in this browser.`);
-  if (!def.conversion) return { install };
-  const base = await loadInstall(def.conversion.base);
-  if (!base) throw new NoInstallError(`${def.title} runs on ${GAMES[def.conversion.base].title}, which has not been imported in this browser.`);
+  if (!def.mod) return { install };
+  const base = await loadInstall(def.mod.base);
+  if (!base) throw new NoInstallError(`${def.title} is played on ${gameDef(def.mod.base).title}, which has not been imported in this browser.`);
   return { install, base };
+}
+
+/** A file of the folder a game is started in, wherever it is stored. Null when the folder holds no such file. */
+export async function openMounted({ install, base }: Installed, mounted: Mounted, path: string): Promise<SourceBlob | null> {
+  const found = mounted.files.get(pathKey(path));
+  if (!found) return null;
+  const from = found.from === 'own' ? install : base;
+  return from ? openInstalled(from, found.file.path) : null;
 }
 
 export interface BootHooks {
@@ -153,36 +163,33 @@ async function downloadEngine(
   return binary;
 }
 
-/**
- * Puts stored files where the engine will look for them, below `root`.
- * `wanted` picks among the install's files, by lower-cased path.
- */
-async function place(module: EngineModule, install: Install, root: string, wanted: (key: string) => boolean): Promise<void> {
+/** Puts stored files where the engine will look for them: each at the path it is mounted at. */
+async function place(module: EngineModule, install: Install, files: MountedFile[]): Promise<void> {
   const ov = module.overseer;
   const { manifest } = install;
 
   // Small files: one read for all of them, unless only a small part of them is asked for.
-  const packed = manifest.files.filter((f) => f.pack && wanted(pathKey(f.path)));
+  const packed = files.filter(({ file }) => file.pack);
   if (packed.length) {
     const pack = await openBlob(install, 'pack.bin');
-    const asked = packed.reduce((sum, file) => sum + file.pack![1], 0);
+    const asked = packed.reduce((sum, { file }) => sum + file.pack![1], 0);
     const whole = asked * 4 < pack.size ? null : new Uint8Array(await pack.arrayBuffer());
-    for (const file of packed) {
+    for (const { path, file } of packed) {
       const [offset, length] = file.pack!;
       const data = whole ? whole.subarray(offset, offset + length) : new Uint8Array(await pack.slice(offset, offset + length).arrayBuffer());
-      ov.writeFile(`${root}/${file.path}`, data, manifest.importedAt);
+      ov.writeFile(`${GAME_ROOT}/${path}`, data, manifest.importedAt);
     }
   }
 
   // Large files: opened, not read.
-  const large = manifest.files.filter((f) => f.blob && wanted(pathKey(f.path)));
-  const handles = await Promise.all(large.map((f) => openBlob(install, f.blob!)));
-  large.forEach((file, i) => {
+  const large = files.filter(({ file }) => file.blob);
+  const handles = await Promise.all(large.map(({ file }) => openBlob(install, file.blob!)));
+  large.forEach(({ path, file }, i) => {
     const blob = handles[i]!;
     if (blob.size !== file.size) {
       throw new Error(`${file.path} is damaged in browser storage (${blob.size} of ${file.size} bytes). Import the game again.`);
     }
-    ov.addLazyFile(`${root}/${file.path}`, file.size, (offset, length) =>
+    ov.addLazyFile(`${GAME_ROOT}/${path}`, file.size, (offset, length) =>
       blob.slice(offset, offset + length).arrayBuffer().then((buffer) => new Uint8Array(buffer)),
     );
   });
@@ -192,24 +199,21 @@ async function populate(
   module: EngineModule,
   game: GameId,
   { install, base }: Installed,
+  mounted: Mounted,
   overlay: OverlayEntry[],
   configFiles: Record<string, string>,
   engineData: { name: string; data: Uint8Array } | null,
 ): Promise<void> {
   const ov = module.overseer;
-  const { manifest } = install;
   const changed = new Map(overlay.map((entry) => [entry.key, entry]));
   const generated = new Set(Object.keys(configFiles).map(pathKey));
 
-  for (const dir of [...manifest.dirs, ...REQUIRED_DIRS]) ov.mkdir(`${GAME_ROOT}/${dir}`);
-  await place(module, install, GAME_ROOT, (key) => !changed.has(key) && !generated.has(key));
-
-  // A conversion plays from the archives of the game it runs on.
-  const conversion = GAMES[game].conversion;
-  if (conversion && base) {
-    const borrowed = new Set(baseFiles(conversion.base, base.manifest).map(pathKey));
-    await place(module, base, `${GAME_ROOT}/${baseFolder(conversion.base)}`, (key) => borrowed.has(key));
-  }
+  for (const dir of [...mounted.dirs, ...REQUIRED_DIRS]) ov.mkdir(`${GAME_ROOT}/${dir}`);
+  // What the game wrote itself, and the settings made for this start, take the place of what came with it.
+  const shown = [...mounted.files.entries()].filter(([key]) => !changed.has(key) && !generated.has(key)).map(([, file]) => file);
+  await place(module, install, shown.filter((file) => file.from === 'own'));
+  // A mod plays from what it uses of the game underneath.
+  if (base) await place(module, base, shown.filter((file) => file.from === 'base'));
 
   // What the engine adds to the games comes with its own pictures and words.
   if (engineData) ov.writeFile(`${GAME_ROOT}/${engineData.name}`, engineData.data);
@@ -234,11 +238,19 @@ export async function bootEngine(
   hooks: BootHooks,
   options: BootOptions = {},
 ): Promise<Engine> {
-  const def = GAMES[game];
+  const def = gameDef(game);
 
   hooks.status('LOCATING HOLOTAPE');
   const installed = await loadInstalled(game);
   const { install } = installed;
+  const mounted = mountGame(game, install.manifest, installed.base?.manifest);
+  if (mounted.missing.length) {
+    const under = gameDef(def.mod!.base);
+    throw new Error(
+      `${def.title} was loaded with files of the ${under.title} in deck ${under.deck} that are not there any more ` +
+        `(${mounted.missing.slice(0, 3).join(', ')}). Load ${def.title} again from its files.`,
+    );
+  }
 
   hooks.status('READING ENGINE DESCRIPTOR');
   const info = await fetchEngineInfo(def.engine.id);
@@ -285,11 +297,15 @@ export async function bootEngine(
 
   hooks.status('MOUNTING GAME DATA');
   const overlay = await listOverlay(game);
-  const savedConfig = overlay.find((entry) => entry.key === def.configFile && !entry.deleted && entry.data);
+  // The settings file the engine will read, which a mod's sfall settings may name otherwise than the game does.
+  const ddraw = await openMounted(installed, mounted, 'ddraw.ini');
+  const configFile = settingsFileOf(game, ddraw ? await ddraw.text() : undefined);
+  const savedConfig = overlay.find((entry) => entry.key === pathKey(configFile) && !entry.deleted && entry.data);
   // What the game brought for the engine's own scripts: its key for lighting
   // things up is replaced with the console's, the rest of it stands.
-  const mods = await openInstalled(install, HIGHLIGHTING_FILE);
-  const screen = chooseScreen(settings.picture[game], viewport);
+  const mods = await openMounted(installed, mounted, HIGHLIGHTING_FILE);
+  const highRes = await openMounted(installed, mounted, 'f2_res.ini');
+  const screen = chooseScreen(pictureOf(settings, game), viewport);
   const configFiles = buildConfigFiles({
     game,
     manifest: install.manifest,
@@ -300,8 +316,10 @@ export async function bootEngine(
     skipIntro: settings.skipIntro || options.loadSlot !== undefined,
     improvements: settings.improvements,
     installMods: await mods?.text(),
+    configFile,
+    highRes: await highRes?.text(),
   });
-  await populate(module, game, installed, overlay, configFiles, engineData);
+  await populate(module, game, installed, mounted, overlay, configFiles, engineData);
   module.FS.chdir(GAME_ROOT);
   hooks.status('SIMULATION READY');
 

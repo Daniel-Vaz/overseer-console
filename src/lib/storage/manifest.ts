@@ -1,4 +1,4 @@
-import type { DatFormat, GameId } from '../games';
+import type { DatFormat, GameId, ModRecord } from '../games';
 
 /**
  * How an imported game is laid out in the origin private file system:
@@ -40,6 +40,39 @@ export interface Manifest {
   dirs: string[];
   /** The install's own settings file, kept as a reference for first launch. */
   installConfig?: string;
+  /** Set for a mod: what it is, and how its files meet those of the game it is played on. */
+  mod?: ModInstall;
+}
+
+/** A file of the game underneath that a mod is started with, unchanged. */
+export interface ReusedFile {
+  /** Where the mod has it, and where it is put when the mod starts. */
+  path: string;
+  size: number;
+  /** Where the game underneath has it, when that is somewhere else. */
+  from?: string;
+}
+
+export interface ModInstall {
+  record: ModRecord;
+  /**
+   * How its files meet those of the game it is played on, when it starts.
+   * over: laid over that game's folder, as a mod installed into it is on a desktop.
+   * nested: in a folder of its own, with that game's archives and music in
+   *   a folder below it (Fallout Et Tu; see engine/config.ts).
+   */
+  layout: 'over' | 'nested';
+  /**
+   * over: what of the game underneath it is started with. Either all of it
+   * but `hides` (lower-case paths, or folders ending in '/') save `keeps`, as
+   * for files to unpack into a game folder; or, for a complete game folder,
+   * nothing but `reuses`: the files its own copies were identical to.
+   */
+  hides?: string[];
+  keeps?: string[];
+  reuses?: ReusedFile[];
+  /** The archive standing in for the bulk of its data folder: the engine's second patch location. */
+  patches?: string;
 }
 
 export interface CurrentPointer {

@@ -16,7 +16,7 @@
  */
 import { messages } from '../gamefacts';
 import type { GameData } from '../gamedata';
-import { GAMES, type GameId } from '../games';
+import { gameDef, type GameId } from '../games';
 import { Ini } from '../ini';
 import type { SaveLayout } from '../savefile';
 import { FO1_PERKS, FO1_SKILLS, FO1_STATS, FO1_TRAIT_PICTURES, FO2_PERKS, FO2_SKILLS, FO2_STATS, FO2_TRAIT_PICTURES } from './tables';
@@ -334,7 +334,7 @@ function experienceTable(engine: SaveLayout, ddraw: Ini | null): number[] {
 
 /** Reads the rules of a game: the engine's tables, the game's words, and whatever the game changes. */
 export async function readRules(data: GameData): Promise<Rules> {
-  const def = GAMES[data.game];
+  const def = gameDef(data.game);
   const engine = def.engine.id;
   const world = def.world;
   const text = async (name: string): Promise<Map<number, string>> => {

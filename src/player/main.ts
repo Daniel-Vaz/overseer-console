@@ -16,7 +16,8 @@ import warningIcon from '../assets/icons/warning.png';
 import { QUICK_SAVE_SLOT } from '../lib/autosave';
 import { wantsEngineData } from '../lib/engine/config';
 import { bootEngine, NoInstallError, StorageUnavailableError, type Engine } from '../lib/engine/host';
-import { GAMES, isGameId, type GameId } from '../lib/games';
+import { gameDef, isGameId, type GameId } from '../lib/games';
+import { syncMods } from '../lib/mods/sync';
 import { loadSettings, recordLaunch, saveSettings } from '../lib/settings';
 import { audioBridgeStats, installAudioBridge } from './audio-bridge';
 import { Autosaver } from './autosave';
@@ -42,7 +43,16 @@ const query = new URLSearchParams(location.search);
 const requested = query.get('game');
 /** "Continue": the save slot to load as soon as the game is up. */
 const loadSlot = /^[1-9]\d{0,3}$/.test(query.get('slot') ?? '') ? Number(query.get('slot')) : undefined;
-const consoleUrl = (game?: GameId) => `${import.meta.env.BASE_URL}${game ? `#/${game}` : ''}`;
+/** The screen of the console the game was started from, to go back to. */
+const from = query.get('from') ?? '';
+/**
+ * The console, at the screen the game was started from, or (`own`) where the
+ * game is, which says what it needs: its deck, or the mod's own page.
+ */
+const consoleUrl = (game?: GameId, own = false) => {
+  const route = !own && /^[a-z0-9/-]{1,80}$/.test(from) ? from : !game ? '' : isGameId(game) && gameDef(game).mod ? `mods/${game}` : game;
+  return `${import.meta.env.BASE_URL}${route ? `#/${route}` : ''}`;
+};
 
 /** Seen the touch controls explained once; they are not explained again unasked. */
 const TOUCH_HELP_KEY = 'overseer-console:touch-help';
@@ -573,7 +583,7 @@ function ended(status: number): void {
     leave();
     return;
   }
-  const title = engine ? GAMES[engine.game].title : 'The game';
+  const title = engine ? gameDef(engine.game).title : 'The game';
   // An engine that gives up within moments of its start has found fault with what it was given to run.
   const starting = !touched || (startedAt > 0 && performance.now() - startedAt < 20_000);
   fatal(
@@ -583,7 +593,9 @@ function ended(status: number): void {
         ? `${title} stopped unexpectedly (status ${status}).`
         : `${title} stopped by itself before it was up.`,
     starting
-      ? 'It stopped while starting, which points at the game data. Load the holodisk again from the complete game folder; for Fallout Et Tu, from the newest package.'
+      ? engine && gameDef(engine.game).mod
+        ? 'It stopped while starting, which points at the mod\'s files. Load its holodisk again from the mod as it is downloaded, or from the newest version of it.'
+        : 'It stopped while starting, which points at the game data. Load the holodisk again from the complete game folder.'
       : undefined,
   );
 }
@@ -725,22 +737,24 @@ function claimGame(game: GameId): Promise<boolean> {
 }
 
 async function main(): Promise<void> {
+  // A mod this browser forgot it has (its settings were cleared) is found again from its files.
+  if (requested && !isGameId(requested)) await syncMods().catch(() => false);
   if (!isGameId(requested)) {
     location.replace(consoleUrl());
     return;
   }
   const game = requested;
-  const def = GAMES[game];
+  const def = gameDef(game);
   // Lighting up what lies on the ground comes with the engine's additions, where a game has them.
   lights = wantsEngineData(game, settings.improvements);
   touch.offer('lights', lights);
   document.title = `${def.title} - Overseer Console`;
-  barTitle.textContent = `OVERSEER CONSOLE // ${def.label}`;
+  barTitle.textContent = def.mod ? `OVERSEER CONSOLE // ${def.label} // ${def.short}` : `OVERSEER CONSOLE // ${def.label}`;
   showTerminal({ state: 'BOOT' });
   body.replaceChildren(logList);
   setHints([['ESC', 'ABORT']]);
 
-  logLine(`${def.label}: ${def.title.toUpperCase()} (${def.year})`);
+  logLine(`${def.label}: ${def.title.toUpperCase()}${def.year ? ` (${def.year})` : ''}`);
   if (!(await claimGame(game))) {
     fatal(`${def.title} is already running in another tab or window. Close it there first.`);
     return;
@@ -795,7 +809,7 @@ async function main(): Promise<void> {
   } catch (err) {
     // Nothing to play here; the console explains why and what to do.
     if (err instanceof NoInstallError || err instanceof StorageUnavailableError) {
-      location.replace(consoleUrl(game));
+      location.replace(consoleUrl(game, true));
       return;
     }
     fatal(err instanceof Error ? err.message : String(err));

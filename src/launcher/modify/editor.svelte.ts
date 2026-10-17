@@ -46,7 +46,7 @@ import {
 import { EQUIPPED, type MappedItem } from '../../lib/modify/savemap';
 import { storeSession, type EditorSession } from '../../lib/modify/session';
 import { questState, standing, townStanding, variableName, type Quest } from '../../lib/modify/world';
-import { GAMES } from '../../lib/games';
+import { gameDef } from '../../lib/games';
 
 export interface Change {
   id: string;
@@ -122,7 +122,7 @@ export class Editor {
     return this.session.world;
   }
   get worldOf() {
-    return GAMES[this.session.game].world;
+    return gameDef(this.session.game).world;
   }
   /** The party's members as the save holds them. */
   get members(): Member[] {

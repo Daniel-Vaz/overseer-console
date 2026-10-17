@@ -2,20 +2,21 @@
  * The files of an installed game, found the way its engine finds them.
  *
  * An engine looks a file up in a chain: the loose files of the data folder
- * first, then (Fallout 2's engine) the mods, the patch archives and the high
- * resolution patch's archive, and last of all CRITTER.DAT and MASTER.DAT.
- * Fallout Et Tu adds the archive the console made of its data folder, right
- * below the data folder itself, and plays on Fallout 2's two archives (see
- * engine/config.ts, where the chain is set up).
+ * first, then (Fallout 2's engine) its second patch location, the mods, the
+ * patch archives and the high resolution patch's archive, and last of all
+ * CRITTER.DAT and MASTER.DAT. A mod is read in the folder it is started in,
+ * over the game it is played on (see storage/mount.ts), with the chain its
+ * settings file is given (see engine/config.ts).
  *
- * gamefacts.ts reads a handful of files out of one archive; the save editor
- * reads hundreds (every item, every picture), so here each archive's
- * directory is read once and kept.
+ * gamefacts.ts reads a handful of files; the save editor reads hundreds
+ * (every item, every picture), so here each archive's directory is read once
+ * and kept.
  */
 import { indexDat, readDatEntry, type DatEntry } from './dat';
-import { GAMES, type GameId } from './games';
-import { BORROWED_ARCHIVE, enabledMods } from './storage/ettu';
+import { GAMES, gameDef, type GameId } from './games';
+import { enabledMods } from './storage/ettu';
 import { pathKey } from './storage/manifest';
+import { baseFolder, mountGame, type Mounted } from './storage/mount';
 import { loadInstall, openInstalled, type Install, type SourceBlob } from './storage/opfs';
 import { listOverlayKeys, readOverlay } from './storage/overlay';
 
@@ -38,72 +39,83 @@ const SAVES = 'data/savegame/';
 
 const bytesOf = async (source: SourceBlob): Promise<Uint8Array> => new Uint8Array(await source.arrayBuffer());
 
-function hasFile(install: Install, path: string): boolean {
-  const key = pathKey(path);
-  return install.manifest.files.some((file) => pathKey(file.path) === key);
-}
+/** A file of the folder a game is started in, wherever it is stored. */
+type Opener = (path: string) => Promise<SourceBlob | null>;
 
 /** The archives of the chain, highest first, as the engine would open them. */
-async function chain(game: GameId, install: Install, base: Install | null): Promise<SourceBlob[]> {
-  const def = GAMES[game];
-  const names: [Install, string][] = [];
+async function chain(game: GameId, mounted: Mounted, open: Opener, order: () => Promise<Uint8Array | null>): Promise<SourceBlob[]> {
+  const def = gameDef(game);
+  const has = (path: string) => mounted.files.has(pathKey(path));
+  const names: string[] = [];
   if (def.engine.id === 'fo1') {
-    names.push([install, 'master.dat'], [install, 'critter.dat']);
+    names.push('master.dat', 'critter.dat');
   } else {
-    const own = (path: string) => names.push([install, path]);
-    // A conversion's second patch location is the archive made of its data folder.
-    if (def.conversion && hasFile(install, BORROWED_ARCHIVE)) own(BORROWED_ARCHIVE);
+    // A mod's second patch location may be an archive made of its data folder.
+    if (mounted.mod?.patches && has(mounted.mod.patches)) names.push(mounted.mod.patches);
     // Mods are opened in the order their list gives, each above the one before.
-    const order = await openInstalled(install, 'mods/mods_order.txt');
-    if (order) {
-      const mods = enabledMods(new TextDecoder('latin1').decode(await bytesOf(order)));
-      for (const mod of mods.reverse()) if (hasFile(install, `mods/${mod}`)) own(`mods/${mod}`);
+    const list = await order();
+    if (list) {
+      for (const mod of enabledMods(new TextDecoder('latin1').decode(list)).reverse()) if (has(`mods/${mod}`)) names.push(`mods/${mod}`);
     }
-    const patches = install.manifest.files
-      .map((file) => pathKey(file.path))
-      .filter((key) => /^patch\d{3}\.dat$/.test(key))
-      .sort()
-      .reverse();
-    for (const patch of patches) own(patch);
-    if (hasFile(install, 'f2_res.dat')) own('f2_res.dat');
-    const archives = def.conversion ? base : install;
-    if (archives) names.push([archives, 'critter.dat'], [archives, 'master.dat']);
+    // The patch archives, numbered from 000 for as long as there is a next one, the last above the rest.
+    const patches: string[] = [];
+    for (let index = 0; index < 1000 && has(`patch${String(index).padStart(3, '0')}.dat`); index++) patches.push(`patch${String(index).padStart(3, '0')}.dat`);
+    names.push(...patches.reverse());
+    if (has('f2_res.dat')) names.push('f2_res.dat');
+    const folder = mounted.mod?.layout === 'nested' ? `${baseFolder(mounted.mod.record.base)}/` : '';
+    names.push(`${folder}critter.dat`, `${folder}master.dat`);
   }
   const sources: SourceBlob[] = [];
-  for (const [from, name] of names) {
-    const source = await openInstalled(from, name);
+  for (const name of names) {
+    const source = await open(name);
     if (source) sources.push(source);
   }
   return sources;
 }
 
 async function open(game: GameId): Promise<GameData | null> {
-  const def = GAMES[game];
+  const def = gameDef(game);
+  if (!def) return null;
   const install = await loadInstall(game);
   if (!install) return null;
-  const base = def.conversion ? await loadInstall(def.conversion.base) : null;
-  if (def.conversion && !base) return null;
+  const base = def.mod ? await loadInstall(def.mod.base) : null;
+  if (def.mod && !base) return null;
   const format = def.datFormat;
+  const mounted = mountGame(game, install.manifest, base?.manifest);
+  const installs: Record<'own' | 'base', Install | null> = { own: install, base };
+  const openMounted: Opener = async (path) => {
+    const found = mounted.files.get(pathKey(path));
+    const from = found && installs[found.from];
+    return found && from ? openInstalled(from, found.file.path) : null;
+  };
+  /** A file the game wrote itself, in place of what came with it. */
+  const written = async (key: string): Promise<Uint8Array | null> => {
+    const entry = await readOverlay(game, key).catch(() => undefined);
+    return entry && !entry.deleted && entry.data ? entry.data : null;
+  };
 
   // The data folder: what came with the game, under what the game wrote itself.
   const loose = new Map<string, () => Promise<Uint8Array | null>>();
-  for (const file of install.manifest.files) {
-    const key = pathKey(file.path);
+  for (const [key, { path }] of mounted.files) {
     if (!key.startsWith('data/') || key.startsWith(SAVES)) continue;
     loose.set(key.slice(5), async () => {
-      const source = await openInstalled(install, file.path);
+      const source = await openMounted(path);
       return source ? bytesOf(source) : null;
     });
   }
   for (const key of await listOverlayKeys(game, 'data/').catch(() => [])) {
     if (key.startsWith(SAVES)) continue;
-    loose.set(key.slice(5), async () => {
-      const entry = await readOverlay(game, key);
-      return entry && !entry.deleted && entry.data ? entry.data : null;
-    });
+    loose.set(key.slice(5), () => written(key));
   }
 
-  const archives: Archive[] = (await chain(game, install, base)).map((source) => ({ source, index: null }));
+  const plain = async (path: string): Promise<Uint8Array | null> => {
+    const own = await written(pathKey(path));
+    if (own) return own;
+    const source = await openMounted(path);
+    return source ? bytesOf(source) : null;
+  };
+  // The load order a player may have changed under the mod's Components.
+  const archives: Archive[] = (await chain(game, mounted, openMounted, () => plain('mods/mods_order.txt'))).map((source) => ({ source, index: null }));
 
   return {
     game,
@@ -127,26 +139,23 @@ async function open(game: GameId): Promise<GameData | null> {
       }
       return null;
     },
-    async plain(path) {
-      const source = await openInstalled(install, path);
-      return source ? bytesOf(source) : null;
-    },
+    plain,
   };
 }
 
 const opened = new Map<GameId, Promise<GameData | null>>();
 
 /**
- * The files of a game, or null when it is not installed (for a conversion:
- * when the game it runs on is not either). Kept while the installs stay the
+ * The files of a game, or null when it is not installed (for a mod: when
+ * the game it is played on is not either). Kept while the installs stay the
  * same; an import or an eject is noticed the next time this is asked.
  */
 export async function openGameData(game: GameId): Promise<GameData | null> {
   const known = await opened.get(game)?.catch(() => null);
   if (known) {
     const install = await loadInstall(game);
-    const conversion = GAMES[game].conversion;
-    const base = conversion ? await loadInstall(conversion.base) : null;
+    const mod = GAMES[game]?.mod;
+    const base = mod ? await loadInstall(mod.base) : null;
     if (install && `${install.manifest.install}/${base?.manifest.install ?? ''}` === known.key) return known;
   }
   const promise = open(game);

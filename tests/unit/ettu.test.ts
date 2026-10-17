@@ -54,6 +54,14 @@ describe('planning Fallout Et Tu', () => {
     const plan = await planImport(packageSources('Fallout1in2/', { forEngine: true }), 'ettu', withFallout);
     expect(plan.game).toBe('ettu');
     expect(plan.root).toBe('Fallout1in2');
+    // A mod of Fallout 2, built from Fallout as well, in a folder of its own with the game's archives below it.
+    expect(plan.mod).toEqual({
+      record: { id: 'ettu', known: 'ettu', title: 'Fallout Et Tu', base: 'fo2', donor: 'fo1' },
+      layout: 'nested',
+      patches: BORROWED_ARCHIVE,
+    });
+    // Asked for as any mod, it is the same.
+    expect((await planImport(packageSources('Fallout1in2/', { forEngine: true }), 'mod', withFallout)).game).toBe('ettu');
     expect(plan.entries.map((entry) => entry.path).sort()).toEqual([
       'config/Perks.ini',
       'config/fo1_settings.ini',
@@ -62,8 +70,10 @@ describe('planning Fallout Et Tu', () => {
       'ddraw.ini',
       'f2_res.ini',
       BORROWED_ARCHIVE,
+      'mods/InterfaceUpscaled',
       'mods/fo1_base',
       'mods/fo1_interface',
+      'mods/fo1_lang_german',
       'mods/mods_order.txt',
       'mods/sfall-mods.ini',
     ]);
@@ -73,9 +83,9 @@ describe('planning Fallout Et Tu', () => {
     expect(plan.language).toBe('english');
     expect(plan.hasMusic).toBe(true);
     expect(plan.warnings).toEqual([]);
-    expect(plan.notes).toEqual(['3 files taken from your Fallout in deck A.', '2 optional mods switched off in mods_order.txt were left out.']);
-    // 8 files kept as files, 8 in the two mods, 3 borrowed.
-    expect(plan.sourceFiles).toBe(19);
+    expect(plan.notes).toEqual(['3 files taken from your Fallout in deck A.', '2 optional parts switched off in mods_order.txt can be switched on under Components.']);
+    // 8 files kept as files, 10 in the four mods, 3 borrowed.
+    expect(plan.sourceFiles).toBe(21);
     expect(plan.totalBytes).toBe(plan.entries.reduce((sum, entry) => sum + entry.file.size, 0));
 
     expect(await inArchive(plan, 'mods/fo1_base', 'text/english/game/perk.msg')).toEqual(ascii(PERKS));
@@ -105,7 +115,7 @@ describe('planning Fallout Et Tu', () => {
     const plan = await planImport(packageSources('Fallout1in2/', { extracted: true, saves: true }), 'ettu', withoutFallout);
     expect(await inArchive(plan, BORROWED_ARCHIVE, 'art/cuts/intro.mve')).toEqual(MOVIE);
     expect(await inArchive(plan, BORROWED_ARCHIVE, 'sound/speech/ovr/ovr1.acm')).toEqual(SPEECH);
-    expect(plan.notes).toEqual(['2 optional mods switched off in mods_order.txt were left out.']);
+    expect(plan.notes).toEqual(['2 optional parts switched off in mods_order.txt can be switched on under Components.']);
     // Saves come along as saves; what a played game left behind does not come at all.
     expect(plan.saves.map((save) => save.path)).toEqual(['data/SAVEGAME/SLOT01/SAVE.DAT']);
     expect(await inArchive(plan, BORROWED_ARCHIVE, 'maps/v13ent.sav')).toBeNull();
@@ -159,7 +169,8 @@ describe('a selection holding more than one game', () => {
   it('loads the game asked for and names the other', async () => {
     const game = await planImport(both, 'fo2');
     expect(game.game).toBe('fo2');
-    expect(game.also).toEqual(['ettu']);
+    expect(game.also).toEqual(['mod']);
+    expect(game.mod).toBeUndefined();
     // Nothing of the conversion ends up in the game it sits in.
     expect(game.entries.map((entry) => entry.path).sort()).toEqual(['critter.dat', 'master.dat', 'patch000.dat', 'sound/music/01hub.acm']);
 

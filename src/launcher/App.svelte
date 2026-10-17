@@ -1,18 +1,22 @@
 <script lang="ts">
   import { onMount, tick as settled } from 'svelte';
-  import { GAMES, isGameId, type GameId } from '../lib/games';
+  import { gameDef, isBaseGame, isGameId, isModId, type GameId } from '../lib/games';
+  import { isKnownMod } from '../lib/mods/catalog';
   import { sourcesFromDrop } from '../lib/storage/importer';
   import Glyph from './components/Glyph.svelte';
   import Pest from './components/Pest.svelte';
   import Vault from './components/Vault.svelte';
   import { isTyping } from './keys';
+  import { screenOf } from './mods';
   import Boot from './screens/Boot.svelte';
   import Credits from './screens/Credits.svelte';
   import Dropbox from './screens/Dropbox.svelte';
   import Game from './screens/Game.svelte';
   import Main from './screens/Main.svelte';
   import Manual from './screens/Manual.svelte';
+  import Mod from './screens/Mod.svelte';
   import Modify from './screens/Modify.svelte';
+  import Mods from './screens/Mods.svelte';
   import Picture from './screens/Picture.svelte';
   import Saves from './screens/Saves.svelte';
   import Settings from './screens/Settings.svelte';
@@ -38,6 +42,20 @@
 
   const section = $derived(route[0] ?? '');
   const game = $derived<GameId | null>(isGameId(route[0]) ? route[0] : isGameId(route[1]) ? route[1] : null);
+  /** The game whose deck is on the screen. */
+  const deck = $derived(isBaseGame(section) ? section : null);
+  /** The mod whose own page is on the screen. */
+  const modPage = $derived(section === 'mods' && isModId(route[1]) ? route[1] : null);
+  /** What the Mod library shows, when it is on the screen. */
+  const library = $derived(route[1] === 'load' ? 'load' : route[1] === 'known' ? 'known' : 'library');
+
+  $effect(() => {
+    // A mod's page was its deck's while Fallout Et Tu had a deck of its own.
+    if (isModId(section)) {
+      history.replaceState(null, '', `#/mods/${section}`);
+      route = readRoute();
+    }
+  });
 
   const title = $derived(
     !booted
@@ -58,9 +76,17 @@
               ? 'OPERATIONS MANUAL'
               : section === 'credits'
                 ? 'CREDITS AND LEGAL'
-                : game
-                  ? `HOLODISK DECK ${GAMES[game].deck}`
-                  : 'UNKNOWN',
+                : section === 'mods'
+                  ? modPage
+                    ? `MOD LIBRARY // ${gameDef(modPage).short}`
+                    : library === 'load'
+                      ? 'MOD LIBRARY // LOAD'
+                      : library === 'known'
+                        ? 'MOD LIBRARY // KNOWN MODS'
+                        : 'MOD LIBRARY'
+                  : deck
+                    ? `HOLODISK DECK ${gameDef(deck).deck}`
+                    : 'UNKNOWN',
   );
 
   function go(path: string): void {
@@ -176,9 +202,12 @@
       return;
     }
     const sources = await sourcesFromDrop(event.dataTransfer);
-    const imported = await sys.importFrom(sources, game ?? undefined);
-    // Show the result on the screen of the game that was found.
-    go(imported ?? sys.job.game ?? game ?? 'fo2');
+    // On the Mod library a mod, on a mod's page new files for it; on a deck its game.
+    const preferred = section === 'mods' ? (modPage ?? 'mod') : (game ?? undefined);
+    const imported = await sys.importFrom(sources, preferred);
+    // Show the result on the screen of the game or mod that was found.
+    const found = imported ?? (sys.job.game && sys.job.game !== 'mod' && isGameId(sys.job.game) ? sys.job.game : null);
+    go(found ? screenOf(found) : preferred && !isBaseGame(preferred) ? (modPage ? `mods/${modPage}` : 'mods/load') : (deck ?? 'fo2'));
   }
 
   function toggle(key: 'crt' | 'sound'): void {
@@ -246,9 +275,17 @@
               {/key}
             {:else if section === 'credits'}
               <Credits {go} />
-            {:else if game}
-              {#key game}
-                <Game {go} {game} />
+            {:else if modPage}
+              {#key modPage}
+                <Mod {go} game={modPage} />
+              {/key}
+            {:else if section === 'mods'}
+              {#key route.join('/')}
+                <Mods {go} view={library} known={library === 'known' && isKnownMod(route[2]) ? route[2] : undefined} />
+              {/key}
+            {:else if deck}
+              {#key deck}
+                <Game {go} game={deck} />
               {/key}
             {:else}
               <h1>Unknown directory</h1>

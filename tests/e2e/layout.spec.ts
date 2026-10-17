@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test';
 import { zipSync } from 'fflate';
 import { expect, test } from './fixtures';
-import { fakeFallout2Folder, fakeSaveDat, openConsole, pickFolder } from './helpers';
+import { fakeEttuZip, fakeFallout1Folder, fakeFallout2Folder, fakeSaveDat, openConsole, pickFolder } from './helpers';
 
 /**
  * How the console fills its tube, at the window sizes people really have:
@@ -34,10 +34,19 @@ function fit(page: Page) {
   });
 }
 
-/** A game in deck B and three saves of it, so that every screen has what it shows when the console is in use. */
+/**
+ * Both games in their decks, Fallout Et Tu in the Mod library, and three saves
+ * of Fallout 2, so that every screen has what it shows when the console is in use.
+ */
 async function furnish(page: Page): Promise<void> {
-  await openConsole(page, 'fo2');
+  await openConsole(page, 'fo1');
+  await pickFolder(page, await fakeFallout1Folder());
+  await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 60_000 });
+  await page.goto('#/fo2');
   await pickFolder(page, await fakeFallout2Folder());
+  await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 60_000 });
+  await page.goto('#/mods/load');
+  await page.locator('input[accept*="zip"]').setInputFiles(fakeEttuZip({ forEngine: true }));
   await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 60_000 });
   await page.goto('#/saves/fo2');
   const saves = zipSync({
@@ -47,9 +56,12 @@ async function furnish(page: Page): Promise<void> {
   });
   await page.locator('input[accept*="zip"]').setInputFiles({ name: 'saves.zip', mimeType: 'application/zip', buffer: Buffer.from(saves) });
   await expect(page.getByText('3 saves restored from the archive.')).toBeVisible();
+  // The screens as they are on any later visit: not with what the copy just made had to say.
+  await page.reload();
+  await expect(page.locator('.menu li.selected')).toBeVisible();
 }
 
-const SCREENS = ['', 'fo2', 'ettu', 'saves/fo2', 'settings', 'settings/picture', 'manual'];
+const SCREENS = ['', 'fo2', 'mods', 'mods/ettu', 'mods/load', 'mods/known', 'mods/known/olympus', 'saves/fo2', 'settings', 'settings/picture', 'manual'];
 
 test('holds the same page however large the window is: nothing runs off the tube, nothing is cut short', async ({ page }) => {
   await furnish(page);

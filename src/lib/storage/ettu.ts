@@ -12,9 +12,10 @@
  * The package is some sixteen thousand loose files once complete. They are
  * stored as a handful of archives instead (see datpack.ts):
  *
- *   mods/<name>     one archive for each mod folder that mods_order.txt
- *                   switches on. The engine opens an archive wherever it
- *                   would open a folder, so the load order file stays as is.
+ *   mods/<name>     one archive for each mod folder, whether mods_order.txt
+ *                   switches it on or not (see mods/components.ts). The
+ *                   engine opens an archive wherever it would open a folder,
+ *                   so the load order file stays as is.
  *   fallout1.dat    what the package keeps in its data folder, with the files
  *                   borrowed from Fallout. The engine is pointed at it as the
  *                   second of its two patch locations, directly below the
@@ -26,8 +27,9 @@
  */
 import { dat1EntrySource, findInDat } from '../dat';
 import { packDat2, type PackMember } from '../datpack';
-import { GAMES } from '../games';
+import { gameDef } from '../games';
 import { Ini } from '../ini';
+import { KNOWN_MODS } from '../mods/catalog';
 import { basename, dirname, pathKey } from './manifest';
 import type { SourceBlob } from './opfs';
 import { ImportError, isJunk, isLeftoverState, isSave, type ImportContext, type ImportPlan, type SourceFile } from './plan';
@@ -48,7 +50,9 @@ const ROOT_FILES = /^(ddraw\.ini|f2_res\.ini|f2_res\.dat|patch\d{3}\.dat)$/;
 /** In the data folder these are read by plain path, not looked up like game data. */
 const PLAIN_FILES = /\.(ini|cfg|txt)$/;
 
-const DEF = GAMES.ettu;
+const KNOWN = KNOWN_MODS.ettu;
+/** The game it is played on, whose engine and archive format it has. */
+const BASE = gameDef(KNOWN.base);
 
 /**
  * Where in a selection a copy of Et Tu lies: the lower-cased path of the
@@ -123,7 +127,7 @@ export async function planEttu(sources: SourceFile[], root: string, context: Imp
     if (isJunk(name)) {
       skipped++;
     } else if (parts.length === 1) {
-      if (key === DEF.configFile) installConfig = await file.text();
+      if (key === BASE.configFile) installConfig = await file.text();
       else if (ROOT_FILES.test(key)) loose.push({ path, file });
       else {
         if (key === CE_MARKER) madeForEngine = true;
@@ -132,16 +136,16 @@ export async function planEttu(sources: SourceFile[], root: string, context: Imp
     } else if (top === 'config') {
       loose.push({ path, file });
     } else if (top === 'mods' && parts.length === 2) {
-      // Settings of mods, and mods that already are archives.
-      if (!/\.(dat|zip)$/.test(name) || enabled.includes(name)) loose.push({ path, file });
-      else skipped++;
-    } else if (top === 'mods') {
-      const mod = parts[1]!;
-      if (!enabled.includes(mod)) {
-        left.add(mod);
-        skipped++;
-        continue;
+      // Settings of mods, and mods that already are archives: those switched off as well, to be switched on.
+      if (/\.zip$/.test(name)) skipped++;
+      else {
+        if (name.endsWith('.dat') && !enabled.includes(name)) left.add(name);
+        loose.push({ path, file });
       }
+    } else if (top === 'mods') {
+      // Every mod of the package, also those its load order leaves off: they can be switched on (see mods/components.ts).
+      const mod = parts[1]!;
+      if (!enabled.includes(mod)) left.add(mod);
       let entry = mods.get(mod);
       if (!entry) mods.set(mod, (entry = { name: path.split('/')[1]!, members: [] }));
       entry.members.push({ name: path.split('/').slice(2).join('/'), file });
@@ -149,9 +153,9 @@ export async function planEttu(sources: SourceFile[], root: string, context: Imp
     } else if (top === 'data') {
       if (isSave(key)) {
         saves.push({ path, file });
-      } else if (isLeftoverState(key)) {
+      } else if (isLeftoverState(key, 'fo2')) {
         skipped++;
-      } else if (DEF.musicDirs.some((dir) => key.startsWith(`${dir}/`))) {
+      } else if (key.startsWith('data/sound/music/')) {
         if (key.endsWith('.acm')) hasMusic = true;
         loose.push({ path, file });
       } else if (parts[1] === 'config' || PLAIN_FILES.test(name)) {
@@ -178,7 +182,7 @@ export async function planEttu(sources: SourceFile[], root: string, context: Imp
       if (name && !inData.has(pathKey(name))) wanted.set(pathKey(name), name);
     }
     if (wanted.size) {
-      const donor = GAMES[DEF.conversion!.donor];
+      const donor = gameDef(KNOWN.donor!);
       const archive = (await context.archiveOf?.(donor.id)) ?? null;
       if (!archive) {
         throw new ImportError(
@@ -212,6 +216,7 @@ export async function planEttu(sources: SourceFile[], root: string, context: Imp
       if (entry) entries.push({ path: `mods/${entry.name}`, file: packDat2(entry.members) });
       else if (!items.has(`mods/${mod}`)) warnings.push(`mods_order.txt names ${mod}, which is not in the package.`);
     }
+    for (const [mod, entry] of mods) if (!enabled.includes(mod)) entries.push({ path: `mods/${entry.name}`, file: packDat2(entry.members) });
     if (borrowed.length) entries.push({ path: BORROWED_ARCHIVE, file: packDat2(borrowed) });
   } catch (err) {
     if (err instanceof RangeError) throw new ImportError('That copy of Fallout Et Tu holds more than the engine can open as one archive.');
@@ -225,7 +230,7 @@ export async function planEttu(sources: SourceFile[], root: string, context: Imp
     );
   }
   if (!hasMusic) warnings.push('No music files were found. The game will run without background music.');
-  if (left.size) notes.push(`${count(left.size, 'optional mod')} switched off in mods_order.txt ${left.size === 1 ? 'was' : 'were'} left out.`);
+  if (left.size) notes.push(`${count(left.size, 'optional part')} switched off in mods_order.txt can be switched on under Components.`);
 
   const dirs = new Set<string>(['mods', 'data', 'config']);
   for (const { path } of [...entries, ...saves]) {
@@ -235,8 +240,8 @@ export async function planEttu(sources: SourceFile[], root: string, context: Imp
   entries.sort((a, b) => b.file.size - a.file.size);
 
   return {
-    game: 'ettu',
-    datFormat: DEF.datFormat,
+    game: KNOWN.id,
+    datFormat: BASE.datFormat,
     root: shownRoot,
     entries,
     dirs: [...dirs].sort(),
@@ -250,5 +255,10 @@ export async function planEttu(sources: SourceFile[], root: string, context: Imp
     warnings,
     notes,
     also: [],
+    mod: {
+      record: { id: KNOWN.id, known: KNOWN.id, title: KNOWN.title, base: KNOWN.base, donor: KNOWN.donor },
+      layout: 'nested',
+      patches: borrowed.length ? BORROWED_ARCHIVE : undefined,
+    },
   };
 }

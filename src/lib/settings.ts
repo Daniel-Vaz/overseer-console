@@ -1,6 +1,7 @@
 /** Console preferences, kept in localStorage. */
 import { AUTOSAVE_MINUTES } from './autosave';
-import { GAME_IDS, type GameId } from './games';
+import { GAMES, isBaseGame, type BaseGameId, type GameId } from './games';
+import { KNOWN_MODS } from './mods/catalog';
 
 const KEY = 'overseer-console:settings';
 
@@ -14,9 +15,17 @@ export type Picture = 'classic' | 'wide' | 'high';
 /** The pictures a game can be played at, in the order the console steps through them. */
 export const PICTURES: readonly Picture[] = ['classic', 'wide', 'high'];
 
+/** How many lines tall each picture is (see engine/config.ts). */
+const PICTURE_LINES: Record<Picture, number> = { classic: 480, wide: 480, high: 720 };
+
 export interface Settings {
-  /** The picture each game is played at: every deck has its own. */
+  /**
+   * The picture each game is played at, where the player chose one: every
+   * game and every mod has its own. See pictureOf.
+   */
   picture: Record<GameId, Picture>;
+  /** The mod each deck plays, by the game in it. Without one, the game as it was sold. */
+  decks: Partial<Record<BaseGameId, GameId>>;
   /**
    * fill: as large as the window allows, hard-edged pixels.
    * integer: whole-number zoom only; every pixel the same size, possibly
@@ -68,16 +77,22 @@ export const FAST_FORWARD_SPEEDS = [2, 3, 4];
 
 const isPicture = (value: unknown): value is Picture => PICTURES.includes(value as Picture);
 
-/** The same picture for every game. */
-const everyGame = (picture: Picture): Record<GameId, Picture> =>
-  Object.fromEntries(GAME_IDS.map((game) => [game, picture])) as Record<GameId, Picture>;
+/** The games there were while there was one picture for all of them: Fallout Et Tu had a deck of its own then. */
+const ONE_PICTURE_GAMES = ['fo1', 'fo2', 'ettu'] as const;
+
+/** The same picture for every game there was. */
+const everyGame = (picture: Picture): Record<GameId, Picture> => Object.fromEntries(ONE_PICTURE_GAMES.map((game) => [game, picture]));
 
 /** Where the one picture for all games stood until a player moved it, while there was only that one. */
 const ONE_FOR_ALL: Picture = 'classic';
 
+/** What an id of a game looks like (see games.ts), for values read back from storage. */
+const GAME_ID = /^[a-z0-9][a-z0-9-]{0,40}$/;
+
 export const DEFAULT_SETTINGS: Settings = {
-  // The two originals start at the picture they were drawn for, Fallout Et Tu at the one it is laid out for.
-  picture: { ...everyGame('classic'), ettu: 'high' },
+  // Nothing chosen: every game starts at the picture it was made for (see pictureOf).
+  picture: {},
+  decks: {},
   scaling: 'fill',
   fullscreen: false,
   skipIntro: false,
@@ -92,7 +107,34 @@ export const DEFAULT_SETTINGS: Settings = {
   touchPointer: 'direct',
 };
 
-const defaults = (): Settings => ({ ...DEFAULT_SETTINGS, picture: { ...DEFAULT_SETTINGS.picture } });
+const defaults = (): Settings => ({ ...DEFAULT_SETTINGS, picture: { ...DEFAULT_SETTINGS.picture }, decks: { ...DEFAULT_SETTINGS.decks } });
+
+/** The pictures a game can be played at: those tall enough for it. */
+export function picturesFor(game: GameId): readonly Picture[] {
+  const least = GAMES[game]?.mod?.minHeight ?? 0;
+  const fit = PICTURES.filter((picture) => PICTURE_LINES[picture] >= least);
+  return fit.length ? fit : PICTURES;
+}
+
+/**
+ * The picture a game is played at: the player's choice, or the one the game
+ * was made for. The originals were drawn for the original picture; a mod the
+ * console knows starts at the one its makers meant.
+ */
+export function pictureOf(settings: Settings, game: GameId): Picture {
+  const allowed = picturesFor(game);
+  const chosen = settings.picture[game];
+  if (chosen && allowed.includes(chosen)) return chosen;
+  const known = GAMES[game]?.mod?.known;
+  const start = known ? KNOWN_MODS[known].picture : 'classic';
+  return allowed.includes(start) ? start : allowed[0]!;
+}
+
+/** The mod a deck plays, while it is one loaded here; otherwise the game itself. */
+export function deckGame(settings: Settings, deck: BaseGameId): GameId {
+  const mod = settings.decks[deck];
+  return mod && GAMES[mod]?.mod?.base === deck ? mod : deck;
+}
 
 export function loadSettings(): Settings {
   try {
@@ -105,11 +147,16 @@ export function loadSettings(): Settings {
     // A picture the player had chosen for all games is each game's now, so that nothing changes unasked.
     // The original picture is where that setting stood untouched, and is not taken for a choice: each
     // game then starts as it does for a new player.
-    const before = isPicture(display) && display !== ONE_FOR_ALL ? everyGame(display) : DEFAULT_SETTINGS.picture;
-    const chosen = (parsed.picture && typeof parsed.picture === 'object' ? parsed.picture : {}) as Partial<Record<GameId, unknown>>;
+    const before = isPicture(display) && display !== ONE_FOR_ALL ? everyGame(display) : {};
+    const chosen = (parsed.picture && typeof parsed.picture === 'object' ? parsed.picture : {}) as Record<string, unknown>;
     merged.picture = { ...before };
-    for (const game of GAME_IDS) {
-      if (isPicture(chosen[game])) merged.picture[game] = chosen[game];
+    for (const [game, picture] of Object.entries(chosen)) {
+      if (GAME_ID.test(game) && isPicture(picture)) merged.picture[game] = picture;
+    }
+    const decks = (parsed.decks && typeof parsed.decks === 'object' ? parsed.decks : {}) as Record<string, unknown>;
+    merged.decks = {};
+    for (const [deck, mod] of Object.entries(decks)) {
+      if (isBaseGame(deck) && typeof mod === 'string' && GAME_ID.test(mod) && !isBaseGame(mod)) merged.decks[deck] = mod;
     }
     if (!['fill', 'integer', 'smooth'].includes(merged.scaling)) merged.scaling = DEFAULT_SETTINGS.scaling;
     if (merged.audio !== 'buffered' && merged.audio !== 'direct') merged.audio = DEFAULT_SETTINGS.audio;
