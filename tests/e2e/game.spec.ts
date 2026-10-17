@@ -1,4 +1,4 @@
-import { linkSync, mkdirSync, mkdtempSync, openAsBlob, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { linkSync, mkdirSync, mkdtempSync, openAsBlob, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { unzipSync } from 'fflate';
@@ -353,6 +353,8 @@ test('Fallout: a mod whose lists end their lines as Windows writes them plays', 
     const text = new TextDecoder('latin1').decode(await readDatEntry(master, 'dat1', index.get(list)!));
     const path = join(folder, 'DATA', ...list.toUpperCase().split('/'));
     mkdirSync(dirname(path), { recursive: true });
+    // A link to the game's own copy would be written through: the copy here is a file of its own.
+    rmSync(path, { force: true });
     writeFileSync(path, Buffer.from(text.replace(/\r?\n/g, '\r\n'), 'latin1'));
   }
 
