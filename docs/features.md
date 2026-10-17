@@ -4,6 +4,7 @@ Everything the console does, in one place. For the short tour see the [README](.
 own **Operations manual** (entry 6 of the main directory) explains each of these from inside it.
 
 - [The games](#the-games)
+- [Mods](#mods)
 - [Playing](#playing)
 - [Touch screens](#touch-screens)
 - [Saves](#saves)
@@ -14,17 +15,27 @@ own **Operations manual** (entry 6 of the main directory) explains each of these
 
 ## The games
 
-<p align="center"><img src="images/deck-et-tu.webp" width="800" alt="Deck C of the console: Fallout Et Tu, put together and ready"></p>
-
 - **Your own copy of the games.** No game data is hosted or distributed here. You need to own them
   ([GOG](https://www.gog.com/game/fallout), [Steam](https://store.steampowered.com/app/38400), Epic).
 - **Fallout and Fallout 2**, played by the open source Community Edition engines, compiled to WebAssembly.
-- **Fallout Et Tu, put together for you.** Hand the console the zip the conversion is downloaded as. It takes
-  the files Et Tu needs out of your Fallout and plays it on your Fallout 2: no unpacking, no extraction tool.
-  See [Fallout Et Tu](fallout-et-tu.md).
 - **Games from a folder, a zip, or Dropbox.** Pick the folder a store installed the game to, or drop it on the
   console. A game folder can also be loaded as one zip of it, which is how a whole game, music included, gets onto
   a device that cannot pick folders; or from a folder in your own Dropbox (see [Dropbox link](dropbox.md)).
+
+## Mods
+
+<p align="center"><img src="images/mods.webp" width="800" alt="The Mod library: Fallout Et Tu, the Restoration Project and Fallout: Sonora, each for deck B"></p>
+
+- **A Mod library.** Mods are played on the game they were made for, with saves of their own; the game stays as it
+  was sold, one key away on its deck. See [Mods](mods.md).
+- **Bring your own.** Hand the console a mod as it is downloaded (a zip or its folder) or a game folder it was
+  installed in. It keeps only what differs from your game in the deck, and does what a mod's installer would do.
+- **Seven it knows by name.** Fallout Et Tu (put together from your Fallout and played on your Fallout 2, no
+  extraction tool), the Restoration Project, the Megamod, Sonora, Nevada and Olympus 2207 for Fallout 2, Fallout Fixt
+  for Fallout: where to get each, what to hand over, and how well it plays on the engine.
+- **A mod in its deck.** Put a mod in its game's deck and the deck plays it; switch back with one key.
+- **Components.** The parts a mod's load order switches on, as its installer would offer them, switched on and off
+  any time.
 
 ## Playing
 
@@ -43,13 +54,13 @@ own **Operations manual** (entry 6 of the main directory) explains each of these
 
 - **Continue.** One key takes you from the console straight into your latest save.
 - **A picture for each game.** The original 640 x 480, widened to the shape of the window, or high resolution:
-  chosen deck by deck. Fallout Et Tu starts at the high resolution it was laid out for, the two originals at the
-  picture they were drawn for.
+  chosen game by game and mod by mod. The two originals start at the picture they were drawn for, a mod at the one
+  its makers meant: Fallout Et Tu at the high resolution it was laid out for.
 - **Fast forward.** F8 runs a game several times as fast, for the long walk across a map and the turns of a
   dozen rats, and back again.
 - **Fallout 2 with what its engine adds, or without.** One setting switches on items that light up on a key,
-  a wider inventory, companions' own inventories, doors that open as you walk into them and more; switched
-  off, the game plays as the original did.
+  a wider inventory, companions' own inventories, doors that open as you walk into them and more, for Fallout 2
+  and its mods; switched off, the game plays as the original did.
 - **A console menu over the game.** F9 freezes the game and its clock and opens the console's own menu:
   resume, fullscreen, back to the console, and the keys. Switching to another tab freezes it too.
 - **Fullscreen.** F11, or from the F9 menu.

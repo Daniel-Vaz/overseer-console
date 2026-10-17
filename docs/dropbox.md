@@ -28,7 +28,10 @@ not a secret.
   into a desktop install.
 - **Games.** Put the folder a game is installed in anywhere inside `Apps/<app>/`, using Dropbox's own app
   or website, and choose *Load holodisk from Dropbox* on the game's deck. The console only reads there.
-  Fallout Et Tu is best kept there as the zip it is downloaded as: a folder is thousands of small downloads.
   This is the way to get a game, music included, onto a phone.
+- **Mods.** Put each mod in the `Mods` folder inside the games folder (`Apps/<app>/Mods` unless you changed the
+  games folder), as the zip it is downloaded as or as its folder, and choose *From Dropbox* under *Load a mod* in
+  the Mod library: it lists what is there. A zip is best: a folder is thousands of small downloads. A game is never
+  looked for in the `Mods` folder.
 
 Both folders can be changed on the Dropbox link screen.

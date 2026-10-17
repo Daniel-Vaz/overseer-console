@@ -31,6 +31,12 @@ With both of those and `ETTU="/path/to/Fallout1in2.zip"` (or its folder) the sam
 together from the real things and starts it. `tests/e2e/ettu.spec.ts` does as much as made-up data allows,
 up to the engine opening the archives the console made.
 
+The other mods the console knows are played from their real files when told where they are, with `FO2_DIR` (or
+`FO1_DIR` for Fixt) beside them: `RPU="/path/to/rpu_v2.4.34.zip"`, `SONORA="/path/to/Fallout_Sonora_1.16.4E.zip"`,
+`OLYMPUS="/path/to/Olympus-2207-English.zip"`, and `NEVADA`, `MEGAMOD`, `FIXT` as the folder each was installed in
+(or a zip of it). `tests/e2e/mods.spec.ts` and `tests/unit/mods.test.ts` cover them on made-up files laid out as the
+real ones are (`tests/mods.ts`).
+
 `tests/e2e/touch.spec.ts` plays them again with fingers only, on a phone-sized screen.
 
 `tests/e2e/modify-games.spec.ts` changes a quick save with the save editor, loads it in the game, saves again from

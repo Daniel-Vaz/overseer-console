@@ -7,7 +7,7 @@
 <h1 align="center">Overseer Console</h1>
 
 <p align="center">
-  <b>Fallout, Fallout 2 and Fallout Et Tu, in your browser.</b><br>
+  <b>Fallout and Fallout 2, and their mods, in your browser.</b><br>
   From your own copy of the games. Nothing to install, no server, no account.
 </p>
 
@@ -24,7 +24,7 @@
 </p>
 
 <p align="center">
-  <a href="#three-games-one-terminal">Games</a> ·
+  <a href="#two-games-and-their-mods">Games</a> ·
   <a href="#play-in-three-steps">Get started</a> ·
   <a href="#highlights">Highlights</a> ·
   <a href="docs/features.md">All features</a> ·
@@ -36,7 +36,7 @@ Overseer Console is a vault terminal that runs the open source Community Edition
 compiled to WebAssembly. Point it at the folder Steam, GOG or Epic installed your game to: it copies the data into
 your browser's private storage and plays from there, on a desktop, a tablet or a phone.
 
-## Three games, one terminal
+## Two games and their mods
 
 <table>
   <tr>
@@ -47,15 +47,19 @@ your browser's private storage and plays from there, on a desktop, a tablet or a
   <tr>
     <td align="center"><b>Fallout</b><br><sub>1997, on Fallout Community Edition</sub></td>
     <td align="center"><b>Fallout 2</b><br><sub>1998, on Fallout 2 Community Edition</sub></td>
-    <td align="center"><b>Fallout Et Tu</b><br><sub>2019, Fallout rebuilt on the Fallout 2 engine</sub></td>
+    <td align="center"><b>Fallout Et Tu</b><br><sub>A mod: Fallout rebuilt on the Fallout 2 engine</sub></td>
   </tr>
 </table>
+
+Mods are played on the game they were made for, with saves of their own, from the console's Mod library. Fallout
+Et Tu, the Restoration Project, the Megamod, Sonora, Nevada, Olympus 2207 and Fallout Fixt are known by name; any
+other loads from its zip or its folder. See [Mods](docs/mods.md).
 
 ## Play in three steps
 
 1. **[Open the console](https://daniel-vaz.github.io/overseer-console/).** Any modern browser.
-2. **Load a holodisk.** Pick your game's folder, drop it on the console, or hand it a zip of it. For Fallout Et Tu,
-   hand it the zip the conversion is downloaded as.
+2. **Load a holodisk.** Pick your game's folder, drop it on the console, or hand it a zip of it. A mod goes into the
+   Mod library, from the zip it is downloaded as or a game folder it was installed in.
 3. **Press `1`.** Next time, `C` takes you straight back into your latest save.
 
 You need to own the games ([GOG](https://www.gog.com/game/fallout), [Steam](https://store.steampowered.com/app/38400),
@@ -76,30 +80,39 @@ Epic). No game data is hosted or distributed here, and nothing is uploaded.
   </tr>
   <tr>
     <td>
+      <h3>Bring your own mods</h3>
+      Hand the console a mod as it is downloaded, or a game folder it was installed in. It keeps only what differs
+      from your game, does what the mod's installer would do, and plays it on that game's engine with saves of its
+      own. Put it in the game's deck, switch its parts on and off, or go back to the game as it was sold with one key.
+    </td>
+    <td width="55%"><img src="docs/images/mods.webp" alt="The Mod library: Fallout Et Tu, the Restoration Project and Fallout: Sonora, each for deck B, and the mods the console knows"></td>
+  </tr>
+  <tr>
+    <td width="55%"><img src="docs/images/editor-special.webp" alt="The save editor's S.P.E.C.I.A.L. page: each stat with its rating, and the Vault Boy card for Strength"></td>
+    <td>
       <h3>A save editor that knows the rules</h3>
       Name, level, S.P.E.C.I.A.L., skills, traits, perks, inventory, karma, reputation, companions, quests, the
       world map and the date. Drawn with the game's own pictures, from your copy, and checked against the game's
       own rules. Every change can be undone.
     </td>
-    <td width="55%"><img src="docs/images/editor-special.webp" alt="The save editor's S.P.E.C.I.A.L. page: each stat with its rating, and the Vault Boy card for Strength"></td>
   </tr>
   <tr>
-    <td width="55%"><img src="docs/images/touch.webp" alt="Fallout 2 on a phone held sideways, with the touch deck's buttons on both sides of the picture"></td>
     <td>
       <h3>Made for touch screens too</h3>
       Tap, drag, hold and two-finger gestures stand in for the mouse. One-tap buttons open the inventory, map,
       character screen and Pip-Boy, end a turn, quick save and fast forward. A keyboard appears when the game asks
       for text.
     </td>
+    <td width="55%"><img src="docs/images/touch.webp" alt="Fallout 2 on a phone held sideways, with the touch deck's buttons on both sides of the picture"></td>
   </tr>
   <tr>
+    <td width="55%"><img src="docs/images/picture-high.webp" alt="Fallout 2 at high resolution: much more of Arroyo in view, across a wide window"></td>
     <td>
-      <h3>Your picture, deck by deck</h3>
+      <h3>Your picture, game by game</h3>
       The original 640 x 480, widened to your window, or high resolution. Fast forward with <code>F8</code> for the
       long walks and the turns of a dozen rats. Fallout 2's engine improvements can be switched on, or off for the
       original game.
     </td>
-    <td width="55%"><img src="docs/images/picture-high.webp" alt="Fallout 2 at high resolution: much more of Arroyo in view, across a wide window"></td>
   </tr>
 </table>
 
@@ -107,12 +120,12 @@ Epic). No game data is hosted or distributed here, and nothing is uploaded.
   <tr>
     <td width="33%"><img src="docs/images/editor-pipboy.webp" alt="The save editor's Pip-Boy page: the date and Arroyo's and the Den's quests"></td>
     <td width="33%"><img src="docs/images/editor-items.webp" alt="The save editor's item picker: power armour and power fists with their pictures, and the Mega Power Fist's stats"></td>
-    <td width="33%"><img src="docs/images/console.webp" alt="The console's main directory, with all three decks ready and a save to continue from"></td>
+    <td width="33%"><img src="docs/images/console.webp" alt="The console's main directory: both decks ready, the Mod library, and a save to continue from"></td>
   </tr>
   <tr>
     <td align="center"><sub>Quests, holodisks and the world map</sub></td>
     <td align="center"><sub>Every item the game has, with its picture</sub></td>
-    <td align="center"><sub>Three decks, one key to continue</sub></td>
+    <td align="center"><sub>Two decks, their mods, one key to continue</sub></td>
   </tr>
 </table>
 
@@ -138,7 +151,7 @@ door is shut exactly when the console's storage is sealed, and a console left al
 | Guide | What it covers |
 | --- | --- |
 | [Features](docs/features.md) | Everything the console does |
-| [Fallout Et Tu](docs/fallout-et-tu.md) | What it needs and how the console puts it together |
+| [Mods](docs/mods.md) | Loading a mod, playing it on its game, and the mods the console knows |
 | [Dropbox link](docs/dropbox.md) | Carry saves and games between devices through your own Dropbox |
 | [How it works](docs/how-it-works.md) | The engines, storage, save reader and editor, and the vault |
 | [Developing](docs/developing.md) | Building the engines and the site, tests, deploying |
