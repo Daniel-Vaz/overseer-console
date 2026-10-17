@@ -1,0 +1,47 @@
+Read loose text files the way Windows does
+
+A text file is opened in text mode, which on Windows turns each CR LF into
+LF as it is read. Inside the game's archives the engine does that itself;
+for a loose file in the data folder it relies on the C library, which on
+every other system leaves the CR in place. Lists read line by line then
+name files with a CR at the end that are never found. Mods made on Windows
+ship their lists with CR LF: Fallout Fixt's, for one (upstream issue #130).
+---
+diff --git a/src/plib/db/db.cc b/src/plib/db/db.cc
+index 827cff9..e94a6b5 100644
+--- a/src/plib/db/db.cc
++++ b/src/plib/db/db.cc
+@@ -890,6 +890,17 @@ int db_fgetc(DB_FILE* stream)
+     if (stream != NULL) {
+         if ((stream->flags & 0x4) != 0) {
+             ch = fgetc(stream->uncompressed_file_stream);
++
++            // CE: Read a loose file opened as text the way Windows does: CR LF
++            // is LF, as it already is for a file inside an archive.
++            if (ch == '\r' && (stream->flags & 0x2) != 0) {
++                next_ch = fgetc(stream->uncompressed_file_stream);
++                if (next_ch == '\n') {
++                    ch = '\n';
++                } else if (next_ch != EOF) {
++                    ungetc(next_ch, stream->uncompressed_file_stream);
++                }
++            }
+         } else {
+             switch (stream->flags & 0xF0) {
+             case 16:
+@@ -1009,6 +1020,15 @@ char* db_fgets(char* string, size_t size, DB_FILE* stream)
+     if (stream != NULL) {
+         if ((stream->flags & 0x4) != 0) {
+             res = fgets(string, size, stream->uncompressed_file_stream);
++
++            // CE: See db_fgetc: a line of a loose text file ends in LF alone.
++            if (res != NULL && (stream->flags & 0x2) != 0) {
++                size_t length = strlen(string);
++                if (length >= 2 && string[length - 2] == '\r' && string[length - 1] == '\n') {
++                    string[length - 2] = '\n';
++                    string[length - 1] = '\0';
++                }
++            }
+         } else {
+             if (string != NULL) {
+                 for (index = 0; index < size - 1; index++) {
