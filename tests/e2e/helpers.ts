@@ -1,11 +1,11 @@
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { errors, expect, type Page } from '@playwright/test';
 import { zipSync } from 'fflate';
 import { ascii, dat2 } from '../archives';
 import { ettuFiles, fallout1Master, type EttuOptions } from '../ettu';
 import { critterProto } from '../maps';
+import { tempFolder } from './tempdirs';
 
 /** Opens the console on a route with the power-on sequence already seen. */
 export async function openConsole(page: Page, route = '', settings: Record<string, unknown> = {}): Promise<void> {
@@ -50,7 +50,7 @@ function fakeDat2(size: number): Buffer {
  * nothing: the engine opens them, and then finds no game in them.
  */
 export async function fakeFallout2Folder(archives = false): Promise<string> {
-  const root = join(mkdtempSync(join(tmpdir(), 'overseer-e2e-')), 'Fallout 2');
+  const root = join(tempFolder(), 'Fallout 2');
   mkdirSync(join(root, 'sound', 'music'), { recursive: true });
   mkdirSync(join(root, 'data'), { recursive: true });
   mkdirSync(join(root, 'Manual'), { recursive: true });
@@ -80,7 +80,7 @@ function fakeDat1(size: number): Buffer {
  * archive holding the files Fallout Et Tu borrows from the game.
  */
 export async function fakeFallout1Folder(): Promise<string> {
-  const root = join(mkdtempSync(join(tmpdir(), 'overseer-e2e-')), 'Fallout');
+  const root = join(tempFolder(), 'Fallout');
   mkdirSync(join(root, 'DATA', 'SOUND', 'MUSIC'), { recursive: true });
   writeFileSync(join(root, 'MASTER.DAT'), Buffer.from(await fallout1Master().arrayBuffer()));
   writeFileSync(join(root, 'CRITTER.DAT'), fakeDat1(4096));
@@ -112,7 +112,7 @@ export async function fakeFallout2WithEttu(): Promise<string> {
 
 /** Files laid out as a folder on disk, below a folder called `name`. */
 export function writeFolder(files: Record<string, Uint8Array | string | Blob>, name: string): Promise<string> {
-  const root = join(mkdtempSync(join(tmpdir(), 'overseer-e2e-')), name);
+  const root = join(tempFolder(), name);
   return Promise.all(
     Object.entries(files).map(async ([path, data]) => {
       mkdirSync(dirname(join(root, path)), { recursive: true });
@@ -146,7 +146,7 @@ export function zipFolder(folder: string, name: string): { name: string; mimeTyp
 
 /** A folder that is not a game. */
 export function junkFolder(): string {
-  const root = join(mkdtempSync(join(tmpdir(), 'overseer-e2e-')), 'Holiday photos');
+  const root = join(tempFolder(), 'Holiday photos');
   mkdirSync(root, { recursive: true });
   writeFileSync(join(root, 'beach.jpg'), 'pixels');
   return root;

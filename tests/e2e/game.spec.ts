@@ -1,9 +1,9 @@
-import { linkSync, mkdirSync, mkdtempSync, openAsBlob, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { linkSync, mkdirSync, openAsBlob, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { unzipSync } from 'fflate';
 import { indexDat, readDatEntry, type DatArchive } from '../../src/lib/dat';
 import { expect, test } from './fixtures';
+import { tempFolder } from './tempdirs';
 import { distance, engineStats, fingerprint, inProgress, launch, openConsole, pause, pickFolder, showsPicture, waitForPicture } from './helpers';
 
 /**
@@ -335,7 +335,7 @@ test('Fallout: a mod whose lists end their lines as Windows writes them plays', 
   page.on('pageerror', (error) => faults.push(error.message));
 
   // The game as it is, linked rather than copied, and its lists out of MASTER.DAT, loose, ending lines in CR LF.
-  const folder = join(mkdtempSync(join(tmpdir(), 'overseer-e2e-')), 'Fallout Made On Windows');
+  const folder = join(tempFolder(), 'Fallout Made On Windows');
   const link = (from: string, to: string) => {
     for (const entry of readdirSync(from, { withFileTypes: true })) {
       if (entry.isDirectory()) {
