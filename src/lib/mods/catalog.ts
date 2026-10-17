@@ -129,11 +129,12 @@ export const KNOWN_MODS: Record<KnownModId, KnownMod> = {
     authors: 'MIB88 and its many contributors',
     project: 'https://www.nma-fallout.com/resources/mib88-megamod.11/',
     download: 'https://www.nexusmods.com/fallout2/mods/116',
-    handOver: 'A Fallout 2 folder the Megamod was installed in, as a folder or a zip. Its manual download needs a tool run on a desktop first.',
+    handOver: 'The Megamod zip as it is downloaded, or a Fallout 2 folder it was installed in: the console does what its tool would have done.',
     status: 'experimental',
     caveat: 'Made for the original engine with sfall; parts of it may not work on the Community Edition engine.',
     picture: 'classic',
     names: /mega.?mod|mib88/i,
+    files: ['data/scripts/gl_is_megamod_installed.int', 'megamod.ini'],
     version: /mega.?mod[_ -]?v?(\d+(?:\.\d+)+)/i,
   },
   sonora: {
@@ -202,6 +203,8 @@ export const KNOWN_MODS: Record<KnownModId, KnownMod> = {
     caveat: "What Fixt changes in the game's program itself does not come along: its files do.",
     picture: 'classic',
     names: /fixt/i,
+    // Its installer puts it in a folder of its own inside the Fallout folder, and writes a log there.
+    files: ['data/fixt/install.log', 'troubleshooting fallout fixt.txt'],
     version: /fixt[_ -]?v?(\d+(?:\.\d+)+[a-z]?)/i,
   },
 };

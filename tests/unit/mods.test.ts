@@ -8,7 +8,7 @@ import type { Manifest } from '../../src/lib/storage/manifest';
 import { findMod, MOD_DATA } from '../../src/lib/storage/mods';
 import { mountGame } from '../../src/lib/storage/mount';
 import { ascii } from '../archives';
-import { fallout1Files, fallout2Files, fixtFiles, installOf, moddedFallout2Files, nevadaFiles, olympusFiles, rpuFiles, sonoraFiles, sources } from '../mods';
+import { fallout1Files, fallout2Files, fixtFiles, fixtInstalledFiles, installOf, megamodFiles, moddedFallout2Files, nevadaFiles, olympusFiles, rpuFiles, sonoraFiles, sources } from '../mods';
 
 const fallout2 = installOf('fo2', fallout2Files());
 const fallout1 = installOf('fo1', fallout1Files());
@@ -61,6 +61,13 @@ describe('finding a mod', () => {
     expect(await find(nevadaFiles(), 'Fallout Nevada/')).toMatchObject({ root: 'fallout nevada', complete: true, base: 'fo2', known: 'nevada' });
     expect((await find(nevadaFiles(), 'Fallout Nevada/'))?.byFile).toBeUndefined();
     expect(await find(fixtFiles(), 'Fallout Fixt/')).toMatchObject({ complete: true, base: 'fo1', known: 'fixt' });
+  });
+
+  it('finds an installer\'s own folder inside a game folder by a file of its own', async () => {
+    // A Fallout folder Fixt's installer ran in: the game is not the mod, the folder the installer made is.
+    expect(await find(fixtInstalledFiles(), 'Fallout/')).toEqual({ root: 'fallout/fallout fixt', name: 'Fallout Fixt', complete: false, base: 'fo1', known: 'fixt', byFile: true });
+    // A game folder with no such folder inside stays the mod itself.
+    expect(await find(moddedFallout2Files(), 'Fallout 2/')).toMatchObject({ root: 'fallout 2', complete: true });
   });
 
   it('takes any other mod for what it is: a game folder, or files to unpack into one', async () => {
@@ -139,6 +146,23 @@ describe('the Restoration Project from its zip', () => {
     expect(again.game).toBe('rpu');
     registerMod({ id: 'sonora', known: 'sonora', title: 'Fallout: Sonora', base: 'fo2' });
     await expect(planImport(sources(rpuFiles()), 'sonora', decks)).rejects.toThrow('That is Restoration Project, not Fallout: Sonora.');
+  });
+});
+
+describe('the Megamod from its zip', () => {
+  it('is known by a file of its own, and its tool\'s step is done: its protos into the game\'s data, the patch archive out', async () => {
+    const plan = await load(megamodFiles(), '', 'Fallout 2 Megamod 2.47.8.zip');
+    expect(plan.game).toBe('megamod');
+    expect(plan.mod?.record).toMatchObject({ known: 'megamod', version: '2.47.8', base: 'fo2' });
+    expect(plan.notes.join(' ')).toContain('1 of its protos put where its tool would have put them.');
+    // The data folder is packed into an archive the engine reads before master.dat: both protos are in it.
+    expect(await inArchive(plan, MOD_DATA, 'proto/critters/00000660.pro')).not.toBeNull();
+    expect(await inArchive(plan, MOD_DATA, 'proto/critters/00000062.pro')).not.toBeNull();
+    expect(paths(plan).some((path) => /^proto\//i.test(path) || /^appearance\//i.test(path))).toBe(false);
+    expect(plan.mod?.hides).toContain('patch000.dat');
+    const mounted = mountGame('megamod', manifestOf(plan), fallout2.manifest);
+    expect(mounted.files.has('patch000.dat')).toBe(false);
+    expect(mounted.files.get('master.dat')?.from).toBe('base');
   });
 });
 
@@ -272,6 +296,45 @@ describe('a mod of Fallout', () => {
     const files = buildConfigFiles({ game: 'fixt', manifest: manifestOf(plan), base: fallout1.manifest, screen: { width: 640, height: 480 }, skipIntro: false });
     // Fixt's own settings say where its data is with a slash the engine does not take; the console says it.
     expect(Ini.parse(files['fallout.cfg']!).get('system', 'master_patches')).toBe('data');
+  });
+});
+
+describe('a mod of Fallout, as its installer leaves it', () => {
+  it('Fixt: its own folder laid over Fallout, whose loose data its settings do not read', async () => {
+    const plan = await load(fixtInstalledFiles(), 'Fallout/');
+    expect(plan.game).toBe('fixt');
+    expect(plan.mod?.record).toMatchObject({ known: 'fixt', title: 'Fallout Fixt', base: 'fo1' });
+    // Its files, not the game's around it, nor what only a desktop needs.
+    expect(paths(plan)).toEqual([
+      'DATA/FIXT/install.log',
+      'DATA/MAPS/V13ENT.MAP',
+      'DATA/SCRIPTS/SCRIPTS.LST',
+      'DATA/SCRIPTS/TEST.INT',
+      'DATA/TEXT/ENGLISH/GAME/MISC.MSG',
+    ]);
+    expect(plan.installConfig).toContain('master_patches=data');
+    // Played with the game's archives and music, not the game's own loose data.
+    const mounted = mountGame('fixt', manifestOf(plan), fallout1.manifest);
+    expect(mounted.files.get('master.dat')?.from).toBe('base');
+    expect(mounted.files.get('critter.dat')?.from).toBe('base');
+    expect(mounted.files.get('data/sound/music/01hub.acm')?.from).toBe('base');
+    expect(mounted.files.get('data/maps/v13ent.map')?.from).toBe('own');
+    const files = buildConfigFiles({ game: 'fixt', manifest: manifestOf(plan), base: fallout1.manifest, screen: { width: 640, height: 480 }, skipIntro: false });
+    const config = Ini.parse(files['fallout.cfg']!);
+    // Its settings point one folder up for the game's archives: here they sit beside it.
+    expect(config.get('system', 'master_dat')).toBe('master.dat');
+    expect(config.get('system', 'critter_dat')).toBe('critter.dat');
+  });
+
+  it('Fixt: its own folder handed over alone', async () => {
+    const files = Object.fromEntries(
+      Object.entries(fixtInstalledFiles())
+        .filter(([path]) => path.startsWith('Fallout Fixt/'))
+        .map(([path, data]) => [path.slice('Fallout Fixt/'.length), data]),
+    );
+    const plan = await load(files, 'Fallout Fixt/');
+    expect(plan.game).toBe('fixt');
+    expect(paths(plan)).toContain('DATA/MAPS/V13ENT.MAP');
   });
 });
 

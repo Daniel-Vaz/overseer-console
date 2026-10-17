@@ -223,3 +223,47 @@ export function fixtFiles(): Record<string, Data> {
     'DATA/TEXT/ENGLISH/GAME/MISC.MSG': '{100}{}{Fixt}',
   };
 }
+
+/**
+ * Fallout Fixt as its installer leaves a Fallout folder: the game as it was, and Fixt in a folder of its
+ * own inside it, whose settings name the game's archives and music and its own data folder.
+ */
+export function fixtInstalledFiles(): Record<string, Data> {
+  const game = fallout1Files();
+  return {
+    ...game,
+    'DATA/MAPS/V13ENT.MAP': pattern(96, 84),
+    'unins000.exe': 'not a program',
+    'Play Fallout Fixt.lnk': 'a shortcut',
+    'Fallout Fixt/FALLOUTW.exe': 'not a program',
+    'Fallout Fixt/ddraw.dll': 'sfall',
+    'Fallout Fixt/Troubleshooting Fallout Fixt.txt': 'Read me first.',
+    'Fallout Fixt/fallout.cfg':
+      '[sound]\r\nmusic_path1=..\\data\\sound\\music\r\nmusic_path2=data\\sound\\music\r\n[system]\r\nmaster_dat=..\\master.dat\r\ncritter_dat=..\\critter.dat\r\nmaster_patches=data\r\nlanguage=english\r\n',
+    'Fallout Fixt/DATA/FIXT/install.log': '----------------INSTALL FINISHED----------------\r\n',
+    'Fallout Fixt/DATA/SCRIPTS/SCRIPTS.LST': 'test.int ; a script\r\n',
+    'Fallout Fixt/DATA/SCRIPTS/TEST.INT': pattern(800, 81),
+    'Fallout Fixt/DATA/MAPS/V13ENT.MAP': pattern(96, 85),
+    'Fallout Fixt/DATA/TEXT/ENGLISH/GAME/MISC.MSG': '{100}{}{Fixt}',
+  };
+}
+
+/** The Megamod's zip, files to unzip over Fallout 2, with critter protos its tool puts into master.dat. */
+export function megamodFiles(): Record<string, Data> {
+  const files: Record<string, Data> = {
+    'megamod.ini': '[SETTINGS]\r\nparty_armor_graphic=1\r\n',
+    'ddraw.ini': '[Misc]\r\nElevatorsFile=Elevators.ini\r\n',
+    'Elevators.ini': '[0]\r\nImage=143\r\n',
+    'ddraw.dll': 'not a library',
+    'proto/dat2.exe': 'not a program',
+    'proto/Dat Replace.txt': 'critters\\00000062.pro\r\n',
+    'proto/CRITTERS/00000062.pro': pattern(416, 91),
+    'proto/CRITTERS/00000660.pro': pattern(416, 92),
+    'Data/proto/critters/00000062.pro': pattern(416, 91),
+    'Data/scripts/GL_Is_Megamod_Installed.int': pattern(300, 93),
+    'Appearance/HMR00S01/art/critters/hmjmpsaa.frm': pattern(900, 94),
+    'readme files/Abbey Readme.txt': 'Read me.',
+  };
+  for (let i = 0; i < 20; i++) files[`Data/text/english/dialog/mm${i}.msg`] = `{100}{}{Line ${i}}`;
+  return files;
+}

@@ -44,11 +44,11 @@ by a file of their own or the name of their folder.
 | --- | --- | --- | --- |
 | [Fallout Et Tu](https://github.com/rotators/Fo1in2) | Fallout 2, built from Fallout as well | `Fallout1in2.zip`, its folder, or the Fallout 2 folder it sits in | Tested here |
 | [Restoration Project](https://github.com/BGforgeNet/Fallout2_Restoration_Project) | Fallout 2 | `rpu_v*.zip` from its releases page, not the installer; or a Fallout 2 folder it was installed in | Supported |
-| [Fallout 2 Megamod](https://www.nma-fallout.com/resources/mib88-megamod.11/) | Fallout 2 | A Fallout 2 folder it was installed in | Experimental |
+| [Fallout 2 Megamod](https://www.nma-fallout.com/resources/mib88-megamod.11/) | Fallout 2 | Its zip as it is downloaded, or a Fallout 2 folder it was installed in | Experimental |
 | [Fallout: Sonora](https://cambragol.github.io/Fallout-Sonora/) | Fallout 2 | `Fallout_Sonora_*.zip` from its English releases page, or its folder | Supported |
 | [Fallout: Nevada](https://github.com/BGforgeNet/fallout-nevada-english-translation) | Fallout 2 | The folder it was installed in, its English translation copied over it | Supported |
 | [Olympus 2207](https://github.com/HogLord69/olympus-2207-english) | Fallout 2 | `Olympus-2207-English.zip`, or its folder | Experimental |
-| [Fallout Fixt](https://www.moddb.com/mods/fallout-fixt) | Fallout | A Fallout folder it was installed in | Experimental |
+| [Fallout Fixt](https://www.moddb.com/mods/fallout-fixt) | Fallout | The Fallout folder its installer ran in, or the `Fallout Fixt` folder it made there | Experimental |
 
 *Supported* means the makers of the Community Edition engine say it plays; *tested here* that the console's own tests
 play it from its real files; *experimental* that it starts, and parts of it are known not to work on this engine.
@@ -96,6 +96,7 @@ its second patch location, directly below the data folder itself. Music and sett
 files. Fallout's engine reads only Fallout's own archives, so a mod of Fallout is stored as loose files.
 
 What the mods the console knows need besides is in [`src/lib/storage/mods.ts`](../src/lib/storage/mods.ts) (the
-Restoration Project's installer, Olympus's sfall 5 load order and scripts) and
+Restoration Project's installer, the Megamod's proto tool, Fixt's folder of its own, Olympus's sfall 5 load order
+and scripts) and
 [`src/lib/storage/ettu.ts`](../src/lib/storage/ettu.ts); what the console knows of each, in
 [`src/lib/mods/catalog.ts`](../src/lib/mods/catalog.ts).

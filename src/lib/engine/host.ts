@@ -98,6 +98,15 @@ export interface Engine {
   /** Lights up what lies on the ground, as holding the key for it does, until switched off. */
   setLights(on: boolean): void;
   audioContext(): AudioContext | undefined;
+  /** The large files the engine has read from so far, by the path it reads them at. */
+  reads(): Record<string, FileReads>;
+}
+
+/** How much the engine has read of one large file, and whose install it is from (see MountedFile). */
+export interface FileReads {
+  from: MountedFile['from'];
+  reads: number;
+  bytes: number;
 }
 
 function engineBase(engine: EngineId): string {
@@ -164,7 +173,7 @@ async function downloadEngine(
 }
 
 /** Puts stored files where the engine will look for them: each at the path it is mounted at. */
-async function place(module: EngineModule, install: Install, files: MountedFile[]): Promise<void> {
+async function place(module: EngineModule, install: Install, files: MountedFile[], reads: Map<string, FileReads>): Promise<void> {
   const ov = module.overseer;
   const { manifest } = install;
 
@@ -184,14 +193,18 @@ async function place(module: EngineModule, install: Install, files: MountedFile[
   // Large files: opened, not read.
   const large = files.filter(({ file }) => file.blob);
   const handles = await Promise.all(large.map(({ file }) => openBlob(install, file.blob!)));
-  large.forEach(({ path, file }, i) => {
+  large.forEach(({ path, file, from }, i) => {
     const blob = handles[i]!;
     if (blob.size !== file.size) {
       throw new Error(`${file.path} is damaged in browser storage (${blob.size} of ${file.size} bytes). Import the game again.`);
     }
-    ov.addLazyFile(`${GAME_ROOT}/${path}`, file.size, (offset, length) =>
-      blob.slice(offset, offset + length).arrayBuffer().then((buffer) => new Uint8Array(buffer)),
-    );
+    ov.addLazyFile(`${GAME_ROOT}/${path}`, file.size, (offset, length) => {
+      const read = reads.get(path) ?? { from, reads: 0, bytes: 0 };
+      read.reads++;
+      read.bytes += length;
+      reads.set(path, read);
+      return blob.slice(offset, offset + length).arrayBuffer().then((buffer) => new Uint8Array(buffer));
+    });
   });
 }
 
@@ -203,6 +216,7 @@ async function populate(
   overlay: OverlayEntry[],
   configFiles: Record<string, string>,
   engineData: { name: string; data: Uint8Array } | null,
+  reads: Map<string, FileReads>,
 ): Promise<void> {
   const ov = module.overseer;
   const changed = new Map(overlay.map((entry) => [entry.key, entry]));
@@ -211,9 +225,9 @@ async function populate(
   for (const dir of [...mounted.dirs, ...REQUIRED_DIRS]) ov.mkdir(`${GAME_ROOT}/${dir}`);
   // What the game wrote itself, and the settings made for this start, take the place of what came with it.
   const shown = [...mounted.files.entries()].filter(([key]) => !changed.has(key) && !generated.has(key)).map(([, file]) => file);
-  await place(module, install, shown.filter((file) => file.from === 'own'));
+  await place(module, install, shown.filter((file) => file.from === 'own'), reads);
   // A mod plays from what it uses of the game underneath.
-  if (base) await place(module, base, shown.filter((file) => file.from === 'base'));
+  if (base) await place(module, base, shown.filter((file) => file.from === 'base'), reads);
 
   // What the engine adds to the games comes with its own pictures and words.
   if (engineData) ov.writeFile(`${GAME_ROOT}/${engineData.name}`, engineData.data);
@@ -319,7 +333,8 @@ export async function bootEngine(
     configFile,
     highRes: await highRes?.text(),
   });
-  await populate(module, game, installed, mounted, overlay, configFiles, engineData);
+  const reads = new Map<string, FileReads>();
+  await populate(module, game, installed, mounted, overlay, configFiles, engineData, reads);
   module.FS.chdir(GAME_ROOT);
   hooks.status('SIMULATION READY');
 
@@ -342,5 +357,6 @@ export async function bootEngine(
     requestSave: (slot) => ov.requestSave(slot),
     setLights: (on) => ov.holdScriptKey(HIGHLIGHT_KEY, on),
     audioContext: () => module.SDL2?.audioContext,
+    reads: () => Object.fromEntries([...reads].map(([path, read]) => [path, { ...read }])),
   };
 }

@@ -817,7 +817,7 @@ async function main(): Promise<void> {
   }
 
   if (phase !== 'boot') return;
-  // For diagnostics from the browser console: overseerEngine.module.overseer.stats(), overseerAudio(), overseerAutosave()
+  // For diagnostics from the browser console: overseerEngine.module.overseer.stats(), overseerEngine.reads(), overseerAudio(), overseerAutosave()
   Object.assign(window, { overseerEngine: engine, overseerAudio: audioBridgeStats, overseerAutosave: () => autosaver?.now() });
   phase = 'gate';
   fit();

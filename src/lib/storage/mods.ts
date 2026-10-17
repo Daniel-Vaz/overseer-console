@@ -119,12 +119,17 @@ export function findMod(sources: SourceFile[], candidates: Candidate[]): FoundMo
     const folder = parentOf(key, 'master.dat');
     if (folder !== null) add(folder, true, 'fo2');
   }
-  if (!found.length) {
+  // Files to unpack into a game folder: else, in a game folder the console does not know as a mod, an
+  // installer's own folder inside it that the console knows by a file of its own (Fixt's sits in Fallout's).
+  const nested = found.length > 0;
+  if (!found.length || !found.some((mod) => mod.known)) {
     for (const key of keys) {
       for (const name of ['mods', 'data']) {
         const root = parentOf(key, name);
         // The folders of a mod's own mods folder are not mods of their own.
-        if (root !== null && !root.split('/').includes('mods')) add(root, false, 'fo2');
+        if (root === null || root.split('/').includes('mods') || found.some((other) => other.root === root)) continue;
+        if (nested && !recognise(keys, root, []).byFile) continue;
+        add(root, false, 'fo2');
       }
     }
   }
@@ -145,6 +150,8 @@ interface Recipe {
   keeps?: string[];
   /** What of the mod is left out besides what only a desktop needs, and why. */
   skips?: { pattern: RegExp; why: string };
+  /** Its loose item and critter protos are its own, not what an engine left behind (see isLeftoverState). */
+  protos?: boolean;
   /** Turns what the mod brings for sfall into what the Community Edition engine reads. */
   adapt?(items: Map<string, Item>): Promise<string[]>;
 }
@@ -163,6 +170,32 @@ const RECIPES: Partial<Record<KnownModId, Recipe>> = {
     hides: ['patch000.dat', 'f2_res.dat', 'data/'],
     keeps: ['data/savegame/', 'data/*.txt', 'data/*.gcd', 'data/sound/music/'],
     skips: { pattern: /^appearance\//, why: 'its Hero Appearance art, a feature the engine does not have' },
+  },
+  // Unzipped over Fallout 2, with the game's patch archive removed; its protos in proto/ are put into
+  // master.dat with dat2.exe. The data folder, packed into an archive read before master.dat, does as well.
+  megamod: {
+    hides: ['patch000.dat'],
+    // Shipped loose, and kept read-only on a desktop so that the original engine cannot wipe them.
+    protos: true,
+    async adapt(items) {
+      let moved = 0;
+      for (const [key, item] of [...items]) {
+        const match = /^proto\/(critters|items)\/([^/]+\.pro)$/.exec(key);
+        if (!match) continue;
+        items.delete(key);
+        const to = `data/proto/${match[1]}/${match[2]}`;
+        if (items.has(to)) continue;
+        items.set(to, { path: `data/proto/${match[1]}/${item.path.split('/').pop()}`, file: item.file });
+        moved++;
+      }
+      return moved ? [`${count(moved, 'of its protos', 'of its protos')} put where its tool would have put them.`] : [];
+    },
+  },
+  // Its installer puts it in a folder of its own inside the game's, whose settings name the game's archives
+  // and music but its own data folder: the game's loose data is not read, its music is.
+  fixt: {
+    hides: ['data/'],
+    keeps: ['data/sound/music/'],
   },
   // Made for sfall 5: its load order is an INI file, and its global scripts live in sfall's folder.
   // The engine reads mods/mods_order.txt, and global scripts from the scripts folder.
@@ -299,7 +332,7 @@ export async function planFoundMod(sources: SourceFile[], found: FoundMod, conte
     if (isJunk(name) || name.startsWith('._') || parts.includes('__macosx')) skipped++;
     else if (recipe?.skips?.pattern.test(key)) recipeSkipped++;
     else if (isSave(key)) saves.push({ path: item.path, file: item.file });
-    else if (isLeftoverState(key, found.base)) skipped++;
+    else if (isLeftoverState(key, found.base) && !(recipe?.protos && key.endsWith('.pro'))) skipped++;
     else if (DESKTOP.test(name)) desktop++;
     else if (parts.length === 1) {
       // Settings for the engine and archives stay; the game's own settings file is kept as the player's choices.

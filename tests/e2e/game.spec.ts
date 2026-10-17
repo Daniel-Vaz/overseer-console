@@ -2,6 +2,9 @@ import { linkSync, mkdirSync, openAsBlob, readFileSync, readdirSync, rmSync, sta
 import { dirname, join } from 'node:path';
 import { unzipSync } from 'fflate';
 import { indexDat, readDatEntry, type DatArchive } from '../../src/lib/dat';
+import type { Page } from '@playwright/test';
+import type { FileReads } from '../../src/lib/engine/host';
+import { parseSaveHeader, type SaveHeader } from '../../src/lib/savefile';
 import { expect, test } from './fixtures';
 import { tempFolder } from './tempdirs';
 import { distance, engineStats, fingerprint, inProgress, launch, openConsole, pause, pickFolder, showsPicture, waitForPicture } from './helpers';
@@ -190,7 +193,7 @@ for (const game of GAMES) {
  *   FO1_DIR=... FO2_DIR=... ETTU="/path/to/Fallout1in2.zip" npm run test:e2e
  * ETTU may also be the Fallout1in2 folder. Decks A and B are loaded first, as a player would.
  */
-test('Fallout Et Tu: put together from both games and its package, started, and quit', async ({ page }) => {
+test('Fallout Et Tu: put together from both games and its package, started, and quit', async ({ page }, testInfo) => {
   const [fallout, fallout2] = GAMES.map((game) => game.dir);
   const ettu = process.env.ETTU;
   test.skip(!fallout || !fallout2 || !ettu, 'set FO1_DIR, FO2_DIR and ETTU (the Et Tu zip or folder) to run this');
@@ -223,6 +226,7 @@ test('Fallout Et Tu: put together from both games and its package, started, and 
 
   // A new game with the first ready-made character, past the opening movie, onto its first map.
   const mainMenu = await fingerprint(page);
+  const mainMenuPicture = await page.locator('#canvas').screenshot();
   await page.keyboard.press('n');
   await pause(page, 3500);
   await page.keyboard.press('t');
@@ -231,6 +235,14 @@ test('Fallout Et Tu: put together from both games and its package, started, and 
   await pause(page, 9000);
   expect(await showsPicture(page)).toBe(true);
   expect(distance(await fingerprint(page), mainMenu)).toBeGreaterThan(12);
+  for (const [name, at] of [['main menu', mainMenuPicture], ['new game', await page.locator('#canvas').screenshot()]] as const) {
+    await testInfo.attach(`Fallout Et Tu: ${name}`, { body: at, contentType: 'image/png' });
+  }
+  // Played from its own archives, with Fallout 2's under it.
+  const reads = await fileReads(page);
+  console.log(`Fallout Et Tu: the engine read, of its own files, ${reads.own.join(', ')}; of Fallout 2's, ${reads.base.join(', ')}`);
+  expect(reads.own).toEqual(expect.arrayContaining(['fallout1.dat', 'mods/fo1_base']));
+  expect(reads.base).toEqual(expect.arrayContaining(['fo2/master.dat']));
 
   // Quitting through the game's own menus goes back to the console.
   await page.keyboard.press('F10');
@@ -245,30 +257,71 @@ test('Fallout Et Tu: put together from both games and its package, started, and 
 /**
  * The mods the console knows, from their real files, over the real game each
  * is played on: loaded, started, and taken from the main menu into a new game
- * with its first ready-made character.
+ * with its first ready-made character. That it is the mod being played, not
+ * the game under it, is shown by what the engine reads (the mod's own
+ * archives), where the new game begins (read from a save, where one can be
+ * made), and the pictures attached to the test.
  *   FO2_DIR=... RPU="/path/to/rpu_v2.4.34.zip" SONORA="/path/to/Fallout_Sonora_1.16.4E.zip"
  *   OLYMPUS="/path/to/Olympus-2207-English.zip" npm run test:e2e -- game
  * NEVADA and MEGAMOD (with FO2_DIR) and FIXT (with FO1_DIR) take the folder each was installed in, or a zip of it.
  */
 const MODS = [
-  // `menu`: how long the game takes to reach its main menu; `save`: whether its first scene leaves the player free to quick save.
-  { id: 'rpu', title: 'Restoration Project', base: 'fo2', env: 'RPU', menu: 8000, save: true },
-  { id: 'sonora', title: 'Fallout: Sonora', base: 'fo2', env: 'SONORA', menu: 8000, save: true },
-  // Its intro is played by its own scripts, before its main menu; its first scene is a conversation.
-  { id: 'olympus', title: 'Olympus 2207', base: 'fo2', env: 'OLYMPUS', menu: 40000, save: false },
-  { id: 'nevada', title: 'Fallout: Nevada', base: 'fo2', env: 'NEVADA', menu: 15000, save: false },
-  { id: 'megamod', title: 'Fallout 2 Megamod', base: 'fo2', env: 'MEGAMOD', menu: 8000, save: false },
-  { id: 'fixt', title: 'Fallout Fixt', base: 'fo1', env: 'FIXT', menu: 8000, save: false },
+  // `menu`: how long the game takes to reach its main menu. `reads`: archives of the mod's own the engine reads by its
+  // first scene; `usesBase`: whether it reads the game's archives too (a mod laid over a game) or none of them (a whole
+  // game of its own). `text`: a file of the mod's, as the engine finds it, and words only the mod's copy holds.
+  // `saved`: where a quick save from its first scene is made, and by whom: its own first ready-made character.
+  { id: 'rpu', title: 'Restoration Project', base: 'fo2', env: 'RPU', menu: 8000, reads: [/^mods\/rpu\.dat$/i], usesBase: true, text: undefined, saved: { map: 'ARTEMPLE', character: 'Narg' } },
+  { id: 'sonora', title: 'Fallout: Sonora', base: 'fo2', env: 'SONORA', menu: 8000, reads: [/^master\.dat$/i], usesBase: false, text: undefined, saved: { map: 'ARTEMPLE', character: 'Chavez' } },
+  // Its intro is played by its own scripts, before its main menu; its first scene is a conversation, with no saving.
+  { id: 'olympus', title: 'Olympus 2207', base: 'fo2', env: 'OLYMPUS', menu: 40000, reads: [/^master\.dat$/i], usesBase: false, text: undefined, saved: undefined },
+  { id: 'nevada', title: 'Fallout: Nevada', base: 'fo2', env: 'NEVADA', menu: 15000, reads: [/^master\.dat$/i], usesBase: false, text: undefined, saved: { map: 'ARTEMPLE', character: 'Slash' } },
+  // Its own first character's name begins with a stray byte, 0x8D, as its PREMADE/COMBAT.GCD spells it.
+  { id: 'megamod', title: 'Fallout 2 Megamod', base: 'fo2', env: 'MEGAMOD', menu: 8000, reads: [/^mod-data\.dat$/i], usesBase: true, text: undefined, saved: { map: 'ARTEMPLE', character: '\x8dNarg' } },
+  // Fallout's engine reads only Fallout's own archives: a mod of it is loose files, handed to the engine whole.
+  { id: 'fixt', title: 'Fallout Fixt', base: 'fo1', env: 'FIXT', menu: 8000, reads: [], usesBase: true, text: ['data/text/english/game/misc.msg', 'Fallout Fixt 0.81alpha'], saved: { map: 'V13ENT', character: 'Max Stone' } },
 ] as const;
 
+/** What the engine has read of its large files, by path: the mod's own, and the game's under it. */
+async function fileReads(page: Page): Promise<{ own: string[]; base: string[] }> {
+  const reads = await page.evaluate(() => (window as unknown as { overseerEngine: { reads(): Record<string, FileReads> } }).overseerEngine.reads());
+  const of = (from: FileReads['from']) => Object.keys(reads).filter((path) => reads[path]!.from === from).sort();
+  return { own: of('own'), base: of('base') };
+}
+
+/** A file of the game folder the engine plays from, found whatever the case of its path, or null. */
+async function engineFile(page: Page, path: string): Promise<Uint8Array | null> {
+  const bytes = await page.evaluate((path) => {
+    const fs = (window as unknown as { overseerEngine: { module: { FS: { readdir(path: string): string[]; readFile(path: string): Uint8Array } } } }).overseerEngine.module.FS;
+    let at = '/game';
+    for (const name of path.toLowerCase().split('/')) {
+      const found = fs.readdir(at).find((entry) => entry.toLowerCase() === name);
+      if (!found) return null;
+      at = `${at}/${found}`;
+    }
+    return [...fs.readFile(at)];
+  }, path);
+  return bytes ? new Uint8Array(bytes) : null;
+}
+
+/** The header of the save in `slot`, as the engine wrote it. */
+async function savedHeader(page: Page, slot: number): Promise<SaveHeader | null> {
+  const bytes = await engineFile(page, `data/savegame/slot${String(slot).padStart(2, '0')}/save.dat`);
+  return bytes ? parseSaveHeader(bytes) : null;
+}
+
 for (const mod of MODS) {
-  test(`${mod.title}: loaded over the game it is played on, started, and into a new game`, async ({ page }) => {
+  test(`${mod.title}: loaded over the game it is played on, started, and into a new game`, async ({ page }, testInfo) => {
     const source = process.env[mod.env];
     const game = GAMES.find((entry) => entry.id === mod.base)!;
     test.skip(!source || !game.dir, `set ${game.id.toUpperCase()}_DIR and ${mod.env} to run this`);
     test.setTimeout(1_800_000);
     const faults: string[] = [];
     page.on('pageerror', (error) => faults.push(error.message));
+    const picture = async (name: string) => {
+      const path = testInfo.outputPath(`${mod.id}-${name}.png`);
+      await page.locator('#canvas').screenshot({ path });
+      await testInfo.attach(`${mod.title}: ${name}`, { path, contentType: 'image/png' });
+    };
 
     await openConsole(page, game.id, { skipIntro: true });
     await pickFolder(page, game.dir!);
@@ -286,6 +339,7 @@ for (const mod of MODS) {
     console.log(`${mod.title}: first picture ${firstPicture} ms after starting`);
     const mainMenu = await fingerprint(page);
     expect(await inProgress(page)).toBe(false);
+    await picture('main menu');
 
     // A new game with the first ready-made character, past whatever film opens it.
     await page.keyboard.press('n');
@@ -298,11 +352,26 @@ for (const mod of MODS) {
     await expect.poll(() => inProgress(page), { timeout: 120_000, intervals: [1000] }).toBe(true);
     await pause(page, 10000);
     expect(distance(await fingerprint(page), mainMenu)).toBeGreaterThan(12);
+    await picture('new game');
 
-    if (mod.save) {
-      // Saved, into its own archives.
+    // Played from the mod's own files: its archives read, and the game's under it only where the mod is laid over it.
+    const reads = await fileReads(page);
+    console.log(`${mod.title}: the engine read, of the mod's own files, ${reads.own.join(', ') || 'none'}; of ${game.title}'s, ${reads.base.join(', ') || 'none'}`);
+    for (const pattern of mod.reads) expect(reads.own.some((path) => pattern.test(path)), `${pattern} read`).toBe(true);
+    if (mod.usesBase) expect(reads.base.some((path) => /^master\.dat$/i.test(path))).toBe(true);
+    else expect(reads.base).toEqual([]);
+    if (mod.text) {
+      const [path, words] = mod.text;
+      expect(Buffer.from((await engineFile(page, path)) ?? []).toString('latin1')).toContain(words);
+    }
+
+    if (mod.saved) {
+      // Saved, into its own archives, on the map the mod's new game begins on, by its own first character.
       await page.keyboard.press('F6');
       await expect(page.locator('#toast')).toHaveText('QUICK SAVED IN SLOT 07', { timeout: 30_000 });
+      const header = await savedHeader(page, 7);
+      console.log(`${mod.title}: saved by ${header?.character} on ${header?.map}, elevation ${header?.elevation}, ${header?.gameDate}`);
+      expect(header).toMatchObject(mod.saved);
     }
 
     // Out through the console menu, back to the mod's own page.
@@ -311,7 +380,7 @@ for (const mod of MODS) {
     await page.keyboard.press('x');
     await page.keyboard.press('y');
     await expect(page.getByRole('heading', { name: mod.title })).toBeVisible({ timeout: 30_000 });
-    if (mod.save) {
+    if (mod.saved) {
       await page.goto(`#/saves/${mod.id}`);
       await expect(page.locator('.menu li', { hasText: 'SLOT 07' })).toContainText(/QUICKSAVE \d\d:\d\d/);
     }

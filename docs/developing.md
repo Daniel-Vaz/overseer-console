@@ -32,10 +32,26 @@ together from the real things and starts it. `tests/e2e/ettu.spec.ts` does as mu
 up to the engine opening the archives the console made.
 
 The other mods the console knows are played from their real files when told where they are, with `FO2_DIR` (or
-`FO1_DIR` for Fixt) beside them: `RPU="/path/to/rpu_v2.4.34.zip"`, `SONORA="/path/to/Fallout_Sonora_1.16.4E.zip"`,
-`OLYMPUS="/path/to/Olympus-2207-English.zip"`, and `NEVADA`, `MEGAMOD`, `FIXT` as the folder each was installed in
-(or a zip of it). `tests/e2e/mods.spec.ts` and `tests/unit/mods.test.ts` cover them on made-up files laid out as the
-real ones are (`tests/mods.ts`).
+`FO1_DIR` for Fixt) beside them:
+
+| Variable | What to give it | Where it is had |
+| --- | --- | --- |
+| `RPU` | `rpu_v2.4.34.zip` | its GitHub releases |
+| `SONORA` | `Fallout_Sonora_1.16.4E.zip` | its English GitHub releases |
+| `OLYMPUS` | `Olympus-2207-English.zip` | its English GitHub releases |
+| `MEGAMOD` | `Fallout 2 Megamod 2.47.8.zip` | Nexus Mods (signed in) |
+| `NEVADA` | the folder it was installed in, English translation over it | the English 2.0.3.3 folder fallout-nevada.ru serves |
+| `FIXT` | the Fallout folder its installer ran in (`Fallout Fixt` inside it) | `Fallout_Fixt_0.81alpha_FULL_CUSTOM.exe` from its GitHub releases, run with Wine (`/VERYSILENT "/DIR=<Fallout folder>"`) |
+
+```sh
+FO1_DIR=... FO2_DIR=... RPU=... SONORA=... OLYMPUS=... MEGAMOD=... NEVADA=... FIXT=... npm run test:e2e -- game -g "loaded over the game"
+```
+
+Each is loaded, started, and taken into a new game. That it is the mod being played, not the game under it, is
+checked on what the engine reads (the mod's own archives, and the game's only when the mod is laid over it), on a
+file of the mod's as the engine finds it, and on the map in the quick save its first scene allows; the main menu
+and the first scene are attached to the test as pictures. `tests/e2e/mods.spec.ts` and `tests/unit/mods.test.ts`
+cover them on made-up files laid out as the real ones are (`tests/mods.ts`).
 
 `tests/e2e/touch.spec.ts` plays them again with fingers only, on a phone-sized screen.
 
