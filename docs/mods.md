@@ -43,15 +43,17 @@ by a file of their own or the name of their folder.
 | Mod | For | Hand the console | On this engine |
 | --- | --- | --- | --- |
 | [Fallout Et Tu](https://github.com/rotators/Fo1in2) | Fallout 2, built from Fallout as well | `Fallout1in2.zip`, its folder, or the Fallout 2 folder it sits in | Tested here |
-| [Restoration Project](https://github.com/BGforgeNet/Fallout2_Restoration_Project) | Fallout 2 | `rpu_v*.zip` from its releases page, not the installer; or a Fallout 2 folder it was installed in | Supported |
-| [Fallout 2 Megamod](https://www.nma-fallout.com/resources/mib88-megamod.11/) | Fallout 2 | Its zip as it is downloaded, or a Fallout 2 folder it was installed in | Experimental |
-| [Fallout: Sonora](https://cambragol.github.io/Fallout-Sonora/) | Fallout 2 | `Fallout_Sonora_*.zip` from its English releases page, or its folder | Supported |
-| [Fallout: Nevada](https://github.com/BGforgeNet/fallout-nevada-english-translation) | Fallout 2 | The folder it was installed in, its English translation copied over it | Supported |
-| [Olympus 2207](https://github.com/HogLord69/olympus-2207-english) | Fallout 2 | `Olympus-2207-English.zip`, or its folder | Experimental |
-| [Fallout Fixt](https://www.moddb.com/mods/fallout-fixt) | Fallout | The Fallout folder its installer ran in, or the `Fallout Fixt` folder it made there | Experimental |
+| [Restoration Project](https://github.com/BGforgeNet/Fallout2_Restoration_Project) | Fallout 2 | `rpu_v*.zip` from its releases page, not the installer; or a Fallout 2 folder it was installed in | Tested here |
+| [Fallout 2 Megamod](https://www.nma-fallout.com/resources/mib88-megamod.11/) | Fallout 2 | Its zip as it is downloaded, or a Fallout 2 folder it was installed in | Tested here |
+| [Fallout: Sonora](https://cambragol.github.io/Fallout-Sonora/) | Fallout 2 | `Fallout_Sonora_*.zip` from its English releases page, or its folder | Tested here |
+| [Fallout: Nevada](https://github.com/BGforgeNet/fallout-nevada-english-translation) | Fallout 2 | The folder it was installed in, its English translation copied over it | Tested here |
+| [Olympus 2207](https://github.com/HogLord69/olympus-2207-english) | Fallout 2 | `Olympus-2207-English.zip`, or its folder | Tested here |
+| [Fallout Fixt](https://www.moddb.com/mods/fallout-fixt) | Fallout | The Fallout folder its installer ran in, or the `Fallout Fixt` folder it made there | Tested here |
 
-*Supported* means the makers of the Community Edition engine say it plays; *tested here* that the console's own tests
-play it from its real files; *experimental* that it starts, and parts of it are known not to work on this engine.
+*Tested here* means the console's own tests play it from its real files: loaded, started, and into a new game, with
+the engine reading the mod's own archives. What is known not to work on this engine is said on the mod's page and
+when it is loaded: Olympus 2207 was made for sfall 5, the Megamod for the original engine with sfall, and what Fixt
+changes in the game's program itself does not come along.
 
 Sonora, Nevada and Olympus are whole games of their own, with their own archives; they still need Fallout 2 in deck B,
 whose engine they play on. Olympus needs a picture at least 600 lines tall, so it is played at high resolution.
@@ -60,8 +62,8 @@ whose engine they play on. Olympus needs a picture at least 600 lines tall, so i
 > fo2.exe and similar launchers run the original programs of the games, with sfall, the original engine's
 > extension, as a switch. The engines the console runs have the scripting additions of sfall built in, which most
 > mods need: there is nothing to switch on. What a mod changes in a game's program itself cannot come along, and a
-> few mods reach further into the original engine than its Community Edition follows; that is what *experimental*
-> is about.
+> few mods reach further into the original engine than its Community Edition follows; those parts of them are not
+> there.
 
 ## Fallout Et Tu
 

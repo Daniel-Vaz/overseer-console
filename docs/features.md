@@ -129,7 +129,7 @@ earlier version.
 
 ## The vault
 
-<p align="center"><img src="images/vault.webp" width="800" alt="The console in its vault, with visitors walking past"></p>
+<p align="center"><img src="images/vault.webp" width="800" alt="The console in its vault, with its whole cast walking past at once: a glowing one, mole rats, a ghoul, a dog and radroaches"></p>
 
 On a screen with room to spare the console stands in an abandoned vault: lamps that fail, a pipe that drips,
 and now and then something that walks past. Most of it answers to being clicked, its great door is shut exactly

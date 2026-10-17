@@ -433,7 +433,7 @@ export async function planFoundMod(sources: SourceFile[], found: FoundMod, conte
     entries.push(...own.map(({ path, file }) => ({ path, file })));
   }
 
-  if (known?.caveat && known.status === 'experimental') warnings.push(known.caveat);
+  if (known?.caveat) warnings.push(known.caveat);
   if (!known) notes.push('The console does not know this mod by name: it is loaded as it is, and nobody has said how well it plays on this engine.');
   if (!found.complete && !entries.some((entry) => /\.(dat|int|msg|frm|map|pro)$/i.test(entry.path)) && !hides.size) {
     warnings.push(`Nothing in it looks like game data. Is it the mod itself, as it is unpacked into the ${base.title} folder?`);

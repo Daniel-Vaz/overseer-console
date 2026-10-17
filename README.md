@@ -19,7 +19,7 @@
 
 <p align="center">
   <a href="https://daniel-vaz.github.io/overseer-console/">
-    <img src="docs/images/vault.webp" width="100%" alt="The console's main directory, a green phosphor terminal in a steel housing with both decks ready and the Mod library, standing in an abandoned vault: visitors walk past, lamps flicker, and a radroach crawls across the glass">
+    <img src="docs/images/vault.webp" width="100%" alt="The console's main directory, a green phosphor terminal in a steel housing with both decks ready and the Mod library, standing in an abandoned vault. Its easter egg rolls the credits: the whole cast comes through at once, a glowing one, a pack of mole rats, a ghoul who stops to stare, a dog and a swarm of radroaches, while lamps flicker by the great door">
   </a>
 </p>
 

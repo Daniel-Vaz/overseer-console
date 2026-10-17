@@ -44,7 +44,7 @@ test('loads the Restoration Project from its zip, and starts it as its installer
   const readout = page.locator('.readout').first();
   await expect(readout).toContainText('FALLOUT 2, DECK B: LOADED');
   await expect(readout).toContainText('2.4.34');
-  await expect(readout).toContainText('SUPPORTED');
+  await expect(readout).toContainText('TESTED HERE');
 
   // Its installer's options: what its load order switches on, and the one it leaves off.
   const components = page.locator('.menu li').filter({ hasText: 'Components' });
