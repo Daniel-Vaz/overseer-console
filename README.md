@@ -19,7 +19,7 @@
 
 <p align="center">
   <a href="https://daniel-vaz.github.io/overseer-console/">
-    <img src="docs/images/vault.webp" width="100%" alt="The console's main directory, a green phosphor terminal in a steel housing, standing in an abandoned vault: a glowing ghoul and a mole rat walk past, lamps flicker, and a radroach crawls across the glass">
+    <img src="docs/images/vault.webp" width="100%" alt="The console's main directory, a green phosphor terminal in a steel housing with both decks ready and the Mod library, standing in an abandoned vault: visitors walk past, lamps flicker, and a radroach crawls across the glass">
   </a>
 </p>
 
@@ -40,20 +40,21 @@ your browser's private storage and plays from there, on a desktop, a tablet or a
 
 <table>
   <tr>
-    <td width="33%" align="center"><img src="docs/images/fallout.webp" alt="Fallout's character selection screen, with Max Stone's portrait in green"></td>
-    <td width="33%" align="center"><img src="docs/images/fallout2.webp" alt="Fallout 2: the Chosen One in Arroyo village, by the well"></td>
-    <td width="33%" align="center"><img src="docs/images/et-tu.webp" alt="Fallout Et Tu's main menu: the power armour helmet of the first game"></td>
+    <td width="33%" align="center"><img src="docs/images/fallout.webp" alt="Fallout's main menu: the power armour helmet before a ruined city"></td>
+    <td width="33%" align="center"><img src="docs/images/fallout2.webp" alt="Fallout 2's main menu: the Enclave's advanced power armour helmet"></td>
+    <td width="33%" align="center"><img src="docs/images/mods-menus.webp" alt="The main menus of two mods side by side: Fallout: Sonora's power armour under an Arizona sky, and Olympus 2207's armour with red eyes"></td>
   </tr>
   <tr>
     <td align="center"><b>Fallout</b><br><sub>1997, on Fallout Community Edition</sub></td>
     <td align="center"><b>Fallout 2</b><br><sub>1998, on Fallout 2 Community Edition</sub></td>
-    <td align="center"><b>Fallout Et Tu</b><br><sub>A mod: Fallout rebuilt on the Fallout 2 engine</sub></td>
+    <td align="center"><b>Their mods</b><br><sub>Sonora and Olympus 2207 here, any other from its zip or folder</sub></td>
   </tr>
 </table>
 
-Mods are played on the game they were made for, with saves of their own, from the console's Mod library. Fallout
-Et Tu, the Restoration Project, the Megamod, Sonora, Nevada, Olympus 2207 and Fallout Fixt are known by name; any
-other loads from its zip or its folder. See [Mods](docs/mods.md).
+Bring your own mods: whole new games on the old engines, restorations of what was cut, and fixes. Each is played on
+the game it was made for, with saves of its own, from the console's Mod library. Seven are known by name (Sonora,
+Nevada, Olympus 2207, the Restoration Project, the Megamod, Fallout Et Tu and Fallout Fixt); any other loads from
+its zip or its folder. See [Mods](docs/mods.md).
 
 ## Play in three steps
 
@@ -164,8 +165,15 @@ The console's own **Operations manual** (entry `6` of the main directory) explai
 
 ## Credits
 
-[Fallout Et Tu](https://github.com/rotators/Fo1in2) is the work of Lexx, Wipe, Mayck and Ghosthack, and of
-the many more its own credits name. Nothing of it is included here.
+The mods the console knows by name are the work of their makers, and of the many more their own credits name:
+[Fallout: Sonora](https://cambragol.github.io/Fallout-Sonora/) and
+[Fallout: Nevada](https://github.com/BGforgeNet/fallout-nevada-english-translation) of the Nevada Band (alposh),
+translated by cambragol and others; [Olympus 2207](https://github.com/HogLord69/olympus-2207-english) of NEBESA
+GAMES, rebuilt by Foxx and translated by HogLord69; the
+[Restoration Project](https://github.com/BGforgeNet/Fallout2_Restoration_Project) of Killap, carried on by BGforge;
+the [Megamod](https://www.nma-fallout.com/resources/mib88-megamod.11/) of MIB88;
+[Fallout Et Tu](https://github.com/rotators/Fo1in2) of Lexx, Wipe, Mayck and Ghosthack; and
+[Fallout Fixt](https://www.moddb.com/mods/fallout-fixt) of Sduibek. None of them is included here.
 
 The engines are the work of [alexbatalov](https://github.com/alexbatalov) and the contributors to
 [fallout1-ce](https://github.com/alexbatalov/fallout1-ce) and
