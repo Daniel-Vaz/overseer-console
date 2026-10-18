@@ -898,6 +898,42 @@ kbd {
   grid-template-columns: minmax(10ch, max-content) 1fr;
 }
 
+/* What the cloud holds, under the board's readout: one name to a line, its size after it. */
+.board .held {
+  margin: 0.6em 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.board .held li {
+  display: flex;
+  gap: 1ch;
+  justify-content: space-between;
+}
+
+.board .held li span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.board .held li span:last-child {
+  flex: none;
+}
+
+/* The code Google wants entered: large enough to read across a room, spaced to be typed off the screen. */
+.usercode {
+  display: inline-block;
+  margin-left: 0.5ch;
+  color: var(--phosphor-hot);
+  font-size: 1.6em;
+  letter-spacing: 0.25ch;
+  line-height: 1;
+  text-shadow: var(--glow);
+  vertical-align: -0.12em;
+}
+
 .board h2 {
   margin-top: 0;
 }

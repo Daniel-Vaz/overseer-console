@@ -164,8 +164,8 @@
   <div>
     <Menu {items} label="Main directory" bind:selected />
     <p class="gap dim">
-      {sys.dropbox.linked
-        ? 'GAME FILES AND SAVES STAY ON THIS DEVICE. ONLY THE SAVES YOU UPLOAD GO TO YOUR OWN DROPBOX.'
+      {sys.cloud.linked
+        ? `GAME FILES AND SAVES STAY ON THIS DEVICE. ONLY WHAT YOU UPLOAD GOES TO YOUR OWN ${sys.cloud.name.toUpperCase()}.`
         : 'NOTHING IS UPLOADED. GAME FILES AND SAVES STAY ON THIS DEVICE.'}
     </p>
   </div>

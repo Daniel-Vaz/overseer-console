@@ -230,7 +230,7 @@ const RECIPES: Partial<Record<KnownModId, Recipe>> = {
 const count = (n: number, one: string, many = `${one}s`): string => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
 
 /**
- * Whether two files hold the same bytes. A file in the player's Dropbox is
+ * Whether two files hold the same bytes. A file in the player's cloud is
  * compared where a difference would show (its ends, and pieces spread over
  * it) rather than downloaded whole; a file on this device is read through.
  */

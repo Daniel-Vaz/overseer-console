@@ -53,9 +53,9 @@
 
 {#if job.phase === 'reading'}
   <p class="gap">READING HOLODISK<span class="cursor"></span></p>
-  <p class="dim">{job.doing ?? `Looking for ${what} in ${job.remote ? 'your Dropbox' : 'what you selected'}.`}</p>
+  <p class="dim">{job.doing ?? `Looking for ${what} in ${job.remote ? `your ${job.remote}` : 'what you selected'}.`}</p>
 {:else}
-  <p class="gap">{job.remote ? 'FETCHING HOLODISK FROM DROPBOX' : 'LOADING HOLODISK'} INTO PRIVATE STORAGE</p>
+  <p class="gap">{job.remote ? `FETCHING HOLODISK FROM ${job.remote.toUpperCase()}` : 'LOADING HOLODISK'} INTO PRIVATE STORAGE</p>
   <div class="meter gap" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(percent)}>
     <div class="track"><div class="fill" style:width="{percent}%"></div></div>
     <span>{Math.round(percent)}%</span>

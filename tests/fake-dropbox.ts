@@ -36,8 +36,12 @@ const NEEDS: Record<string, string> = {
   'files/list_folder/continue': 'files.metadata.read',
   'files/download': 'files.content.read',
   'files/upload': 'files.content.write',
+  'files/upload_session/start': 'files.content.write',
+  'files/upload_session/append_v2': 'files.content.write',
+  'files/upload_session/finish': 'files.content.write',
   'files/delete_v2': 'files.content.write',
   'users/get_current_account': 'account_info.read',
+  'users/get_space_usage': 'account_info.read',
 };
 
 const CORS = {
@@ -62,6 +66,8 @@ export class FakeDropbox {
   code = 'code-from-dropbox';
   /** Entries per page of a folder listing. */
   pageSize = 2000;
+  /** The room a Dropbox Basic account has. */
+  allocated = 2 * 2 ** 30;
 
   /** By lower-cased path. */
   readonly files = new Map<string, StoredFile>();
@@ -73,6 +79,8 @@ export class FakeDropbox {
   private readonly spentTokens = new Set<string>();
   private readonly refreshTokens = new Map<string, string[]>();
   private readonly cursors = new Map<string, unknown[]>();
+  /** Upload sessions: what has arrived of each. */
+  private readonly sessions = new Map<string, Uint8Array[]>();
   private counter = 0;
 
   /** Puts a file in the app folder, as the player would with Dropbox itself. */
@@ -153,6 +161,12 @@ export class FakeDropbox {
         return this.download(JSON.parse(request.headers['dropbox-api-arg'] ?? '{}') as { path: string }, request.headers.range);
       case 'files/upload':
         return this.upload(JSON.parse(request.headers['dropbox-api-arg'] ?? '{}') as UploadArg, request.body ?? new Uint8Array(0));
+      case 'files/upload_session/start':
+      case 'files/upload_session/append_v2':
+      case 'files/upload_session/finish':
+        return this.session(route, JSON.parse(request.headers['dropbox-api-arg'] ?? '{}') as SessionArg, request.body ?? new Uint8Array(0));
+      case 'users/get_space_usage':
+        return json(200, { used: [...this.files.values()].reduce((sum, file) => sum + file.data.length, 0), allocation: { '.tag': 'individual', allocated: this.allocated } });
       default:
         return { status: 400, headers: { ...CORS, 'content-type': 'text/plain' }, body: `Unknown API function: "${route}"` };
     }
@@ -269,6 +283,34 @@ export class FakeDropbox {
     return json(200, this.metadata(this.put(arg.path, data, arg.client_modified)));
   }
 
+  /** An upload session: pieces that become a file once the last is in. */
+  private session(route: string, arg: SessionArg, data: Uint8Array): FakeResponse {
+    if (route.endsWith('/start')) {
+      const id = `session-${++this.counter}`;
+      this.sessions.set(id, [data.slice()]);
+      return json(200, { session_id: id });
+    }
+    const pieces = this.sessions.get(arg.cursor?.session_id ?? '');
+    if (!pieces) return fault('not_found/', { '.tag': 'not_found' });
+    const held = pieces.reduce((sum, piece) => sum + piece.length, 0);
+    if (arg.cursor!.offset !== held) return fault('incorrect_offset/', { '.tag': 'incorrect_offset', correct_offset: held });
+    pieces.push(data.slice());
+    if (route.endsWith('/append_v2')) return json(200, null);
+
+    this.sessions.delete(arg.cursor!.session_id);
+    const whole = new Uint8Array(held + data.length);
+    let at = 0;
+    for (const piece of pieces) {
+      whole.set(piece, at);
+      at += piece.length;
+    }
+    const commit = arg.commit!;
+    if (commit.mode === 'add' && this.files.has(commit.path.toLowerCase())) {
+      return fault('path/conflict/file/', { '.tag': 'path', reason: { '.tag': 'conflict', conflict: { '.tag': 'file' } } });
+    }
+    return json(200, this.metadata(this.put(commit.path, whole, commit.client_modified)));
+  }
+
   private remove({ path, parent_rev }: { path: string; parent_rev?: string }): FakeResponse {
     const file = this.files.get(path.toLowerCase());
     if (!file) return fault('path_lookup/not_found/', { '.tag': 'path_lookup', path_lookup: { '.tag': 'not_found' } });
@@ -284,8 +326,13 @@ interface UploadArg {
   client_modified?: string;
 }
 
-/** Puts a fake Dropbox behind `fetch`. */
-export function fetchThrough(dropbox: FakeDropbox): typeof fetch {
+interface SessionArg {
+  cursor?: { session_id: string; offset: number };
+  commit?: { path: string; mode: 'add' | 'overwrite'; client_modified?: string };
+}
+
+/** Puts a fake Dropbox (or Google Drive) behind `fetch`. */
+export function fetchThrough(dropbox: { handle(request: FakeRequest): FakeResponse }): typeof fetch {
   return async (input, init) => {
     const request = new Request(input, init);
     const headers: Record<string, string> = {};

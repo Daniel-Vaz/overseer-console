@@ -1,5 +1,5 @@
 /**
- * Saved games in the player's Dropbox.
+ * Saved games in the player's cloud.
  *
  * Each slot is one zip, <saves folder>/<game>/SLOTnn.zip, the same archive
  * the console exports: it can be unpacked into a desktop install as it is.
@@ -11,8 +11,9 @@
  */
 import { gameDef, type GameId } from '../games';
 import { briefSaves, packSlot, readSaveArchive } from '../saves';
-import { DropboxError, download, fromDropboxTime, listFiles, remove, upload } from './api';
-import { loadConfig, loadSynced, storeSynced, type SyncedSave } from './link';
+import { activeCloud, requireCloud } from './clouds';
+import { CloudError } from './errors';
+import type { Cloud, CloudFile, SyncedSave } from './provider';
 
 /** A save zip larger than this is not a save. */
 const MAX_SAVE_BYTES = 256 << 20;
@@ -22,7 +23,7 @@ export interface CloudSave {
   /** The zip, by an address that survives renaming. */
   file: string;
   rev: string;
-  /** When the save was written, as its uploader said (whole seconds). */
+  /** When the save was written, as its uploader said (Dropbox keeps whole seconds). */
   savedAt: number;
   bytes: number;
 }
@@ -33,7 +34,7 @@ export interface LocalSave {
 }
 
 /**
- * How a slot here stands against the same slot in Dropbox. "Newer" is the
+ * How a slot here stands against the same slot in the cloud. "Newer" is the
  * side that changed since the two last matched; when that is unknown or both
  * did, the one saved later.
  */
@@ -47,23 +48,23 @@ export interface SlotStanding {
 }
 
 /** The folder a game's saves are kept in. */
-export function cloudSavesFolder(game: GameId): string {
+export function cloudSavesFolder(game: GameId, cloud: Cloud = requireCloud()): string {
   // Dropbox will not have some characters in a name, and a mod's may hold any.
   const name = gameDef(game).title.replace(/[\\/:*?"<>|]/g, '-').trim() || game;
-  return `${loadConfig().savesFolder}/${name}`;
+  return `${cloud.folders().savesFolder}/${name}`;
 }
 
 function zipName(slot: number): string {
   return `SLOT${String(slot).padStart(2, '0')}.zip`;
 }
 
-/** The saves Dropbox holds for a game. None when the folder is not there yet. */
-export async function listCloudSaves(game: GameId): Promise<CloudSave[]> {
-  let files;
+/** The saves the cloud holds for a game. None when the folder is not there yet. */
+export async function listCloudSaves(game: GameId, cloud: Cloud = requireCloud()): Promise<CloudSave[]> {
+  let files: CloudFile[];
   try {
-    files = await listFiles(cloudSavesFolder(game));
+    files = await cloud.listFiles(cloudSavesFolder(game, cloud));
   } catch (err) {
-    if (err instanceof DropboxError && err.notFound) return [];
+    if (err instanceof CloudError && err.notFound) return [];
     throw err;
   }
   const saves: CloudSave[] = [];
@@ -71,7 +72,7 @@ export async function listCloudSaves(game: GameId): Promise<CloudSave[]> {
     const match = /^slot(\d{1,3})\.zip$/i.exec(file.name);
     const slot = match ? Number(match[1]) : 0;
     if (slot < 1) continue;
-    saves.push({ slot, file: file.id ?? file.path_lower, rev: file.rev, savedAt: fromDropboxTime(file.client_modified), bytes: file.size });
+    saves.push({ slot, file: file.id, rev: file.rev, savedAt: file.modified, bytes: file.size });
   }
   return saves.sort((a, b) => a.slot - b.slot);
 }
@@ -107,67 +108,67 @@ export function compareSaves(here: LocalSave[], there: CloudSave[], synced: Reco
   return standings;
 }
 
-/** Looks at this browser and at Dropbox, and compares. */
-export async function surveySaves(game: GameId): Promise<SlotStanding[]> {
-  const [here, there] = await Promise.all([briefSaves(game), listCloudSaves(game)]);
-  return compareSaves(here, there, loadSynced(game));
+/** Looks at this browser and at the cloud, and compares. */
+export async function surveySaves(game: GameId, cloud: Cloud = requireCloud()): Promise<SlotStanding[]> {
+  const [here, there] = await Promise.all([briefSaves(game), listCloudSaves(game, cloud)]);
+  return compareSaves(here, there, cloud.loadSynced(game));
 }
 
 /** Whether a slot was ever uploaded from, or fetched into, this browser. */
-export function isSynced(game: GameId, slot: number): boolean {
-  return loadSynced(game)[slot] !== undefined;
+export function isSynced(game: GameId, slot: number, cloud: Cloud | null = activeCloud()): boolean {
+  return cloud !== null && cloud.loadSynced(game)[slot] !== undefined;
 }
 
 /**
- * Uploads a slot. Dropbox refuses (a DropboxError with `conflict`) when the
+ * Uploads a slot. The cloud refuses (a CloudError with `conflict`) when the
  * zip there is no longer the one that was compared against.
  */
-export async function sendSave(game: GameId, { slot, there }: SlotStanding): Promise<void> {
+export async function sendSave(game: GameId, { slot, there }: SlotStanding, cloud: Cloud = requireCloud()): Promise<void> {
   const packed = await packSlot(game, slot);
   if (!packed) throw new Error(`SLOT${String(slot).padStart(2, '0')} holds no readable save.`);
-  const stored = await upload(`${cloudSavesFolder(game)}/${zipName(slot)}`, packed.data, {
+  const stored = await cloud.upload(`${cloudSavesFolder(game, cloud)}/${zipName(slot)}`, packed.data, {
     replaces: there?.rev ?? null,
     modified: packed.savedAt,
   });
-  storeSynced(game, slot, { rev: stored.rev, savedAt: packed.savedAt });
+  cloud.storeSynced(game, slot, { rev: stored.rev, savedAt: packed.savedAt });
 }
 
 /**
  * Fetches a slot and puts it in place. What the slot held goes into its
  * history. The zip is checked before anything here is touched.
  */
-export async function fetchSave(game: GameId, { slot, there }: SlotStanding): Promise<void> {
+export async function fetchSave(game: GameId, { slot, there }: SlotStanding, cloud: Cloud = requireCloud()): Promise<void> {
   if (!there) return;
   const name = zipName(slot);
-  if (there.bytes > MAX_SAVE_BYTES) throw new Error(`${name} in Dropbox is far too large to be a saved game.`);
-  const data = await download(there.file);
+  if (there.bytes > MAX_SAVE_BYTES) throw new Error(`${name} in ${cloud.name} is far too large to be a saved game.`);
+  const data = await cloud.download(there.file);
   let archive;
   try {
-    archive = await readSaveArchive(game, new Blob([data]), { only: slot, keepTimes: true, writtenAt: there.savedAt, cause: 'cloud' });
+    archive = await readSaveArchive(game, new Blob([data]), { only: slot, keepTimes: true, writtenAt: there.savedAt, cause: cloud.cause });
   } catch (err) {
-    throw new Error(`${name} in Dropbox could not be used. ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(`${name} in ${cloud.name} could not be used. ${err instanceof Error ? err.message : String(err)}`);
   }
   await archive.commit();
   const fetched = (await briefSaves(game)).find((save) => save.slot === slot);
-  if (fetched) storeSynced(game, slot, { rev: there.rev, savedAt: fetched.savedAt });
+  if (fetched) cloud.storeSynced(game, slot, { rev: there.rev, savedAt: fetched.savedAt });
 }
 
 /**
- * After a slot was erased here: erases its zip in Dropbox as well, provided
+ * After a slot was erased here: erases its zip in the cloud as well, provided
  * that is still the save this browser last synced. A save another device put
  * there since is left alone.
  */
-export async function eraseCloudSave(game: GameId, slot: number): Promise<'erased' | 'kept'> {
-  const last = loadSynced(game)[slot];
-  storeSynced(game, slot, null);
+export async function eraseCloudSave(game: GameId, slot: number, cloud: Cloud = requireCloud()): Promise<'erased' | 'kept'> {
+  const last = cloud.loadSynced(game)[slot];
+  cloud.storeSynced(game, slot, null);
   if (!last) return 'kept';
   try {
-    await remove(`${cloudSavesFolder(game)}/${zipName(slot)}`, last.rev);
+    await cloud.remove(`${cloudSavesFolder(game, cloud)}/${zipName(slot)}`, last.rev);
     return 'erased';
   } catch (err) {
-    if (err instanceof DropboxError && err.notFound) return 'erased';
+    if (err instanceof CloudError && err.notFound) return 'erased';
     // Any other refusal of this request: the zip there is not the one we knew.
-    if (err instanceof DropboxError && err.status === 409) return 'kept';
+    if (err instanceof CloudError && err.status === 409) return 'kept';
     throw err;
   }
 }

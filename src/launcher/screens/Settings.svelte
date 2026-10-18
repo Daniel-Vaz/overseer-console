@@ -224,15 +224,15 @@
       action: () => void seal(),
     },
     {
-      key: 'd',
+      key: 'c',
       group: STORAGE_GROUP,
-      label: 'Dropbox link',
+      label: 'Cloud link',
       icon: 'uplink',
-      state: sys.dropbox.linked ? 'LINKED' : 'NOT LINKED',
-      note: sys.dropbox.linked
-        ? `Linked to the Dropbox of ${sys.dropbox.name}. Open to change its folders or to unlink.`
-        : 'Optional. Keep saves in your own Dropbox to move them between devices, and load game files from it.',
-      action: () => go('settings/dropbox'),
+      state: sys.cloud.linked ? sys.cloud.name.toUpperCase() : 'NOT LINKED',
+      note: sys.cloud.linked
+        ? `Linked to the ${sys.cloud.name} of ${sys.cloud.account}. Open to put games and mods in it, change its folders or unlink.`
+        : 'Optional. Keep saves in your own Dropbox or Google Drive to move them between devices, and load game files from it.',
+      action: () => go('settings/cloud'),
     },
     { key: '0', label: 'Back', icon: 'back', action: () => go('') },
   ]);

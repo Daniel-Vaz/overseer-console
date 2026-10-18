@@ -1,9 +1,10 @@
 /** Everything the console's screens share. */
 import { lastExport, recordExport, type ExportMark, type ExportedTo } from '../lib/backup';
-import { DropboxError } from '../lib/dropbox/api';
-import { LinkError } from '../lib/dropbox/auth';
-import { dropboxGameFiles, dropboxModFiles } from '../lib/dropbox/games';
-import { loadLink } from '../lib/dropbox/link';
+import { activeCloud, requireCloud } from '../lib/cloud/clouds';
+import { CloudError, LinkError } from '../lib/cloud/errors';
+import { cloudGameFiles, cloudModFiles } from '../lib/cloud/games';
+import type { CloudFile, CloudId } from '../lib/cloud/provider';
+import { runPut, type PutPlan, type PutProgress } from '../lib/cloud/put';
 import { gameFacts, type Places } from '../lib/gamefacts';
 import { gameDef, gameIds, isBaseGame, isGameId, registerMod, type BaseGameId, type GameId } from '../lib/games';
 import { syncMods } from '../lib/mods/sync';
@@ -46,8 +47,8 @@ export interface ImportJob {
   game?: GameId | 'mod';
   /** What reading the selection is busy with, when that takes a while. */
   doing?: string;
-  /** The files come from the player's Dropbox, not from this device. */
-  remote?: boolean;
+  /** The files come from the player's cloud (this one: "Dropbox"), not from this device. */
+  remote?: string;
   plan?: ImportPlan;
   doneBytes: number;
   totalBytes: number;
@@ -76,15 +77,36 @@ const CONTEXT: ImportContext = {
   installOf: (game) => loadInstall(game),
 };
 
-export interface DropboxStatus {
+export interface CloudStatus {
   linked: boolean;
-  /** Whose Dropbox it is. */
+  /** Which cloud: null while none is linked. */
+  id: CloudId | null;
+  /** What it is called: "Dropbox", "Google Drive". */
   name: string;
+  /** Whose it is. */
+  account: string;
 }
 
-function dropboxStatus(): DropboxStatus {
-  const link = loadLink();
-  return { linked: link !== null, name: link?.account.name ?? '' };
+function cloudStatus(): CloudStatus {
+  const cloud = activeCloud();
+  return { linked: cloud !== null, id: cloud?.id ?? null, name: cloud?.name ?? '', account: cloud?.link()?.account.name ?? '' };
+}
+
+/** A game or a mod on its way from this device to the player's cloud. */
+export interface PutJob {
+  /** stopped: the player called it off. */
+  phase: 'packing' | 'sending' | 'done' | 'failed' | 'stopped';
+  /** The zip's name in the cloud. */
+  name: string;
+  /** Which cloud: "Dropbox", "Google Drive". */
+  cloud: string;
+  doneBytes: number;
+  totalBytes: number;
+  /** The file being read, while packing. */
+  path?: string;
+  error?: string;
+  /** The zip as the cloud holds it, once it is there. */
+  stored?: CloudFile;
 }
 
 interface WakeLock {
@@ -100,14 +122,18 @@ class ConsoleState {
   saves = $state<Record<GameId, number>>(perGame(0));
   /** The save "continue" would load, per game. */
   latest = $state<Record<GameId, LatestSave | null>>(perGame(null));
-  /** When each game's saves were last exported, to a zip or to Dropbox. */
+  /** When each game's saves were last exported, to a zip or to the cloud. */
   exported = $state<Record<GameId, ExportMark | null>>(perGame(null));
   /** What each game calls its places, as far as its data was ever read here. */
   places = $state.raw<Record<GameId, Places | undefined>>(perGame(undefined));
   storage = $state<StorageStatus | null>(null);
-  /** Whether this browser is linked to the player's Dropbox. */
-  dropbox = $state<DropboxStatus>(dropboxStatus());
+  /** Whether this browser is linked to the player's Dropbox or Google Drive, and to whose. */
+  cloud = $state<CloudStatus>(cloudStatus());
   job = $state<ImportJob>({ ...IDLE });
+  /** What Put in your cloud is sending, or last sent. */
+  put = $state<PutJob | null>(null);
+  /** Takes what is dropped on the console instead of loading it: Put in your cloud, while that is on the screen. */
+  dropTarget = $state.raw<((sources: SourceFile[]) => void) | null>(null);
   /** Another game the last selection held: it can be loaded without picking the folder again. */
   offer = $state.raw<Offer | null>(null);
   hints = $state<Hint[]>([]);
@@ -125,6 +151,8 @@ class ConsoleState {
   private squashed = loadSquashed();
   /** Stops the import that is running. */
   private stopper: AbortController | null = null;
+  /** Stops what Put in your cloud is sending. */
+  private putStopper: AbortController | null = null;
   private wake: WakeLock | null = null;
 
   /** False when the browser cannot keep game data (old browser, private window). */
@@ -135,12 +163,23 @@ class ConsoleState {
     // The browser lets go of the screen when the page is hidden; ask again once it is back.
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) this.wake = null;
-      else if (this.busy) void this.stayAwake();
+      else if (this.working) void this.stayAwake();
     });
   }
 
+  /** A copy into storage is under way. */
   get busy(): boolean {
     return this.job.phase === 'reading' || this.job.phase === 'copying';
+  }
+
+  /** Put in your cloud is sending something. It goes on beside a copy into storage. */
+  get sending(): boolean {
+    return this.put?.phase === 'packing' || this.put?.phase === 'sending';
+  }
+
+  /** Something is under way that ends with the page: the screen is kept on, and the browser asks before it closes. */
+  get working(): boolean {
+    return this.busy || this.sending;
   }
 
   update(patch: Partial<Settings>): void {
@@ -211,8 +250,8 @@ class ConsoleState {
   }
 
   /** The link may have been made, dropped or found dead since it was last looked at, and saves sent through it. */
-  refreshDropbox(): void {
-    this.dropbox = dropboxStatus();
+  refreshCloud(): void {
+    this.cloud = cloudStatus();
     this.exported = Object.fromEntries(this.games.map((game) => [game, lastExport(game)])) as Record<GameId, ExportMark | null>;
   }
 
@@ -231,7 +270,7 @@ class ConsoleState {
   async refresh(): Promise<void> {
     this.supported = await probeStorage();
     if (!this.supported) {
-      this.refreshDropbox();
+      this.refreshCloud();
       this.installs = perGame(null);
       return;
     }
@@ -246,7 +285,7 @@ class ConsoleState {
       this.latest[game] ??= null;
     }
     this.games = games;
-    this.refreshDropbox();
+    this.refreshCloud();
     await Promise.all(
       games.map(async (game) => {
         try {
@@ -299,21 +338,65 @@ class ConsoleState {
   }
 
   /**
-   * Imports a game from the folder the player keeps in their Dropbox. Unlike
+   * Imports a game from the folder the player keeps in their cloud. Unlike
    * a folder picked by hand, a search of that folder must turn up the game
    * that was asked for: nobody wants the other one downloaded by surprise.
    */
-  importFromDropbox(game: BaseGameId): Promise<GameId | null> {
-    return this.importWith(() => dropboxGameFiles(game), game, true);
+  importFromCloud(game: BaseGameId): Promise<GameId | null> {
+    const cloud = activeCloud();
+    return this.importWith(() => cloudGameFiles(game, cloud ?? requireCloud()), game, cloud?.name ?? 'your cloud');
   }
 
   /**
-   * Imports a mod from the console's Mods folder in the player's Dropbox:
+   * Imports a mod from the console's Mods folder in the player's cloud:
    * `entry` is the zip or folder there that holds it. `replacing` is the mod
    * whose files these are, when it is one already here.
    */
-  importModFromDropbox(entry: string, replacing?: GameId): Promise<GameId | null> {
-    return this.importWith(() => dropboxModFiles(entry), replacing ?? 'mod', true);
+  importModFromCloud(entry: string, replacing?: GameId): Promise<GameId | null> {
+    const cloud = activeCloud();
+    return this.importWith(() => cloudModFiles(entry, cloud ?? requireCloud()), replacing ?? 'mod', cloud?.name ?? 'your cloud');
+  }
+
+  /**
+   * Sends what Put in your cloud worked out. It goes on while the player
+   * looks at other screens, as a copy into storage does, and can be stopped.
+   */
+  async putInCloud(plan: PutPlan): Promise<void> {
+    if (this.sending) return;
+    const cloud = requireCloud();
+    const stopper = (this.putStopper = new AbortController());
+    this.put = { phase: plan.zip ? 'sending' : 'packing', name: plan.name, cloud: cloud.name, doneBytes: 0, totalBytes: plan.bytes };
+    void this.stayAwake();
+    const shown = (progress: PutProgress) => {
+      if (this.put && !stopper.signal.aborted) this.put = { ...this.put, ...progress, path: progress.path };
+    };
+    try {
+      const stored = await runPut(plan, shown, stopper.signal, cloud);
+      this.put = { ...this.put, phase: 'done', doneBytes: stored.size, totalBytes: stored.size, path: undefined, stored };
+    } catch (err) {
+      if (stopper.signal.aborted || wasStopped(err)) {
+        this.put = { ...this.put, phase: 'stopped', path: undefined };
+      } else {
+        console.error(err);
+        const message = err instanceof ImportError || err instanceof CloudError || err instanceof LinkError ? err.message : `The upload failed: ${err instanceof Error ? err.message : String(err)}`;
+        this.put = { ...this.put, phase: 'failed', path: undefined, error: message };
+        // A link the cloud has cancelled is forgotten on the spot.
+        this.refreshCloud();
+      }
+    } finally {
+      if (this.putStopper === stopper) this.putStopper = null;
+      this.letSleep();
+    }
+  }
+
+  /** Calls off what Put in your cloud is sending. Nothing is left half there. */
+  stopPut(): void {
+    this.putStopper?.abort();
+  }
+
+  /** Forgets how the last Put in your cloud went. */
+  clearPut(): void {
+    if (!this.sending) this.put = null;
   }
 
   /**
@@ -324,11 +407,12 @@ class ConsoleState {
     this.stopper?.abort();
   }
 
-  private async importWith(find: () => Promise<SourceFile[]>, preferred?: GameId | 'mod', remote = false): Promise<GameId | null> {
+  /** `remote` names the cloud the files come from, when they come from one. */
+  private async importWith(find: () => Promise<SourceFile[]>, preferred?: GameId | 'mod', remote?: string): Promise<GameId | null> {
     if (this.busy) return null;
     const stopper = (this.stopper = new AbortController());
     const { signal } = stopper;
-    // Looking through a zip or a Dropbox folder cannot be interrupted, but it need not be waited for.
+    // Looking through a zip or a cloud's folder cannot be interrupted, but it need not be waited for.
     const called = new Promise<never>((_, reject) => signal.addEventListener('abort', () => reject(new DOMException('stopped', 'AbortError')), { once: true }));
     called.catch(() => undefined);
     const unless = <T>(work: Promise<T>): Promise<T> => Promise.race([work, called]);
@@ -341,7 +425,7 @@ class ConsoleState {
       const survey = await unless(surveySources(sources));
       const plan = await this.plan(sources, survey, preferred, remote, signal, unless);
       if (remote && preferred && isBaseGame(preferred) && plan.game !== preferred) {
-        throw new ImportError(`${gameDef(preferred).title} was not found in your Dropbox. What is there is ${plan.mod?.record.title ?? gameDef(plan.game).title}.`);
+        throw new ImportError(`${gameDef(preferred).title} was not found in your ${remote}. What is there is ${plan.mod?.record.title ?? gameDef(plan.game).title}.`);
       }
       await this.copy(plan, remote, signal);
       // Best effort: ask the browser to keep this data when disk space runs low.
@@ -361,12 +445,12 @@ class ConsoleState {
       }
       console.error(err);
       const message =
-        err instanceof ImportError || err instanceof DropboxError || err instanceof LinkError
+        err instanceof ImportError || err instanceof CloudError || err instanceof LinkError
           ? err.message
           : `The copy failed: ${err instanceof Error ? err.message : String(err)}`;
       this.job = { ...this.job, phase: 'failed', error: message };
-      // A link Dropbox has cancelled is forgotten on the spot.
-      this.refreshDropbox();
+      // A link the cloud has cancelled is forgotten on the spot.
+      this.refreshCloud();
       return null;
     } finally {
       if (this.stopper === stopper) this.stopper = null;
@@ -384,12 +468,12 @@ class ConsoleState {
     sources: SourceFile[],
     survey: Awaited<ReturnType<typeof surveySources>>,
     preferred: GameId | 'mod' | undefined,
-    remote: boolean,
+    remote: string | undefined,
     signal: AbortSignal,
     unless: <T>(work: Promise<T>) => Promise<T>,
   ): Promise<ImportPlan> {
-    const context: ImportContext = { ...CONTEXT, remote, status: (doing) => (this.job.doing = doing) };
-    // (Not from Dropbox: nobody wants a second game downloaded by surprise.)
+    const context: ImportContext = { ...CONTEXT, remote: !!remote, status: (doing) => (this.job.doing = doing) };
+    // (Not from the cloud: nobody wants a second game downloaded by surprise.)
     const mod = wantsMod(preferred) || (preferred === undefined && survey.conversion !== null && !survey.candidates.length);
     if (!mod || survey.conversion === null || remote) return unless(planImport(sources, preferred, context));
 
@@ -412,7 +496,7 @@ class ConsoleState {
   }
 
   /** Copies a planned import into storage, showing its progress. */
-  private async copy(plan: ImportPlan, remote: boolean, signal: AbortSignal): Promise<void> {
+  private async copy(plan: ImportPlan, remote: string | undefined, signal: AbortSignal): Promise<void> {
     const status = await storageStatus().catch(() => null);
     if (status && status.quota > 0 && status.quota - status.usage < plan.totalBytes * 1.05) {
       throw new ImportError(
@@ -442,22 +526,25 @@ class ConsoleState {
   }
 
   /**
-   * Keeps the screen on while a game is copied in. A phone that dims and
-   * locks in the middle of a long copy stops it, and one from Dropbox is long.
+   * Keeps the screen on while a game is copied in, or sent to the cloud. A
+   * phone that dims and locks in the middle of a long copy stops it, and one
+   * from or to the cloud is long.
    */
   private async stayAwake(): Promise<void> {
     const api = (navigator as Navigator & { wakeLock?: { request(type: 'screen'): Promise<WakeLock> } }).wakeLock;
     if (!api || this.wake || document.hidden) return;
     try {
       const lock = await api.request('screen');
-      if (this.busy && !this.wake) this.wake = lock;
+      if (this.working && !this.wake) this.wake = lock;
       else void lock.release().catch(() => undefined);
     } catch {
       // Refused on a low battery and the like; the copy is no worse off for the asking.
     }
   }
 
+  /** Lets the screen go dark again, once nothing that needs it on is under way. */
   private letSleep(): void {
+    if (this.working) return;
     void this.wake?.release().catch(() => undefined);
     this.wake = null;
   }

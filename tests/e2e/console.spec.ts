@@ -94,7 +94,7 @@ test('is fully usable from the keyboard and remembers settings', async ({ page }
   await expect(page.getByRole('heading', { name: 'Terminal settings' })).toBeVisible();
   // The settings stand under what they belong to, and their keys run on in order.
   await expect(page.locator('.menu .group')).toContainText(['The games', 'This console']);
-  expect(await page.locator('.menu .key').allInnerTexts()).toEqual(['[1]', '[2]', '[3]', '[4]', '[5]', '[6]', '[7]', '[A]', '[8]', '[9]', '[V]', '[M]', '[L]', '[D]', '[0]']);
+  expect(await page.locator('.menu .key').allInnerTexts()).toEqual(['[1]', '[2]', '[3]', '[4]', '[5]', '[6]', '[7]', '[A]', '[8]', '[9]', '[V]', '[M]', '[L]', '[C]', '[0]']);
 
   // A setting steps on with ENTER and the right arrow, and back with the left one.
   const scaling = page.locator('.menu li').filter({ hasText: 'Scaling' });
@@ -681,7 +681,7 @@ test('the manual is a list of chapters, each read on its own and leading to the 
   await openConsole(page);
   await page.keyboard.press('6');
   await expect(page.getByRole('heading', { name: 'Operations manual' })).toBeVisible();
-  const chapters = ['Loading a game', 'Mods', 'Controls', 'Picture and speed', 'Touch screens', 'Saving', 'Save archives', 'Your Dropbox', 'If something fails'];
+  const chapters = ['Loading a game', 'Mods', 'Controls', 'Picture and speed', 'Touch screens', 'Saving', 'Save archives', 'Your cloud', 'If something fails'];
   await expect(page.locator('.menu .label')).toHaveText([...chapters, 'Back'], { ignoreCase: true });
 
   // The board lists the sections of the chapter under the cursor: the headings that chapter has.

@@ -18,9 +18,10 @@ own **Operations manual** (entry 6 of the main directory) explains each of these
 - **Your own copy of the games.** No game data is hosted or distributed here. You need to own them
   ([GOG](https://www.gog.com/game/fallout), [Steam](https://store.steampowered.com/app/38400), Epic).
 - **Fallout and Fallout 2**, played by the open source Community Edition engines, compiled to WebAssembly.
-- **Games from a folder, a zip, or Dropbox.** Pick the folder a store installed the game to, or drop it on the
+- **Games from a folder, a zip, or your cloud.** Pick the folder a store installed the game to, or drop it on the
   console. A game folder can also be loaded as one zip of it, which is how a whole game, music included, gets onto
-  a device that cannot pick folders; or from a folder in your own Dropbox (see [Dropbox link](dropbox.md)).
+  a device that cannot pick folders; or from your own Dropbox or Google Drive (see [Dropbox link](dropbox.md) and
+  [Google Drive link](google-drive.md)), where the console puts it for you from another device.
 
 ## Mods
 
@@ -96,8 +97,10 @@ swiping finger, as a phone's lists do.
 - **A history for every slot.** Saving over a slot keeps what was in it: every slot has earlier versions to
   roll back to. An erased save is kept for a week, and can be put back.
 - **A reminder to back up.** Each game's deck and archive say when its saves last left the browser, to a zip file or
-  to Dropbox, and say it in amber while that has never happened.
-- **Dropbox link, if you want one.** Carry saves between devices. See [Dropbox link](dropbox.md).
+  to your cloud, and say it in amber while that has never happened.
+- **A cloud link, if you want one.** Carry saves between devices, and games and mods to any of them, through your own
+  Dropbox (2 GB free) or Google Drive (up to 15 GB free), one at a time. See [Dropbox link](dropbox.md) and
+  [Google Drive link](google-drive.md).
 
 ## Save archives
 
@@ -141,5 +144,6 @@ still for those who have asked their system for less motion, and can be switched
 ## Privacy
 
 **No server, no account, no tracking.** Game files and saves stay in the browser's private storage on your
-device. Nothing is uploaded, unless you link your own Dropbox: then the saves you choose to upload go to a folder
-in your Dropbox and nowhere else.
+device. Nothing is uploaded, unless you link your own Dropbox or Google Drive: then what you choose to upload (saves,
+and the games and mods you put there) goes to a folder of the console's own there and nowhere else, and the link
+reaches nothing else in your cloud.

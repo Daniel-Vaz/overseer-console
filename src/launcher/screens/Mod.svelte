@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { DropboxError } from '../../lib/dropbox/api';
-  import { listDropboxMods, modsFolder, type CloudMod } from '../../lib/dropbox/games';
-  import { showFolder } from '../../lib/dropbox/link';
+  import { activeCloud } from '../../lib/cloud/clouds';
+  import { CloudError } from '../../lib/cloud/errors';
+  import { showFolder } from '../../lib/cloud/folders';
+  import { listCloudMods, modsFolder, type CloudMod } from '../../lib/cloud/games';
   import { whereabouts } from '../../lib/gamefacts';
   import { gameDef, isGameId, type GameId } from '../../lib/games';
   import { KNOWN_MODS } from '../../lib/mods/catalog';
@@ -39,8 +40,15 @@
   /** Its parts, once read. */
   let components = $state<Components | null>(null);
   let componentSelected = $state(0);
-  /** The mods in the Mods folder of the player's Dropbox, while one is being picked to replace this one's files. */
+  /** The mods in the Mods folder of the player's cloud, while one is being picked to replace this one's files. */
   let cloud = $state<{ mods: CloudMod[] | null; error: string | null } | null>(null);
+  /** The cloud the console is linked to: looked at again whenever the link changes. */
+  const linked = $derived.by(() => {
+    void sys.cloud;
+    return activeCloud();
+  });
+  /** Its Mods folder, as the console shows it. */
+  const cloudMods = $derived(linked ? showFolder(modsFolder(linked)) : '/Mods');
   let folderInput: HTMLInputElement | undefined = $state();
   let zipInput: HTMLInputElement | undefined = $state();
 
@@ -107,14 +115,14 @@
     await sys.importFrom(sources, game);
   }
 
-  async function lookInDropbox(): Promise<void> {
+  async function lookInCloud(): Promise<void> {
     cloud = { mods: null, error: null };
     try {
-      cloud = { mods: await listDropboxMods(), error: null };
+      cloud = { mods: await listCloudMods(), error: null };
     } catch (err) {
-      cloud = { mods: [], error: err instanceof DropboxError || err instanceof Error ? err.message : String(err) };
+      cloud = { mods: [], error: err instanceof CloudError || err instanceof Error ? err.message : String(err) };
       sfx.deny();
-      sys.refreshDropbox();
+      sys.refreshCloud();
     }
   }
 
@@ -161,10 +169,12 @@
           ]
         : []),
       {
-        label: `${verb} holodisk from Dropbox`,
-        state: sys.dropbox.linked ? undefined : 'NOT LINKED',
-        note: sys.dropbox.linked ? `From the mods in ${showFolder(modsFolder())} in your Dropbox.${kept}` : 'Optional. Link your own Dropbox and keep your mods in its Mods folder.',
-        action: () => (sys.dropbox.linked ? void lookInDropbox() : go('settings/dropbox')),
+        label: `${verb} holodisk from ${sys.cloud.linked ? sys.cloud.name : 'your cloud'}`,
+        state: sys.cloud.linked ? undefined : 'NOT LINKED',
+        note: sys.cloud.linked
+          ? `From the mods in ${cloudMods} in your ${sys.cloud.name}.${kept}`
+          : 'Optional. Link your own Dropbox or Google Drive and keep your mods in its Mods folder.',
+        action: () => (sys.cloud.linked ? void lookInCloud() : go('settings/cloud')),
       },
     ];
   });
@@ -288,11 +298,11 @@
         key: '123456789abcdfghijkmnpqrstuvwxyz'[index] ?? `d${index}`,
         label: entry.name,
         state: `${entry.zip ? 'ZIP' : `${entry.files} ${entry.files === 1 ? 'FILE' : 'FILES'}`}, ${formatBytes(entry.bytes)}`,
-        note: `Loads ${def.title} again from ${entry.name}, fetched from your Dropbox. Saved games are kept.`,
+        note: `Loads ${def.title} again from ${entry.name}, fetched from your ${sys.cloud.name}. Saved games are kept.`,
         action: () => {
           cloud = null;
           view = 'main';
-          void sys.importModFromDropbox(entry.name, game);
+          void sys.importModFromCloud(entry.name, game);
         },
       }),
     ),
@@ -357,7 +367,7 @@
       {/if}
       {#if cloud}
         {#if cloud.mods === null}
-          <p class="gap">CONTACTING DROPBOX<span class="cursor"></span></p>
+          <p class="gap">CONTACTING {sys.cloud.name.toUpperCase()}<span class="cursor"></span></p>
         {:else if cloud.error}
           <div class="panel signed bad" role="alert">
             <Glyph name="fault" tone="alert" />
@@ -365,11 +375,11 @@
           </div>
         {:else if !cloud.mods.length}
           <p class="gap prose">
-            There are no mods in <span class="hot">{showFolder(modsFolder())}</span> in the console's app folder in your Dropbox.
+            There are no mods in <span class="hot">{cloudMods}</span> in {linked?.home} in your {sys.cloud.name}.
           </p>
         {/if}
         {#if cloud.mods !== null}
-          <Menu items={cloudItems} label="Mods in your Dropbox" />
+          <Menu items={cloudItems} label={`Mods in your ${sys.cloud.name}`} />
         {/if}
       {:else if view === 'components' && components}
         <p class="gap">COMPONENTS OF {def.title.toUpperCase()}</p>

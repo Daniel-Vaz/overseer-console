@@ -61,7 +61,7 @@ async function furnish(page: Page): Promise<void> {
   await expect(page.locator('.menu li.selected')).toBeVisible();
 }
 
-const SCREENS = ['', 'fo2', 'mods', 'mods/ettu', 'mods/load', 'mods/known', 'mods/known/olympus', 'saves/fo2', 'settings', 'settings/picture', 'manual'];
+const SCREENS = ['', 'fo2', 'mods', 'mods/ettu', 'mods/load', 'mods/known', 'mods/known/olympus', 'saves/fo2', 'settings', 'settings/picture', 'settings/cloud', 'manual'];
 
 test('holds the same page however large the window is: nothing runs off the tube, nothing is cut short', async ({ page }) => {
   await furnish(page);
@@ -107,10 +107,10 @@ test('a list longer than the tube follows the cursor, and says that it runs on',
   await expect.poll(async () => (await fit(page)).selected).toBe(true);
   await expect(more).toHaveCount(0);
   await page.keyboard.press('ArrowUp');
-  await expect(page.locator('.menu li.selected')).toContainText('Dropbox link');
+  await expect(page.locator('.menu li.selected')).toContainText('Cloud link');
   const end = await fit(page);
   expect(end.selected).toBe(true);
-  expect(end.note).toContain('Optional. Keep saves in your own Dropbox');
+  expect(end.note).toContain('Optional. Keep saves in your own Dropbox or Google Drive');
 
   // And back to the top, one entry at a time past the edge.
   await page.keyboard.press('Home');

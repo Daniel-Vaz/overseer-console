@@ -19,7 +19,7 @@ export interface ImportProgress {
 
 /**
  * What can be copied into the store: a File from this device, or anything
- * that is read the same way, such as a file in the player's Dropbox.
+ * that is read the same way, such as a file in the player's Dropbox or Google Drive.
  */
 export interface SourceBlob {
   readonly size: number;

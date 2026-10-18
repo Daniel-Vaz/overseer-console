@@ -5,7 +5,7 @@ import type { ModInstall } from './manifest';
 import type { Install, SourceBlob } from './opfs';
 
 export interface SourceFile {
-  /** Path as the browser (or the player's Dropbox, or a zip archive) reported it, forward slashes. */
+  /** Path as the browser (or the player's cloud, or a zip archive) reported it, forward slashes. */
   path: string;
   file: SourceBlob;
   /** The name of the zip it came out of, if it came out of one. */
@@ -48,7 +48,7 @@ export interface ImportContext {
   archiveOf?(game: GameId): Promise<DatArchive | null>;
   /** The installed copy of a game, or null. A mod is compared with the game it is played on. */
   installOf?(game: GameId): Promise<Install | null>;
-  /** The files come from the player's Dropbox: each byte read is a download. */
+  /** The files come from the player's cloud: each byte read is a download. */
   remote?: boolean;
   /** Says what planning is busy with, when that takes a while. */
   status?(text: string): void;

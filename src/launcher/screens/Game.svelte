@@ -96,9 +96,9 @@
     await sys.importFrom(sources, game);
   }
 
-  async function fromDropbox(): Promise<void> {
+  async function fromCloud(): Promise<void> {
     view = 'main';
-    await sys.importFromDropbox(game);
+    await sys.importFromCloud(game);
   }
 
   async function eject(): Promise<void> {
@@ -116,7 +116,11 @@
     return entries.map((entry) => ({ ...entry, key: entry.key ?? String(next++) }));
   }
 
-  const dropboxNote = $derived(`Fetches ${def.title} from the game folder you put in the console's app folder in your Dropbox.`);
+  const cloudNote = $derived(
+    sys.cloud.id === 'drive'
+      ? `Fetches ${def.title} from what you put in your Google Drive with Put in Google Drive.`
+      : `Fetches ${def.title} from the game folder you put in the console's app folder in your Dropbox.`,
+  );
 
   /**
    * Ways of handing the console the game from this device: its folder, loose
@@ -147,12 +151,12 @@
     numbered([
       ...sourceItems,
       {
-        label: 'Load holodisk from Dropbox',
-        state: sys.dropbox.linked ? undefined : 'NOT LINKED',
-        note: sys.dropbox.linked
-          ? dropboxNote
-          : `Optional. Link your own Dropbox, put your ${def.title} folder in it, and load the game from there on any device.`,
-        action: () => (sys.dropbox.linked ? void fromDropbox() : go('settings/dropbox')),
+        label: `Load holodisk from ${sys.cloud.linked ? sys.cloud.name : 'your cloud'}`,
+        state: sys.cloud.linked ? undefined : 'NOT LINKED',
+        note: sys.cloud.linked
+          ? cloudNote
+          : `Optional. Link your own Dropbox or Google Drive, put ${def.title} in it, and load the game from there on any device.`,
+        action: () => (sys.cloud.linked ? void fromCloud() : go('settings/cloud')),
       },
       {
         label: 'Where are the game files?',
@@ -261,12 +265,12 @@
     numbered([
       ...sourceItems,
       // Offered once there is a link; the deck of an empty game says how to make one.
-      ...(sys.dropbox.linked
+      ...(sys.cloud.linked
         ? [
             {
-              label: 'Replace holodisk from Dropbox',
-              note: `${dropboxNote} Saved games are kept.`,
-              action: () => void fromDropbox(),
+              label: `Replace holodisk from ${sys.cloud.name}`,
+              note: `${cloudNote} Saved games are kept.`,
+              action: () => void fromCloud(),
             },
           ]
         : []),

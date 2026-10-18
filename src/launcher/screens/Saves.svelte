@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { DropboxError } from '../../lib/dropbox/api';
-  import { eraseCloudSave, fetchSave, isSynced, sendSave, surveySaves, type SlotStanding } from '../../lib/dropbox/saves';
+  import { CloudError } from '../../lib/cloud/errors';
+  import { eraseCloudSave, fetchSave, isSynced, sendSave, surveySaves, type SlotStanding } from '../../lib/cloud/saves';
   import { gameFacts, paletteFor, whereabouts, type GameFacts } from '../../lib/gamefacts';
   import { gameDef, isGameId, type GameId } from '../../lib/games';
   import { parseCharacter, parseSaveHeader, type Character } from '../../lib/savefile';
@@ -51,9 +51,11 @@
   let palette = $state<Uint8Array | null>(null);
   let facts = $state<GameFacts | null>(null);
   let pendingImport = $state<SaveImport | null>(null);
-  /** Saves to fetch from Dropbox, while the player is asked about the ones they replace. */
+  /** The cloud the console is linked to: "Dropbox", "Google Drive". */
+  const cloud = $derived(sys.cloud.name);
+  /** Saves to fetch from the cloud, while the player is asked about the ones they replace. */
   let pendingFetch = $state<{ items: SlotStanding[]; left: number[] } | null>(null);
-  /** What is going on with Dropbox right now, while something is. */
+  /** What is going on with the cloud right now, while something is. */
   let cloudBusy = $state<string | null>(null);
   let message = $state<{ text: string; bad?: boolean } | null>(null);
   let running = $state(false);
@@ -226,28 +228,28 @@
   async function remove(): Promise<void> {
     if (!game || !open) return;
     const slot = open.slot;
-    const inDropbox = sys.dropbox.linked && isSynced(game, slot);
+    const inCloud = sys.cloud.linked && isSynced(game, slot);
     const kept = await deleteSave(game, slot);
     open = null;
     confirm = null;
     // What an erased slot held stays in its history for a while.
     const undo = kept ? ' It can be put back for a week: see Erased saves.' : '';
     message = { text: `${slotLabel(slot)} erased.${undo}` };
-    if (inDropbox) {
+    if (inCloud) {
       try {
         const there = await eraseCloudSave(game, slot);
         message = {
           text:
             there === 'erased'
-              ? `${slotLabel(slot)} erased, here and in Dropbox.${undo}`
-              : `${slotLabel(slot)} erased here. Dropbox holds a different save in that slot, which was left alone.${undo}`,
+              ? `${slotLabel(slot)} erased, here and in ${cloud}.${undo}`
+              : `${slotLabel(slot)} erased here. ${cloud} holds a different save in that slot, which was left alone.${undo}`,
         };
       } catch (err) {
         message = {
-          text: `${slotLabel(slot)} erased here, but not in Dropbox, so the next fetch brings it back. ${err instanceof Error ? err.message : String(err)}`,
+          text: `${slotLabel(slot)} erased here, but not in ${cloud}, so the next fetch brings it back. ${err instanceof Error ? err.message : String(err)}`,
           bad: true,
         };
-        sys.refreshDropbox();
+        sys.refreshCloud();
       }
     }
     await load();
@@ -275,23 +277,24 @@
   function cloudFailed(err: unknown): void {
     message = {
       text:
-        err instanceof DropboxError && err.conflict
-          ? 'Dropbox holds a different save than a moment ago: another device was quicker. Try again.'
+        err instanceof CloudError && err.conflict
+          ? `${cloud} holds a different save than a moment ago: another device was quicker. Try again.`
           : err instanceof Error
             ? err.message
             : String(err),
       bad: true,
     };
     sfx.deny();
-    // A link that Dropbox has cancelled is forgotten on the spot.
-    sys.refreshDropbox();
+    // A link that the cloud has cancelled is forgotten on the spot.
+    sys.refreshCloud();
   }
 
-  /** Sends the saves that are newer here. One that is newer in Dropbox is never replaced from here. */
+  /** Sends the saves that are newer here. One that is newer in the cloud is never replaced from here. */
   async function uploadSaves(): Promise<void> {
-    if (!game || cloudBusy) return;
+    if (!game || cloudBusy || !sys.cloud.id) return;
+    const to = sys.cloud.id;
     message = null;
-    cloudBusy = 'CONTACTING DROPBOX';
+    cloudBusy = `CONTACTING ${cloud.toUpperCase()}`;
     try {
       const standings = await surveySaves(game);
       const items = standings.filter((item) => item.standing === 'newer-here' || item.standing === 'only-here');
@@ -300,16 +303,16 @@
         cloudBusy = `UPLOADING ${slotLabel(item.slot)} (${index + 1} OF ${items.length})`;
         await sendSave(game, item);
       }
-      // Dropbox now holds every save that is here, or a newer one in its slot.
-      if (standings.some((item) => item.here)) sys.markExported(game, 'dropbox');
+      // The cloud now holds every save that is here, or a newer one in its slot.
+      if (standings.some((item) => item.here)) sys.markExported(game, to);
       const sent = items.length
-        ? `${plural(items.length, 'save')} uploaded to Dropbox.`
+        ? `${plural(items.length, 'save')} uploaded to ${cloud}.`
         : standings.some((item) => item.here)
-          ? 'Dropbox already holds every save that is in this browser.'
+          ? `${cloud} already holds every save that is in this browser.`
           : 'There are no saves here to upload.';
       const one = left.length === 1;
       message = {
-        text: left.length ? `${sent} ${slotList(left)} ${one ? 'is' : 'are'} newer in Dropbox and ${one ? 'was' : 'were'} left alone: fetch ${one ? 'it' : 'them'} first.` : sent,
+        text: left.length ? `${sent} ${slotList(left)} ${one ? 'is' : 'are'} newer in ${cloud} and ${one ? 'was' : 'were'} left alone: fetch ${one ? 'it' : 'them'} first.` : sent,
       };
       sfx.done();
     } catch (err) {
@@ -318,18 +321,18 @@
     cloudBusy = null;
   }
 
-  /** Brings in the saves that are newer in Dropbox, asking first when they replace saves here. */
+  /** Brings in the saves that are newer in the cloud, asking first when they replace saves here. */
   async function fetchSaves(): Promise<void> {
     if (!game || cloudBusy) return;
     message = null;
-    cloudBusy = 'CONTACTING DROPBOX';
+    cloudBusy = `CONTACTING ${cloud.toUpperCase()}`;
     try {
       const standings = await surveySaves(game);
       const items = standings.filter((item) => item.standing === 'newer-there' || item.standing === 'only-there');
       const left = standings.filter((item) => item.standing === 'newer-here').map((item) => item.slot);
       if (!items.length) {
         const one = left.length === 1;
-        const nothing = standings.some((item) => item.there) ? 'Dropbox holds nothing newer than this browser.' : `There are no saves for ${def?.title} in Dropbox yet.`;
+        const nothing = standings.some((item) => item.there) ? `${cloud} holds nothing newer than this browser.` : `There are no saves for ${def?.title} in ${cloud} yet.`;
         message = { text: left.length ? `${nothing} ${slotList(left)} ${one ? 'is' : 'are'} newer here: upload ${one ? 'it' : 'them'}.` : nothing };
       } else if (items.some((item) => item.standing === 'newer-there')) {
         pendingFetch = { items, left };
@@ -353,7 +356,7 @@
         await fetchSave(game, item);
       }
       const one = left.length === 1;
-      const fetched = `${plural(items.length, 'save')} fetched from Dropbox.`;
+      const fetched = `${plural(items.length, 'save')} fetched from ${cloud}.`;
       message = { text: left.length ? `${fetched} ${slotList(left)} ${one ? 'is' : 'are'} newer here and ${one ? 'was' : 'were'} left alone.` : fetched };
       sfx.done();
     } catch (err) {
@@ -452,37 +455,37 @@
           : 'Accepts archives exported here, or a zipped SAVEGAME folder from a desktop install.',
         action: () => zipInput?.click(),
       },
-      ...(sys.dropbox.linked
+      ...(sys.cloud.linked
         ? ([
             {
               key: 'u',
-              label: 'Upload to Dropbox',
+              label: `Upload to ${cloud}`,
               icon: 'export-save',
               disabled: cloudBusy !== null || !list.length,
               note: list.length
-                ? 'Sends the saves that are newer here than in your Dropbox. A save that is newer there is never replaced.'
+                ? `Sends the saves that are newer here than in your ${cloud}. A save that is newer there is never replaced.`
                 : 'There are no saves here to upload.',
               action: () => void uploadSaves(),
             },
             {
               key: 'f',
-              label: 'Fetch from Dropbox',
+              label: `Fetch from ${cloud}`,
               icon: 'import-save',
               disabled: cloudBusy !== null || running,
               note: running
                 ? 'Close the running simulation first.'
-                : 'Brings in the saves that are newer in your Dropbox than here. What they replace is kept as an earlier version.',
+                : `Brings in the saves that are newer in your ${cloud} than here. What they replace is kept as an earlier version.`,
               action: () => void fetchSaves(),
             },
           ] satisfies MenuItem[])
         : ([
             {
               key: 'u',
-              label: 'Keep saves in your Dropbox',
+              label: 'Keep saves in your cloud',
               state: 'NOT LINKED',
               icon: 'uplink',
-              note: 'Optional. Link your own Dropbox to carry saves between devices.',
-              action: () => go('settings/dropbox'),
+              note: 'Optional. Link your own Dropbox or Google Drive to carry saves between devices.',
+              action: () => go('settings/cloud'),
             },
           ] satisfies MenuItem[])),
       // Only while there is something to put back.
@@ -564,6 +567,7 @@
     import: 'Replaced when an archive was restored over the slot',
     restore: 'Replaced when the slot was rolled back',
     cloud: 'Replaced by a save fetched from Dropbox',
+    drive: 'Replaced by a save fetched from Google Drive',
     erase: 'Erased',
     edit: 'Replaced when the save was modified',
   } as const;
@@ -708,7 +712,7 @@
           {replaced.length === 1 ? 'HOLDS AN OLDER SAVE' : 'HOLD OLDER SAVES'} IN THIS BROWSER.
         </p>
         <p>
-          Fetching replaces {replaced.length === 1 ? 'it' : 'them'} with what your Dropbox holds. What
+          Fetching replaces {replaced.length === 1 ? 'it' : 'them'} with what your {cloud} holds. What
           {replaced.length === 1 ? 'the slot holds' : 'the slots hold'} now is kept as an earlier version.
         </p>
       </div>
@@ -726,7 +730,7 @@
           {:else}
             This cannot be undone: the slot holds no save the console can read.
           {/if}
-          {#if sys.dropbox.linked && isSynced(game, open.slot)}Its copy in your Dropbox is erased as well.{/if}
+          {#if sys.cloud.linked && isSynced(game, open.slot)}Its copy in your {cloud} is erased as well.{/if}
         </p>
       </div>
     </div>
@@ -812,7 +816,7 @@
           <p class="amber">LAST EXPORTED: NEVER</p>
           <p class="why">
             These saves are only in this browser's storage, which the browser may clear.
-            {sys.dropbox.linked ? 'Upload them to Dropbox [U] to keep a copy.' : 'Export them to a zip file [X], or keep them in your Dropbox [U].'}
+            {sys.cloud.linked ? `Upload them to ${cloud} [U] to keep a copy.` : 'Export them to a zip file [X], or keep them in your Dropbox or Google Drive [U].'}
           </p>
         </div>
       </div>

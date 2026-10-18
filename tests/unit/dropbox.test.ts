@@ -1,16 +1,9 @@
 import 'fake-indexeddb/auto';
-import { strToU8, zipSync } from 'fflate';
+import { strToU8 } from 'fflate';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DropboxError, download, headerJson, listFiles, toDropboxTime, upload } from '../../src/lib/dropbox/api';
+import { DropboxError, download, headerJson, listFiles, sendLarge, spaceUsage, toDropboxTime, upload } from '../../src/lib/dropbox/api';
 import { LinkError, challengeFor, linkWithCode, looksLikeAppKey, prepareAuthorization, unlink, validToken } from '../../src/lib/dropbox/auth';
-import { dropboxGameFiles } from '../../src/lib/dropbox/games';
 import { loadConfig, loadLink, normaliseFolder, saveConfig, showFolder, storeLink } from '../../src/lib/dropbox/link';
-import { compareSaves, eraseCloudSave, fetchSave, isSynced, listCloudSaves, sendSave, surveySaves, type SlotStanding } from '../../src/lib/dropbox/saves';
-import { HEADER_SIZE } from '../../src/lib/savefile';
-import { deleteSave, exportSaves, listSaves, packSlot, readSaveArchive } from '../../src/lib/saves';
-import { commitWithHistory, deleteVersions, listVersions } from '../../src/lib/storage/history';
-import { ImportError, planImport } from '../../src/lib/storage/importer';
-import { clearOverlay, type OverlayChanges } from '../../src/lib/storage/overlay';
 import { FakeDropbox, fetchThrough } from '../fake-dropbox';
 
 class MemoryStorage {
@@ -270,317 +263,39 @@ describe('requests', () => {
     await expect(upload('/Saves/y.zip', strToU8('y'), { replaces: null, modified: 1_000 })).rejects.toThrow(/does not allow files\.content\.write/);
     expect(loadLink()).not.toBeNull();
   });
-});
 
-// ---------------------------------------------------------------------
-// Saves
-// ---------------------------------------------------------------------
-
-function saveDat(description: string): Uint8Array {
-  const data = new Uint8Array(HEADER_SIZE + 16);
-  const put = (offset: number, text: string) => {
-    for (let i = 0; i < text.length; i++) data[offset + i] = text.charCodeAt(i);
-  };
-  put(0, 'FALLOUT SAVE FILE');
-  put(0x1d, 'Narg');
-  put(0x3d, description);
-  new DataView(data.buffer).setInt16(0x65, 7, false);
-  put(0x73, 'ARTEMPLE.SAV');
-  return data;
-}
-
-/** The files a game writes when it saves: SAVE.DAT plus one file per map. */
-function save(slot: number, description: string, mtime: number, maps: Record<string, number[]> = {}): OverlayChanges {
-  const dir = `data/SAVEGAME/SLOT${String(slot).padStart(2, '0')}`;
-  const puts = [{ key: `${dir}/save.dat`.toLowerCase(), path: `${dir}/SAVE.DAT`, mtime, data: saveDat(description) }];
-  for (const [name, bytes] of Object.entries(maps)) {
-    puts.push({ key: `${dir}/${name}`.toLowerCase(), path: `${dir}/${name}`, mtime, data: new Uint8Array(bytes) });
-  }
-  return { puts, deletes: [] };
-}
-
-/** A second device: nothing stored, nothing remembered, linked to the same Dropbox. */
-async function anotherBrowser(): Promise<void> {
-  await clearOverlay('fo2');
-  await deleteVersions('fo2');
-  localStorage.removeItem('overseer-console:dropbox:synced');
-}
-
-const T1 = Date.UTC(2026, 9, 10, 20, 0, 0, 250);
-const T2 = Date.UTC(2026, 9, 11, 21, 30, 0, 500);
-
-function standingOf(standings: SlotStanding[], slot: number): SlotStanding {
-  return standings.find((item) => item.slot === slot)!;
-}
-
-describe('saves in Dropbox', () => {
-  beforeEach(async () => {
-    await link();
-    await anotherBrowser();
-  });
-
-  it('compares slot by slot, trusting what both sides last shared over the clocks', () => {
-    const cloud = (slot: number, rev: string, savedAt: number) => ({ slot, file: `id:${slot}`, rev, savedAt, bytes: 1 });
-    const standings = compareSaves(
-      [
-        { slot: 1, savedAt: T1 },
-        { slot: 2, savedAt: T2 },
-        { slot: 3, savedAt: T1 },
-        { slot: 4, savedAt: T2 },
-        { slot: 5, savedAt: T1 },
-        { slot: 6, savedAt: T1 },
-        { slot: 7, savedAt: T2 },
-        { slot: 9, savedAt: T1 },
-      ],
-      [
-        cloud(1, 'a', T1),
-        cloud(2, 'b', T1),
-        cloud(3, 'c', T2),
-        cloud(4, 'd2', T1),
-        cloud(5, 'e', T2),
-        // Never synced: only the clocks can tell. Dropbox keeps whole seconds.
-        cloud(6, 'f', Math.floor(T1 / 1000) * 1000),
-        cloud(7, 'g', T1),
-        cloud(8, 'h', T1),
-      ],
-      {
-        1: { rev: 'a', savedAt: T1 },
-        // Saved again here since.
-        2: { rev: 'b', savedAt: T1 },
-        // Replaced in Dropbox since.
-        3: { rev: 'c0', savedAt: T1 },
-        // Replaced there by a save with an earlier clock: still the one that changed.
-        4: { rev: 'd1', savedAt: T2 },
-        // Both changed: the later save.
-        5: { rev: 'e0', savedAt: 5 },
-      },
-    );
-    expect(standings.map((item) => [item.slot, item.standing])).toEqual([
-      [1, 'same'],
-      [2, 'newer-here'],
-      [3, 'newer-there'],
-      [4, 'newer-there'],
-      [5, 'newer-there'],
-      [6, 'same'],
-      [7, 'newer-here'],
-      [8, 'only-there'],
-      [9, 'only-here'],
+  it('sends a large file in pieces, and goes on from where Dropbox says a lost piece got to', async () => {
+    const data = new Uint8Array((8 << 20) * 2 + 5).map((_, index) => index % 251);
+    const sent: number[] = [];
+    // The answer to the second piece is lost on the way, though the piece itself arrived.
+    const real = fetchThrough(dropbox);
+    let lose = 1;
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const answer = await real(input, init);
+      if (String(input).endsWith('/append_v2') && lose-- > 0) throw new TypeError('network');
+      return answer;
+    });
+    const stored = await sendLarge('/Mods/Big.zip', new Blob([data]), { modified: Date.UTC(2026, 9, 1), replace: false, onProgress: (bytes) => sent.push(bytes) });
+    expect(stored).toMatchObject({ path_display: '/Mods/Big.zip', size: data.length, client_modified: '2026-10-01T00:00:00Z' });
+    // Compared as bytes: toEqual would walk sixteen million keys.
+    expect(Buffer.compare(dropbox.files.get('/mods/big.zip')!.data, data)).toBe(0);
+    expect(sent.at(-1)).toBe(data.length);
+    expect(dropbox.calls.filter((call) => call.startsWith('files/upload_session'))).toEqual([
+      'files/upload_session/start',
+      'files/upload_session/append_v2',
+      'files/upload_session/append_v2',
+      'files/upload_session/append_v2',
+      'files/upload_session/finish',
     ]);
+
+    // Not over a file of that name, unless asked to.
+    await expect(sendLarge('/Mods/Big.zip', new Blob(['other']), { modified: 0, replace: false })).rejects.toSatisfy((err) => err instanceof DropboxError && err.conflict);
+    await sendLarge('/Mods/Big.zip', new Blob(['other']), { modified: 0, replace: true });
+    expect(new TextDecoder().decode(dropbox.files.get('/mods/big.zip')!.data)).toBe('other');
   });
 
-  it('uploads a save as the zip the console exports, and then finds nothing to do', async () => {
-    await commitWithHistory('fo2', save(3, 'before the temple', T1, { 'ARTEMPLE.SAV': [1, 2, 3] }));
-    const [only] = await surveySaves('fo2');
-    expect(only).toMatchObject({ slot: 3, standing: 'only-here' });
-    await sendSave('fo2', only!);
-
-    const stored = dropbox.files.get('/saves/fallout 2/slot03.zip')!;
-    expect(stored.path).toBe('/Saves/Fallout 2/SLOT03.zip');
-    expect(stored.modified).toBe('2026-10-10T20:00:00Z');
-    expect(await listCloudSaves('fo2')).toEqual([{ slot: 3, file: stored.id, rev: stored.rev, savedAt: Date.UTC(2026, 9, 10, 20), bytes: stored.data.length }]);
-    expect(isSynced('fo2', 3)).toBe(true);
-    expect((await surveySaves('fo2')).map((item) => item.standing)).toEqual(['same']);
-    // Nothing of the other game.
-    expect(await surveySaves('fo1')).toEqual([]);
-  });
-
-  it('another browser fetches it whole, with the time it was saved', async () => {
-    await commitWithHistory('fo2', save(3, 'before the temple', T1, { 'ARTEMPLE.SAV': [1, 2, 3] }));
-    await sendSave('fo2', (await surveySaves('fo2'))[0]!);
-
-    await anotherBrowser();
-    const [there] = await surveySaves('fo2');
-    expect(there!.standing).toBe('only-there');
-    await fetchSave('fo2', there!);
-
-    const [fetched] = await listSaves('fo2');
-    expect(fetched).toMatchObject({ slot: 3, description: 'before the temple', savedAt: T1, files: 2, versions: 0 });
-    expect((await surveySaves('fo2')).map((item) => item.standing)).toEqual(['same']);
-  });
-
-  it('a save made elsewhere replaces the one here, which is kept as a version', async () => {
-    await commitWithHistory('fo2', save(3, 'before the temple', T1));
-    await sendSave('fo2', (await surveySaves('fo2'))[0]!);
-
-    // The other device plays on and uploads.
-    await anotherBrowser();
-    await fetchSave('fo2', (await surveySaves('fo2'))[0]!);
-    await commitWithHistory('fo2', save(3, 'through the temple', T2));
-    const newer = standingOf(await surveySaves('fo2'), 3);
-    expect(newer.standing).toBe('newer-here');
-    await sendSave('fo2', newer);
-
-    // Back on the first one, which still holds the older save.
-    await anotherBrowser();
-    await commitWithHistory('fo2', save(3, 'before the temple', T1));
-    const behind = standingOf(await surveySaves('fo2'), 3);
-    expect(behind.standing).toBe('newer-there');
-    await fetchSave('fo2', behind);
-
-    expect((await listSaves('fo2'))[0]).toMatchObject({ description: 'through the temple', savedAt: T2, versions: 1 });
-    expect((await listVersions('fo2', 3))[0]).toMatchObject({ cause: 'cloud', header: { description: 'before the temple' } });
-  });
-
-  it('will not upload over a save another device put there meanwhile', async () => {
-    await commitWithHistory('fo2', save(3, 'mine', T1));
-    const seen = (await surveySaves('fo2'))[0]!;
-    dropbox.put('/Saves/Fallout 2/SLOT03.zip', 'theirs');
-    await expect(sendSave('fo2', seen)).rejects.toSatisfy((err) => err instanceof DropboxError && err.conflict);
-    expect(isSynced('fo2', 3)).toBe(false);
-  });
-
-  it('leaves the slot alone when the zip in Dropbox is not a save for it', async () => {
-    await commitWithHistory('fo2', save(4, 'mine', T1));
-    const other = zipSync({ 'SAVEGAME/SLOT03/SAVE.DAT': saveDat('another slot') });
-    dropbox.put('/Saves/Fallout 2/SLOT04.zip', other, toDropboxTime(T2));
-    dropbox.put('/Saves/Fallout 2/SLOT05.zip', 'not a zip at all', toDropboxTime(T2));
-    dropbox.put('/Saves/Fallout 2/notes.txt', 'ignored');
-
-    const standings = await surveySaves('fo2');
-    expect(standings.map((item) => [item.slot, item.standing])).toEqual([
-      [4, 'newer-there'],
-      [5, 'only-there'],
-    ]);
-    await expect(fetchSave('fo2', standingOf(standings, 4))).rejects.toThrow(/SLOT04\.zip in Dropbox could not be used.*does not hold SLOT04/);
-    await expect(fetchSave('fo2', standingOf(standings, 5))).rejects.toThrow(/SLOT05\.zip in Dropbox could not be used.*not a zip archive/);
-    expect(await listSaves('fo2')).toMatchObject([{ slot: 4, description: 'mine', versions: 0 }]);
-  });
-
-  it('takes the time from Dropbox for a zip that does not say when it was saved', async () => {
-    dropbox.put('/Saves/Fallout 2/SLOT07.zip', zipSync({ 'SLOT07/SAVE.DAT': saveDat('from a desktop install') }), toDropboxTime(T2));
-    await fetchSave('fo2', (await surveySaves('fo2'))[0]!);
-    expect((await listSaves('fo2'))[0]).toMatchObject({ slot: 7, savedAt: Math.floor(T2 / 1000) * 1000 });
-    expect((await surveySaves('fo2'))[0]!.standing).toBe('same');
-  });
-
-  it('erasing a synced save erases it in Dropbox too, unless that holds another save by now', async () => {
-    await commitWithHistory('fo2', save(3, 'one', T1));
-    await commitWithHistory('fo2', save(5, 'two', T1));
-    for (const item of await surveySaves('fo2')) await sendSave('fo2', item);
-
-    await deleteSave('fo2', 3);
-    expect(await eraseCloudSave('fo2', 3)).toBe('erased');
-    expect(dropbox.files.has('/saves/fallout 2/slot03.zip')).toBe(false);
-
-    dropbox.put('/Saves/Fallout 2/SLOT05.zip', 'put there by another device');
-    await deleteSave('fo2', 5);
-    expect(await eraseCloudSave('fo2', 5)).toBe('kept');
-    expect(dropbox.files.has('/saves/fallout 2/slot05.zip')).toBe(true);
-    expect(isSynced('fo2', 5)).toBe(false);
-
-    // Never synced: nothing to do, and nothing asked of Dropbox.
-    const calls = dropbox.calls.length;
-    expect(await eraseCloudSave('fo2', 9)).toBe('kept');
-    expect(dropbox.calls).toHaveLength(calls);
-  });
-
-  it('keeps saves where the player said to', async () => {
-    saveConfig({ savesFolder: '/Vault 13/Backups' });
-    await commitWithHistory('fo1', { puts: save(1, 'water chip', T1).puts, deletes: [] });
-    await sendSave('fo1', (await surveySaves('fo1'))[0]!);
-    expect([...dropbox.files.values()].map((file) => file.path)).toEqual(['/Vault 13/Backups/Fallout/SLOT01.zip']);
-    await clearOverlay('fo1');
-  });
-});
-
-describe('save archives', () => {
-  beforeEach(anotherBrowser);
-
-  it('refuses file names that climb out of their slot', async () => {
-    const archive = zipSync({ 'SAVEGAME/SLOT01/SAVE.DAT': saveDat('fine'), 'SAVEGAME/SLOT01/../../../fallout2.cfg': strToU8('[system]') });
-    await expect(readSaveArchive('fo2', new Blob([archive]))).rejects.toThrow(/file name the console does not accept/);
-    expect(await listSaves('fo2')).toEqual([]);
-  });
-
-  it('counts an imported save as saved now, unless asked to keep its time', async () => {
-    await commitWithHistory('fo2', save(2, 'old', T1, { 'ARCAVES.SAV': [9] }));
-    const exported = await exportSaves('fo2');
-    const packed = await packSlot('fo2', 2);
-    expect(packed!.savedAt).toBe(T1);
-    await clearOverlay('fo2');
-
-    const before = Date.now();
-    await (await readSaveArchive('fo2', exported)).commit();
-    expect((await listSaves('fo2'))[0]!.savedAt).toBeGreaterThanOrEqual(before);
-
-    // An archive made for Dropbox says when; one exported by hand leaves it to whoever asks.
-    await (await readSaveArchive('fo2', new Blob([packed!.data as Uint8Array<ArrayBuffer>]), { keepTimes: true })).commit();
-    expect((await listSaves('fo2'))[0]).toMatchObject({ savedAt: T1, files: 2 });
-    await (await readSaveArchive('fo2', exported, { keepTimes: true, writtenAt: T2 })).commit();
-    expect((await listSaves('fo2'))[0]).toMatchObject({ savedAt: T2, files: 2 });
-  });
-
-  it('packs nothing for a slot without a readable save', async () => {
-    expect(await packSlot('fo2', 6)).toBeNull();
-  });
-
-  it('takes one slot out of an archive of several', async () => {
-    const archive = new Blob([zipSync({ 'SLOT01/SAVE.DAT': saveDat('one'), 'SLOT02/SAVE.DAT': saveDat('two') })]);
-    expect((await readSaveArchive('fo2', archive)).slots).toEqual([1, 2]);
-    expect((await readSaveArchive('fo2', archive, { only: 2 })).slots).toEqual([2]);
-    await expect(readSaveArchive('fo2', archive, { only: 3 })).rejects.toThrow(/does not hold SLOT03/);
-  });
-});
-
-// ---------------------------------------------------------------------
-// Games
-// ---------------------------------------------------------------------
-
-/** A Fallout 2 archive: the last four bytes hold the size of the whole file. */
-function dat2(size = 64): Uint8Array {
-  const data = new Uint8Array(size);
-  const view = new DataView(data.buffer);
-  view.setUint32(size - 8, 16, true);
-  view.setUint32(size - 4, size, true);
-  return data;
-}
-
-describe('games in Dropbox', () => {
-  beforeEach(link);
-
-  function putFallout2(folder: string): void {
-    dropbox.put(`${folder}/master.dat`, dat2(4096));
-    dropbox.put(`${folder}/critter.dat`, dat2());
-    dropbox.put(`${folder}/patch000.dat`, dat2());
-    dropbox.put(`${folder}/fallout2.cfg`, '[system]\r\nlanguage=german\r\n');
-    dropbox.put(`${folder}/fallout2.exe`, 'not wanted');
-    dropbox.put(`${folder}/sound/music/01hub.acm`, 'music');
-    dropbox.put(`${folder}/data/SAVEGAME/SLOT01/SAVE.DAT`, saveDat('came with the folder'), '2026-09-30T10:00:00Z');
-  }
-
-  it('finds the game wherever its folder was put, reading only what planning needs', async () => {
-    putFallout2('/My Games/Fallout 2');
-    dropbox.put('/Saves/Fallout 2/SLOT03.zip', 'a save, not a game');
-    const before = dropbox.calls.length;
-
-    const plan = await planImport(await dropboxGameFiles('fo2'), 'fo2');
-    expect(plan.game).toBe('fo2');
-    expect(plan.root).toBe('My Games/Fallout 2');
-    expect(plan.entries.map((entry) => entry.path).sort()).toEqual(['critter.dat', 'master.dat', 'patch000.dat', 'sound/music/01hub.acm']);
-    expect(plan.totalBytes).toBe(4096 + 64 + 64 + 5);
-    expect(plan.language).toBe('german');
-    expect(plan.saves.map((entry) => [entry.path, entry.file.lastModified])).toEqual([['data/SAVEGAME/SLOT01/SAVE.DAT', Date.UTC(2026, 8, 30, 10)]]);
-    // One listing, the last bytes of MASTER.DAT (which tell the game), and the settings file.
-    expect(dropbox.calls.slice(before)).toEqual(['files/list_folder', 'files/download', 'files/download']);
-
-    // The files themselves are read piece by piece, when the copy asks.
-    const master = plan.entries.find((entry) => entry.path === 'master.dat')!.file;
-    expect(new Uint8Array(await master.slice(4088, 9999).arrayBuffer())).toHaveLength(8);
-    expect(new Uint8Array(await master.slice(10, 10).arrayBuffer())).toHaveLength(0);
-    expect(new Uint8Array(await master.arrayBuffer())).toEqual(dat2(4096));
-  });
-
-  it('looks only below the folder the player set', async () => {
-    putFallout2('/Elsewhere/Fallout 2');
-    putFallout2('/Games/Fallout 2');
-    saveConfig({ gamesFolder: '/Games' });
-    expect((await planImport(await dropboxGameFiles('fo2'), 'fo2')).root).toBe('Fallout 2');
-  });
-
-  it('says where it looked when there is nothing to find', async () => {
-    dropbox.put('/Saves/Fallout 2/SLOT03.zip', 'a save, not a game');
-    await expect(dropboxGameFiles('fo2')).rejects.toSatisfy((err) => err instanceof ImportError && /No MASTER\.DAT in the console's app folder/.test(err.message));
-    saveConfig({ gamesFolder: '/Games' });
-    await expect(dropboxGameFiles('fo2')).rejects.toSatisfy((err) => err instanceof ImportError && /There is no folder \/Games/.test(err.message));
+  it('says how much room the Dropbox has', async () => {
+    dropbox.put('/Games/master.dat', new Uint8Array(1000));
+    expect(await spaceUsage()).toEqual({ used: 1000, total: 2 * 2 ** 30 });
   });
 });

@@ -48,7 +48,7 @@ export function bytesSource(data: Uint8Array, lastModified = 0): SourceBlob {
 
 /**
  * Reads a slow source in large pieces and answers small requests out of the
- * last piece read. A file in the player's Dropbox costs a request per read;
+ * last piece read. A file in the player's cloud costs a request per read;
  * walking through an archive there in ten thousand small steps would take
  * ten thousand requests.
  */

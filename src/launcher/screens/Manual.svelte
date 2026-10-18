@@ -74,11 +74,11 @@
       topics: ['What they show', 'Continue', 'Earlier versions', 'Modifying a save', 'Erased saves', 'Keeping them safe'],
     },
     {
-      id: 'dropbox',
-      title: 'Your Dropbox',
+      id: 'cloud',
+      title: 'Your cloud',
       icon: 'uplink',
-      summary: 'Optional. Saves carried between devices, and games loaded from a folder of your own Dropbox.',
-      topics: ['Linking', 'Saves and games', 'Unlinking'],
+      summary: 'Optional. Saves carried between devices, and games and mods loaded from your own Dropbox or Google Drive.',
+      topics: ['Linking Dropbox', 'Linking Google Drive', 'Saves, games and mods', 'Unlinking'],
     },
     {
       id: 'faults',
@@ -215,7 +215,7 @@
             Where the browser cannot pick a whole folder, select <span class="hot">MASTER.DAT</span>,
             <span class="hot">CRITTER.DAT</span> and, for Fallout 2, <span class="hot">PATCH000.DAT</span> together; the
             game then plays without its music. To get the whole game onto such a device, music included, select one zip of
-            the game folder instead, or load it from your Dropbox (chapter 8).
+            the game folder instead, or load it from your Dropbox or Google Drive (chapter 8).
           </p>
 
           <h2>Stopping and ejecting</h2>
@@ -250,8 +250,8 @@
           <p>
             Fallout Et Tu is built from Fallout as well: while it is loaded, several thousand of Fallout's files (speech,
             movies, map tiles) are copied out of its <span class="hot">MASTER.DAT</span>, so Fallout must be in deck A
-            then. With your Dropbox linked, a mod can be loaded from the <span class="hot">Mods</span> folder inside your
-            games folder there: put each mod in it as its zip or its folder.
+            then. With your Dropbox or Google Drive linked, a mod can be loaded from the <span class="hot">Mods</span>
+            folder inside your games folder there (chapter 8).
           </p>
 
           <h2>Playing it</h2>
@@ -390,8 +390,8 @@
           <p>
             Saving works as in the original games. Each save is written to this browser's storage the moment the game
             finishes it. Saves live in this browser on this device only: use Save archives on the main directory to export
-            them to a zip file as a backup, or to move them to another browser or a desktop install. Linking your Dropbox
-            (chapter 8) does the moving for you.
+            them to a zip file as a backup, or to move them to another browser or a desktop install. Linking your Dropbox or
+            Google Drive (chapter 8) does the moving for you.
           </p>
 
           <h2>Quick save</h2>
@@ -420,7 +420,7 @@
           <h2>Last exported</h2>
           <p>
             The deck of each game, and its archive, say when its saves were <span class="hot">last exported</span> to a zip
-            file or uploaded to Dropbox. Until they ever were, the console says so in amber.
+            file or uploaded to your Dropbox or Google Drive. Until they ever were, the console says so in amber.
           </p>
         {:else if current.id === 'archives'}
           <h2>What they show</h2>
@@ -484,16 +484,26 @@
           <h2>Keeping them safe</h2>
           <p>
             Clearing this site's data in your browser deletes the game data and the saves. Safari may also clear data of
-            sites you have not opened for a week. Exporting your saves to a zip file, or uploading them to your Dropbox, is
-            the safe habit.
+            sites you have not opened for a week. Exporting your saves to a zip file, or uploading them to your Dropbox or
+            Google Drive, is the safe habit.
           </p>
-        {:else if current.id === 'dropbox'}
-          <h2>Linking</h2>
+        {:else if current.id === 'cloud'}
           <p>
-            Optional. The console can keep saves in your own Dropbox, to carry them between devices, and load a game from
-            a folder there. It has no accounts and no server of its own: you make a small private app in your Dropbox
-            account, and the console is let into that app's folder and nowhere else.
+            Optional. The console can keep saves in your own Dropbox or Google Drive, to carry them between devices, and
+            load games and mods from there. It has no accounts and no server of its own: you make a small app (Dropbox) or
+            project (Google) in your own account, and the console works in a folder of its own there and nowhere else. One
+            cloud at a time, under Terminal settings, <span class="hot">Cloud link</span>.
           </p>
+          <dl class="readout gap">
+            <dt>Room</dt>
+            <dd>
+              A game is roughly 550 MB, a mod up to 3 GB. A free Dropbox holds 2 GB: the two games and a mod. A free
+              Google account holds up to 15 GB, shared with Gmail and Google Photos: room for the games and every mod the
+              console knows.
+            </dd>
+          </dl>
+
+          <h2>Linking Dropbox</h2>
           <dl class="readout gap">
             <dt>Make the app</dt>
             <dd>
@@ -504,36 +514,62 @@
             </dd>
             <dt>Link</dt>
             <dd>
-              Terminal settings, Dropbox link. Enter the App key from the app's Settings tab, open Dropbox from there,
-              allow the app, and paste the code it shows. Once in every browser you play in.
+              Cloud link, Dropbox. Enter the App key from the app's Settings tab, open Dropbox from there, allow the app, and
+              paste the code it shows. Once in every browser you play in.
             </dd>
           </dl>
 
-          <h2>Saves and games</h2>
+          <h2>Linking Google Drive</h2>
+          <dl class="readout gap">
+            <dt>Make the client</dt>
+            <dd>
+              At <span class="hot">console.cloud.google.com</span> create a project and enable the Google Drive API in it.
+              Under Google Auth Platform choose Get started, with Audience External, then Publish app under Audience. Under
+              Clients create one of the type <span class="hot">TVs and Limited Input devices</span>, and copy its Client ID
+              and secret: the secret is shown once.
+            </dd>
+            <dt>Link</dt>
+            <dd>
+              Cloud link, Google Drive. Enter the two and get a code. Open Google from there, enter the code and allow the
+              console: the screen notices by itself. Once in every browser you play in.
+            </dd>
+          </dl>
+
+          <h2>Saves, games and mods</h2>
           <dl class="readout gap">
             <dt>Saves</dt>
             <dd>
-              Save archives, then a game. <span class="hot">Upload to Dropbox</span> sends the saves that are newer here;
-              <span class="hot">Fetch from Dropbox</span> brings in the ones that are newer there. A save only ever
-              replaces an older one, and what a fetch replaces is kept as an earlier version.
+              Save archives, then a game. <span class="hot">Upload</span> sends the saves that are newer here;
+              <span class="hot">Fetch</span> brings in the ones that are newer there. A save only ever replaces an older
+              one, and what a fetch replaces is kept as an earlier version.
             </dd>
             <dt>Games</dt>
             <dd>
-              With Dropbox's own app or website, put the folder the game is installed in into Apps, then the folder named
-              after your app. On the game's deck here choose <span class="hot">Load holodisk from Dropbox</span>. A game
-              is roughly 600 MB; a free Dropbox holds 2 GB.
+              Cloud link, <span class="hot">Put in</span>, then the game's folder or a zip of it: the console packs it into
+              one zip and puts it in your cloud. On any device the game's deck then loads it with
+              <span class="hot">Load holodisk from</span> your cloud. In Dropbox, a game folder put in the app folder with
+              Dropbox's own app or website does as well.
+            </dd>
+            <dt>Mods</dt>
+            <dd>The same way, into the <span class="hot">Mods</span> folder: Load a mod, in the Mod library, lists them.</dd>
+            <dt>In Google Drive</dt>
+            <dd>
+              Google lets the console see only what it put in your Drive itself. A file put in its folder with Google's own
+              app or website stays out of its sight.
             </dd>
           </dl>
           <p>
-            Nothing moves by itself: saves go to Dropbox when you upload them and come back when you fetch them. Erasing a
-            save that was uploaded erases its copy in Dropbox too; Dropbox keeps deleted files for a while, should you want
-            one back.
+            Nothing moves by itself. Erasing a save that was uploaded erases its copy in the cloud too, unless another
+            device has put a newer one there; both clouds keep deleted files for a while, should you want one back.
           </p>
 
           <h2>Unlinking</h2>
           <p>
-            Dropbox link, Unlink. The link stays in this browser until then, so unlink on a computer that is not yours.
-            Removing the app under Connected apps in your Dropbox account ends it as well.
+            Cloud link, Unlink. The link stays in this browser until then, so unlink on a computer that is not yours.
+            Unlinking Dropbox cancels the link at Dropbox; removing the app under Connected apps in your Dropbox account
+            ends it as well. Unlinking Google Drive forgets it in this browser, and other browsers stay linked;
+            <span class="hot">End access in every browser</span> ends them all, as does removing the project under
+            Third-party apps and services in your Google Account.
           </p>
         {:else if current.id === 'faults'}
           <h2>Troubleshooting</h2>
@@ -561,6 +597,16 @@
             <dd>
               The message names what is missing. Usually it is a permission that was ticked but not submitted, or a code
               used twice: tick, press Submit, and open Dropbox again for a new code.
+            </dd>
+            <dt>Google Drive link refused</dt>
+            <dd>
+              The message names what is wrong. Usually the client is of another type (it must be TVs and Limited Input
+              devices), the Google Drive API is not enabled in the project, or the code ran out after half an hour: get a
+              new one.
+            </dd>
+            <dt>Not in your Google Drive</dt>
+            <dd>
+              The console sees only what it put there itself. Put the game or mod in with Cloud link, Put in Google Drive.
             </dd>
           </dl>
         {/if}

@@ -31,6 +31,8 @@
 
   // Phones like to capitalise what is typed; app keys are lower case.
   const key = $derived(appKey.trim().toLowerCase());
+  /** Another cloud the console is linked to: one at a time. */
+  const other = $derived(sys.cloud.linked && sys.cloud.id !== 'dropbox' ? sys.cloud : null);
 
   onMount(() => {
     sys.hints = [
@@ -43,7 +45,7 @@
   $effect(() => {
     const wanted = key;
     authorization = null;
-    if (link || !looksLikeAppKey(wanted)) return;
+    if (link || other || !looksLikeAppKey(wanted)) return;
     // Kept as typed: on a phone this page may be reloaded while Dropbox is open.
     saveConfig({ appKey: wanted });
     let stale = false;
@@ -81,7 +83,7 @@
       sfx.deny();
     }
     busy = false;
-    sys.refreshDropbox();
+    sys.refreshCloud();
   }
 
   async function unlinkNow(): Promise<void> {
@@ -92,7 +94,7 @@
     view = 'main';
     selected = 0;
     busy = false;
-    sys.refreshDropbox();
+    sys.refreshCloud();
     message = revoked
       ? { text: 'Unlinked. Dropbox has cancelled the access the console had.' }
       : {
@@ -154,7 +156,7 @@
       note: 'Trades the code for the link. The link is kept in this browser until you unlink.',
       action: () => void linkNow(),
     },
-    { key: '0', label: 'Back', icon: 'back', action: () => go('settings') },
+    { key: '0', label: 'Back', icon: 'back', action: () => go('settings/cloud') },
   ]);
 
   const linkedItems = $derived<MenuItem[]>([
@@ -175,6 +177,13 @@
       action: () => savesInput?.focus(),
     },
     {
+      key: 'p',
+      label: 'Put in Dropbox',
+      icon: 'export-save',
+      note: "A game or a mod from this device into the app folder, packed into one zip on the way. Dropbox's own app or website does as well.",
+      action: () => go('settings/cloud/put'),
+    },
+    {
       key: 'u',
       label: 'Unlink',
       tone: 'amber',
@@ -191,7 +200,12 @@
     { key: 'y', label: busy ? 'Unlinking...' : 'Yes, unlink', tone: 'amber', disabled: busy, action: () => void unlinkNow() },
   ]);
 
-  const pointed = $derived((link ? linkedItems : unlinkedItems)[selected]);
+  const otherItems = $derived<MenuItem[]>([
+    { key: '1', label: `Open the ${other?.name ?? ''} link`, icon: 'uplink', action: () => go('settings/cloud') },
+    { key: '0', label: 'Back', icon: 'back', action: () => go('settings') },
+  ]);
+
+  const pointed = $derived((other ? otherItems : link ? linkedItems : unlinkedItems)[selected]);
 </script>
 
 <h1>Dropbox link</h1>
@@ -206,7 +220,19 @@
 
 <div class="columns">
   <div>
-    {#if link && view === 'unlink'}
+    {#if other}
+      <div class="signed ask gap">
+        <Glyph name="warning" tone="amber" />
+        <div>
+          <p class="amber">THE CONSOLE IS LINKED TO THE {other.name.toUpperCase()} OF {other.account.toUpperCase()}.</p>
+          <p>
+            It works with one cloud at a time. To switch to Dropbox, fetch the saves you want from {other.name} first, then
+            unlink it under Cloud link.
+          </p>
+        </div>
+      </div>
+      <Menu items={otherItems} label="Linked to another cloud" bind:selected />
+    {:else if link && view === 'unlink'}
       <div class="signed ask gap">
         <Glyph name="warning" tone="amber" />
         <div>
@@ -240,8 +266,9 @@
           only replaces an older one.
         </p>
         <p>
-          To load a game, put the folder it is installed in into the app folder with Dropbox's own app or website
-          (<span class="hot">Apps</span>, then the name of your app). Then open the game's deck here and choose
+          To load a game, put the folder it is installed in, or a zip of it, into the app folder: with Dropbox's own app
+          or website (<span class="hot">Apps</span>, then the name of your app), or from this device with
+          <span class="hot">Put in Dropbox</span>. Then open the game's deck on any device and choose
           <span class="hot">Load holodisk from Dropbox</span>.
         </p>
       </div>

@@ -4,7 +4,7 @@
  * Saving over a slot destroys what was in it, and these games are well known
  * for saves that turn out to be dead ends hours later. So before a slot is
  * overwritten - by the game, by restoring an archive, by a save fetched from
- * the player's Dropbox, or by rolling back - its previous contents are kept
+ * the player's cloud, or by rolling back - its previous contents are kept
  * as a version. Erasing a slot does the same, and leaves its versions where
  * they are for a week: an erased save can be put back.
  *
@@ -24,7 +24,8 @@ const DB_VERSION = 1;
 const VERSIONS = 'versions';
 const BLOBS = 'blobs';
 
-export type VersionCause = 'save' | 'import' | 'restore' | 'cloud' | 'erase' | 'edit';
+/** 'cloud' is a save fetched from Dropbox (the only cloud there was when it was named), 'drive' one from Google Drive. */
+export type VersionCause = 'save' | 'import' | 'restore' | 'cloud' | 'drive' | 'erase' | 'edit';
 
 interface VersionFile {
   key: string;

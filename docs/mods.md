@@ -9,7 +9,7 @@ main directory.
 ## Loading one
 
 Load the game the mod is played on into its deck first. Then, in the Mod library, choose **Load a mod** and hand the
-console one of these, from a folder, a zip, by dropping it on the screen, or from your Dropbox:
+console one of these, from a folder, a zip, by dropping it on the screen, or from your Dropbox or Google Drive:
 
 - **the mod as it is downloaded**: a zip, or the folder it unpacks to;
 - **a game folder the mod was installed in**, on a desktop, by its own installer.
@@ -19,9 +19,12 @@ installed in is compared with the deck's copy file by file: the game's archives 
 not stored a second time, and the mod is started with the deck's copy of them. Installers, programs and libraries
 are left out; for the mods it knows, the console does what their installer would have done.
 
-With your Dropbox linked, a mod can be loaded from the **Mods** folder inside your games folder (`Apps/<app>/Mods`
-unless you changed the games folder): put each mod there as the zip it is downloaded as, or as its folder, and choose
-it from the list *From Dropbox* shows. A zip is a few large downloads where a folder is thousands of small ones.
+With your Dropbox or Google Drive linked, a mod can be loaded from the **Mods** folder inside your games folder
+(`Apps/<app>/Mods` in Dropbox, `Overseer Console/Mods` in Google Drive, unless you changed the games folder): put each
+mod there as the zip it is downloaded as, or as its folder, and choose it from the list *From Dropbox* (or *From
+Google Drive*) shows. **Put in your cloud**, under Cloud link, puts it there from this device, packing a folder into
+one zip on the way: a zip is a few large downloads where a folder is thousands of small ones. In Google Drive that is
+the only way in, as Google lets the console see only what it put there itself.
 
 ## Playing one
 

@@ -61,16 +61,26 @@ taken into the party, see `tests/party.ts`). `tests/unit/modify.real.test.ts` ch
 games' own rules, items, pictures and world, and reads every map of each game to its last byte; it takes the same
 `FO1_DIR` and `FO2_DIR`, and `ETTU` as the unpacked `Fallout1in2` folder.
 
-### Dropbox
+### Dropbox and Google Drive
 
-`tests/e2e/dropbox.spec.ts` and `tests/unit/dropbox.test.ts` run against a stand-in for Dropbox
-(`tests/fake-dropbox.ts`). No test talks to the real one unless you ask: with a token generated on your
-Dropbox app's Settings tab, this checks the stand-in against the real thing, in a folder of its own that it
-removes again:
+The tests run against stand-ins for the two clouds, `tests/fake-dropbox.ts` and `tests/fake-drive.ts`; the one for
+Drive keeps Google's rule that the console sees only the files it made. `tests/unit/cloud.test.ts` runs every case of
+saves, games, mods and Put in your cloud against both: what one cloud does, the other must. `dropbox.test.ts` and
+`drive.test.ts` cover each one's linking and requests, `tests/e2e/dropbox.spec.ts` and `drive.spec.ts` the screens.
+
+No test talks to a real cloud unless you ask. Each live test checks a stand-in against the real thing, in a folder of
+its own that it removes again. For Dropbox, generate a token on your Dropbox app's Settings tab; for Google Drive, get
+one with your own client (of the type *TVs and Limited Input devices*, see [Google Drive link](google-drive.md)):
 
 ```sh
 DROPBOX_TEST_TOKEN="<token>" npx vitest run tests/unit/dropbox.live.test.ts
+
+node tests/drive-token.mjs "<client id>" "<client secret>"   # a code to enter at google.com/device, then the token
+GOOGLE_DRIVE_TEST_TOKEN="<token>" npx vitest run tests/unit/drive.live.test.ts
 ```
+
+Neither can see what a browser is shown of the clouds' answers: the headers it lets a page of another site read
+(CORS). After changing a call, link the console for real once in each browser and use it.
 
 ### Browsers
 

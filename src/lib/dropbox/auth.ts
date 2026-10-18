@@ -8,7 +8,10 @@
  * the player's Dropbox app free of any address to register, so the same app
  * works wherever the console is served from.
  */
+import { LinkError } from '../cloud/errors';
 import { forgetLink, loadLink, saveConfig, storeLink, type DropboxLink } from './link';
+
+export { LinkError } from '../cloud/errors';
 
 const AUTHORIZE_URL = 'https://www.dropbox.com/oauth2/authorize';
 const TOKEN_URL = 'https://api.dropboxapi.com/oauth2/token';
@@ -29,11 +32,6 @@ const REQUESTED_SCOPES = ['account_info.read', ...FILE_SCOPES];
 
 /** Refresh this long before the access token runs out. */
 const EXPIRY_MARGIN_MS = 5 * 60_000;
-
-/** Something about the link that the player has to act on. */
-export class LinkError extends Error {
-  override name = 'LinkError';
-}
 
 /** A request for approval that is waiting for its code. */
 export interface Authorization {

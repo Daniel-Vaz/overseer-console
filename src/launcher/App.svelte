@@ -9,8 +9,8 @@
   import { isTyping } from './keys';
   import { screenOf } from './mods';
   import Boot from './screens/Boot.svelte';
+  import Cloud from './screens/Cloud.svelte';
   import Credits from './screens/Credits.svelte';
-  import Dropbox from './screens/Dropbox.svelte';
   import Game from './screens/Game.svelte';
   import Main from './screens/Main.svelte';
   import Manual from './screens/Manual.svelte';
@@ -55,7 +55,25 @@
       history.replaceState(null, '', `#/mods/${section}`);
       route = readRoute();
     }
+    // The Dropbox link was a screen of its own before there was a choice of clouds.
+    if (section === 'settings' && route[1] === 'dropbox') {
+      history.replaceState(null, '', '#/settings/cloud/dropbox');
+      route = readRoute();
+    }
   });
+
+  /** Under Cloud link: the cloud a screen is about, or Put in your cloud. */
+  const cloudTitle = $derived(
+    route[2] === 'put'
+      ? 'CLOUD LINK // PUT'
+      : route[2] === 'dropbox'
+        ? 'CLOUD LINK // DROPBOX'
+        : route[2] === 'drive'
+          ? 'CLOUD LINK // GOOGLE DRIVE'
+          : sys.cloud.linked
+            ? `CLOUD LINK // ${sys.cloud.name.toUpperCase()}`
+            : 'CLOUD LINK',
+  );
 
   const title = $derived(
     !booted
@@ -67,8 +85,8 @@
             ? 'SAVE ARCHIVES // MODIFY'
             : 'SAVE ARCHIVES'
           : section === 'settings'
-            ? route[1] === 'dropbox'
-              ? 'DROPBOX LINK'
+            ? route[1] === 'cloud'
+              ? cloudTitle
               : route[1] === 'picture'
                 ? 'PICTURE'
                 : 'TERMINAL SETTINGS'
@@ -89,8 +107,11 @@
                     : 'UNKNOWN',
   );
 
-  function go(path: string): void {
-    location.hash = path ? `#/${path}` : '#/';
+  /** Goes to a screen. `replace`: in place of this one in the browser's history, for a screen that has become another. */
+  function go(path: string, replace = false): void {
+    const hash = path ? `#/${path}` : '#/';
+    if (replace) history.replaceState(null, '', hash);
+    else location.hash = hash;
     // The hashchange event arrives a moment later. Switch screens now, so a
     // key typed right after this one already belongs to the new screen.
     route = readRoute();
@@ -132,7 +153,7 @@
     window.addEventListener('pageshow', onShow);
     // A copy that is running ends with the page. The browser asks before it lets that happen.
     const onLeave = (event: BeforeUnloadEvent) => {
-      if (sys.busy) event.preventDefault();
+      if (sys.working) event.preventDefault();
     };
     window.addEventListener('beforeunload', onLeave);
 
@@ -197,11 +218,17 @@
     event.preventDefault();
     dragging = 0;
     if (!booted) finishBoot();
-    if (sys.busy || !sys.supported) {
+    // Put in your cloud takes what is dropped on it to the cloud, not into storage.
+    const target = sys.dropTarget;
+    if (target ? sys.sending : sys.busy || !sys.supported) {
       sfx.deny();
       return;
     }
     const sources = await sourcesFromDrop(event.dataTransfer);
+    if (target) {
+      target(sources);
+      return;
+    }
     // On the Mod library a mod, on a mod's page new files for it; on a deck its game.
     const preferred = section === 'mods' ? (modPage ?? 'mod') : (game ?? undefined);
     const imported = await sys.importFrom(sources, preferred);
@@ -263,8 +290,8 @@
               {/key}
             {:else if section === 'saves'}
               <Saves {go} {game} slot={Number(route[2]) || undefined} />
-            {:else if section === 'settings' && route[1] === 'dropbox'}
-              <Dropbox {go} />
+            {:else if section === 'settings' && route[1] === 'cloud'}
+              <Cloud {go} sub={route[2]} />
             {:else if section === 'settings' && route[1] === 'picture'}
               <Picture {go} />
             {:else if section === 'settings'}
@@ -313,7 +340,7 @@
         {#if dragging > 0}
           <div class="dropzone">
             <Glyph name="folder" />
-            <span>Release to load holodisk</span>
+            <span>{sys.dropTarget ? `Release to put it in your ${sys.cloud.name}` : 'Release to load holodisk'}</span>
           </div>
         {/if}
 
@@ -328,7 +355,7 @@
         <span class="nameplate" class:speaking={sys.plate !== ''}>{sys.plate || 'OVERSEER CONSOLE'}</span>
       {/key}
       <button class="lamp on" type="button" title="Power" onclick={cyclePower}>PWR<span class="sr-only"> off and on again</span></button>
-      <span class="lamp amber optional" class:on={sys.busy} class:busy={sys.busy} title="Disk activity">DISK</span>
+      <span class="lamp amber optional" class:on={sys.working} class:busy={sys.working} title="Disk activity">DISK</span>
       <span class="hazard"></span>
       <button class="switch" type="button" aria-pressed={sys.settings.crt} onclick={() => toggle('crt')}>
         CRT<span class="sr-only"> effects</span>

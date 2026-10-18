@@ -75,8 +75,8 @@ Epic). No game data is hosted or distributed here, and nothing is uploaded.
       <h3>Saves that don't get lost</h3>
       Every save shows its screenshot and character sheet, read from the save file itself. Autosave every ten
       minutes, quick save on <code>F6</code>, earlier versions of every slot to roll back to, erased saves kept
-      for a week, zip export, and an optional link to <a href="docs/dropbox.md">your own Dropbox</a> to carry saves
-      between devices.
+      for a week, zip export, and an optional link to your own <a href="docs/dropbox.md">Dropbox</a> or
+      <a href="docs/google-drive.md">Google Drive</a> to carry saves, games and mods between devices.
     </td>
   </tr>
   <tr>
@@ -153,7 +153,8 @@ door is shut exactly when the console's storage is sealed, and a console left al
 | --- | --- |
 | [Features](docs/features.md) | Everything the console does |
 | [Mods](docs/mods.md) | Loading a mod, playing it on its game, and the mods the console knows |
-| [Dropbox link](docs/dropbox.md) | Carry saves and games between devices through your own Dropbox |
+| [Dropbox link](docs/dropbox.md) | Carry saves, games and mods between devices through your own Dropbox |
+| [Google Drive link](docs/google-drive.md) | The same through your own Google Drive, with more free room: setting it up step by step |
 | [How it works](docs/how-it-works.md) | The engines, storage, save reader and editor, and the vault |
 | [Developing](docs/developing.md) | Building the engines and the site, tests, deploying |
 

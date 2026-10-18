@@ -1,15 +1,17 @@
 /**
  * When a game's saves last left this browser: all of them exported to a zip
- * file, or uploaded to the player's Dropbox. Saves otherwise live only in
- * the browser's storage, which the browser may clear, so the console says
- * when that was, and says so loudly when it never was.
+ * file, or uploaded to the player's Dropbox or Google Drive. Saves otherwise
+ * live only in the browser's storage, which the browser may clear, so the
+ * console says when that was, and says so loudly when it never was.
  */
 import type { GameId } from './games';
 import { loadSynced } from './dropbox/link';
 
 const KEY = 'overseer-console:exported';
 
-export type ExportedTo = 'dropbox' | 'zip';
+export type ExportedTo = 'dropbox' | 'drive' | 'zip';
+
+const PLACES: readonly ExportedTo[] = ['dropbox', 'drive', 'zip'];
 
 export interface ExportMark {
   at: number;
@@ -30,7 +32,7 @@ function readMarks(): Marks {
 /** The last time this game's saves were exported, if ever. */
 export function lastExport(game: GameId): ExportMark | null {
   const mark = readMarks()[game];
-  if (mark && Number.isFinite(mark.at) && (mark.to === 'dropbox' || mark.to === 'zip')) return mark;
+  if (mark && Number.isFinite(mark.at) && PLACES.includes(mark.to)) return mark;
   // Uploaded before the console kept track: Dropbox holds a save from here no older than the newest one it got.
   const synced = Object.values(loadSynced(game)).map((save) => save.savedAt).filter(Number.isFinite);
   return synced.length ? { at: Math.max(...synced), to: 'dropbox' } : null;

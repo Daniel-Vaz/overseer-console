@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { DropboxError } from '../../lib/dropbox/api';
-  import { listDropboxMods, modsFolder, type CloudMod } from '../../lib/dropbox/games';
-  import { showFolder } from '../../lib/dropbox/link';
+  import { activeCloud } from '../../lib/cloud/clouds';
+  import { CloudError } from '../../lib/cloud/errors';
+  import { showFolder } from '../../lib/cloud/folders';
+  import { listCloudMods, modsFolder, type CloudMod } from '../../lib/cloud/games';
   import { BASE_GAMES, gameDef, isGameId, type GameId } from '../../lib/games';
   import { KNOWN_MODS, KNOWN_MOD_IDS, type KnownModId } from '../../lib/mods/catalog';
   import { sourcesFromFileList } from '../../lib/storage/importer';
@@ -30,8 +31,16 @@
   let zipInput: HTMLInputElement | undefined = $state();
   let selected = $state(0);
 
-  /** The mods in the Mods folder of the player's Dropbox, once asked for. */
+  /** The mods in the Mods folder of the player's cloud, once asked for. */
   let cloud = $state<{ mods: CloudMod[] | null; error: string | null } | null>(null);
+  /** The cloud the console is linked to: looked at again whenever the link changes. */
+  const linked = $derived.by(() => {
+    void sys.cloud;
+    return activeCloud();
+  });
+  /** Its Mods folder, as the console shows it, and where that is said in a sentence. */
+  const cloudMods = $derived(linked ? showFolder(modsFolder(linked)) : '/Mods');
+  const cloudHome = $derived(linked?.home ?? '');
 
   // A copy of a mod whose name is not known yet, or no longer (it was stopped before it arrived): it is shown here.
   const job = $derived(sys.job.phase !== 'idle' && (sys.job.game === undefined || !isGameId(sys.job.game)) ? sys.job : null);
@@ -73,14 +82,14 @@
     await sys.importFrom(sources, 'mod');
   }
 
-  async function lookInDropbox(): Promise<void> {
+  async function lookInCloud(): Promise<void> {
     cloud = { mods: null, error: null };
     try {
-      cloud = { mods: await listDropboxMods(), error: null };
+      cloud = { mods: await listCloudMods(), error: null };
     } catch (err) {
-      cloud = { mods: [], error: err instanceof DropboxError || err instanceof Error ? err.message : String(err) };
+      cloud = { mods: [], error: err instanceof CloudError || err instanceof Error ? err.message : String(err) };
       sfx.deny();
-      sys.refreshDropbox();
+      sys.refreshCloud();
     }
   }
 
@@ -122,7 +131,7 @@
       key: 'l',
       label: 'Load a mod',
       icon: 'folder',
-      note: 'From its zip, its folder or your Dropbox, or from a game folder it was installed in.',
+      note: 'From its zip, its folder or your cloud, or from a game folder it was installed in.',
       action: () => go('mods/load'),
     },
     {
@@ -157,13 +166,13 @@
       : []),
     {
       key: '3',
-      label: 'From Dropbox',
-      state: sys.dropbox.linked ? undefined : 'NOT LINKED',
+      label: sys.cloud.linked ? `From ${sys.cloud.name}` : 'From your cloud',
+      state: sys.cloud.linked ? undefined : 'NOT LINKED',
       icon: 'uplink',
-      note: sys.dropbox.linked
-        ? `The mods in ${showFolder(modsFolder())}, in the console's app folder in your Dropbox: each zip or folder there is one.`
-        : 'Optional. Link your own Dropbox, put your mods in its Mods folder, and load them from there on any device.',
-      action: () => (sys.dropbox.linked ? void lookInDropbox() : go('settings/dropbox')),
+      note: sys.cloud.linked
+        ? `The mods in ${cloudMods}, in ${cloudHome} in your ${sys.cloud.name}: each zip or folder there is one.`
+        : 'Optional. Link your own Dropbox or Google Drive, put your mods in its Mods folder, and load them from there on any device.',
+      action: () => (sys.cloud.linked ? void lookInCloud() : go('settings/cloud')),
     },
     {
       key: 'k',
@@ -182,10 +191,10 @@
         label: mod.name,
         state: `${mod.zip ? 'ZIP' : `${mod.files} ${mod.files === 1 ? 'FILE' : 'FILES'}`}, ${formatBytes(mod.bytes)}`,
         icon: mod.zip ? 'folder' : 'gamedata',
-        note: `Loads the mod in ${mod.name}, fetched from your Dropbox.`,
+        note: `Loads the mod in ${mod.name}, fetched from your ${sys.cloud.name}.`,
         action: () => {
           cloud = null;
-          void sys.importModFromDropbox(mod.name);
+          void sys.importModFromCloud(mod.name);
         },
       }),
     ),
@@ -299,7 +308,7 @@
         <Menu items={knownItems} label="Mods the console knows" bind:selected />
       {:else if view === 'load' && cloud}
         {#if cloud.mods === null}
-          <p class="gap">CONTACTING DROPBOX<span class="cursor"></span></p>
+          <p class="gap">CONTACTING {sys.cloud.name.toUpperCase()}<span class="cursor"></span></p>
         {:else if cloud.error}
           <div class="panel signed bad" role="alert">
             <Glyph name="fault" tone="alert" />
@@ -307,15 +316,20 @@
           </div>
         {:else if !cloud.mods.length}
           <p class="gap prose">
-            There are no mods in <span class="hot">{showFolder(modsFolder())}</span> in the console's app folder in your
-            Dropbox. Put each one there as the zip it is downloaded as, or as its folder, with Dropbox's own app or
-            website, and look again.
+            There are no mods in <span class="hot">{cloudMods}</span> in {cloudHome} in your {sys.cloud.name}.
+            {#if sys.cloud.id === 'drive'}
+              Put each one there with <span class="hot">Put in Google Drive</span>, under Cloud link in Terminal settings,
+              and look again: Google lets the console see only what it put there itself.
+            {:else}
+              Put each one there as the zip it is downloaded as, or as its folder, with Dropbox's own app or website or
+              with <span class="hot">Put in Dropbox</span>, and look again.
+            {/if}
           </p>
         {:else}
-          <p class="gap dim">IN {showFolder(modsFolder()).toUpperCase()} IN YOUR DROPBOX:</p>
+          <p class="gap dim">IN {cloudMods.toUpperCase()} IN YOUR {sys.cloud.name.toUpperCase()}:</p>
         {/if}
         {#if cloud.mods !== null}
-          <Menu items={cloudItems} label="Mods in your Dropbox" bind:selected />
+          <Menu items={cloudItems} label={`Mods in your ${sys.cloud.name}`} bind:selected />
         {/if}
       {:else if view === 'load'}
         {#if sys.supported}

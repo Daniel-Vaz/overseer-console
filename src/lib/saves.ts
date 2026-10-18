@@ -169,7 +169,7 @@ export function deleteSave(game: GameId, slot: number): Promise<boolean> {
 }
 
 /**
- * Carried in the archives the console keeps in the player's Dropbox: what a
+ * Carried in the archives the console keeps in the player's cloud: what a
  * zip cannot say precisely. Archives exported by hand do without it.
  */
 const ARCHIVE_INFO = 'overseer.json';

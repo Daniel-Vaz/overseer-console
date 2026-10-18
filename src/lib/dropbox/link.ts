@@ -7,7 +7,12 @@
  * folder (Apps/<app name>) of that one account and nothing else, and it never
  * leaves this browser.
  */
+import { normaliseFolder } from '../cloud/folders';
+import type { SyncedSave } from '../cloud/provider';
 import type { GameId } from '../games';
+
+export { normaliseFolder, showFolder } from '../cloud/folders';
+export type { SyncedSave } from '../cloud/provider';
 
 const CONFIG_KEY = 'overseer-console:dropbox';
 const LINK_KEY = 'overseer-console:dropbox:link';
@@ -40,14 +45,6 @@ export interface DropboxLink {
   linkedAt: number;
 }
 
-/** A slot as it was when this browser and Dropbox last held the same save. */
-export interface SyncedSave {
-  /** Dropbox's revision of the zip. */
-  rev: string;
-  /** When the save in this browser was written. */
-  savedAt: number;
-}
-
 function read<T>(key: string): T | null {
   try {
     return JSON.parse(localStorage.getItem(key) ?? 'null') as T | null;
@@ -65,25 +62,6 @@ function write(key: string, value: unknown): boolean {
     // Private windows may refuse storage.
     return false;
   }
-}
-
-/**
- * Tidies a folder path as the player typed it: "/Games/Fallout 2", or '' for
- * the app folder itself. Throws when the path tries to climb out.
- */
-export function normaliseFolder(text: string): string {
-  const parts = text
-    .replace(/\\/g, '/')
-    .split('/')
-    .map((part) => part.trim())
-    .filter((part) => part && part !== '.');
-  if (parts.includes('..')) throw new Error('A folder path cannot contain "..".');
-  return parts.length ? `/${parts.join('/')}` : '';
-}
-
-/** A folder path as the console shows it: the app folder itself is "/". */
-export function showFolder(folder: string): string {
-  return folder || '/';
 }
 
 export function loadConfig(): DropboxConfig {

@@ -2,7 +2,7 @@ import type { BrowserContext, Page } from '@playwright/test';
 import { zipSync } from 'fflate';
 import { FakeDropbox } from '../fake-dropbox';
 import { expect, test as base } from './fixtures';
-import { fakeEttuZip, fakeSaveDat, openConsole } from './helpers';
+import { fakeEttuZip, fakeFallout2Folder, fakeSaveDat, openConsole, pickFolder } from './helpers';
 
 /**
  * WebKit sends the requests of a page that a service worker controls straight
@@ -41,7 +41,7 @@ async function codeFromDropbox(page: Page, context: BrowserContext): Promise<str
 }
 
 async function linkConsole(page: Page, context: BrowserContext, dropbox: FakeDropbox): Promise<void> {
-  await openConsole(page, 'settings/dropbox');
+  await openConsole(page, 'settings/cloud/dropbox');
   await page.getByLabel('App key').fill(dropbox.appKey);
   await page.getByLabel('App key').press('Escape');
   await expect(page.locator('.menu li').nth(1).locator('button')).toBeEnabled();
@@ -100,11 +100,14 @@ test('links to a Dropbox with an app key and a pasted code, and unlinks again', 
 
   // The settings lead there, and so does the deck of a game that is not loaded.
   await openConsole(page, 'fo2');
-  await expect(page.locator('.menu li').nth(2)).toContainText('Load holodisk from Dropbox');
+  await expect(page.locator('.menu li').nth(2)).toContainText('Load holodisk from your cloud');
   await expect(page.locator('.menu li').nth(2)).toContainText('NOT LINKED');
   await page.goto('#/settings');
-  await expect(page.locator('.menu li').filter({ hasText: 'Dropbox link' })).toContainText('NOT LINKED');
-  await page.keyboard.press('d');
+  await expect(page.locator('.menu li').filter({ hasText: 'Cloud link' })).toContainText('NOT LINKED');
+  await page.keyboard.press('c');
+  await expect(page.getByRole('heading', { name: 'Cloud link' })).toBeVisible();
+  await expect(page.locator('.menu li').first()).toContainText('FREE: 2 GB');
+  await page.keyboard.press('1');
   await expect(page.getByRole('heading', { name: 'Dropbox link' })).toBeVisible();
   // What to do stands above what to fill in.
   const steps = (await page.getByText('you make a small private app in your own Dropbox').boundingBox())!;
@@ -144,10 +147,15 @@ test('links to a Dropbox with an app key and a pasted code, and unlinks again', 
   // The link outlives the page, and the console says so where it promised nothing leaves the device.
   await page.goto('#/');
   await page.reload();
-  await expect(page.getByText('ONLY THE SAVES YOU UPLOAD GO TO YOUR OWN DROPBOX')).toBeVisible();
+  await expect(page.getByText('ONLY WHAT YOU UPLOAD GOES TO YOUR OWN DROPBOX')).toBeVisible();
   await page.goto('#/settings');
-  await expect(page.locator('.menu li').filter({ hasText: 'Dropbox link' })).toContainText('LINKED');
-  await page.keyboard.press('d');
+  await expect(page.locator('.menu li').filter({ hasText: 'Cloud link' })).toContainText('DROPBOX');
+  await page.keyboard.press('c');
+  await expect(page.getByRole('heading', { name: 'Dropbox link' })).toBeVisible();
+  // One cloud at a time: Google Drive's screen says this one is linked.
+  await page.goto('#/settings/cloud/drive');
+  await expect(page.getByText('THE CONSOLE IS LINKED TO THE DROPBOX OF CHOSEN ONE.')).toBeVisible();
+  await page.goto('#/settings/cloud');
 
   // Folders are tidied as they are stored.
   await page.getByLabel('Saves folder').fill('Vault 13\\Backups/');
@@ -174,7 +182,9 @@ test('says which permissions a Dropbox app lacks', async ({ page, context }) => 
   dropbox.allowed = ['account_info.read'];
   await standIn(context, dropbox);
 
+  // Where the Dropbox link used to be is where it is now.
   await openConsole(page, 'settings/dropbox');
+  await expect(page).toHaveURL(/#\/settings\/cloud\/dropbox$/);
   await page.getByLabel('App key').fill(dropbox.appKey);
   await page.getByLabel('App key').press('Escape');
   await expect(page.locator('.menu li').nth(1).locator('button')).toBeEnabled();
@@ -266,7 +276,7 @@ test('says so when Dropbox has cancelled the link', async ({ page, context }) =>
   dropbox.disconnectApp();
   await page.keyboard.press('f');
   await expect(page.getByRole('status')).toContainText('Dropbox no longer accepts this link');
-  await expect(page.locator('.menu li').filter({ hasText: 'Keep saves in your Dropbox' })).toContainText('NOT LINKED');
+  await expect(page.locator('.menu li').filter({ hasText: 'Keep saves in your cloud' })).toContainText('NOT LINKED');
 });
 
 /** Bytes that depend on where they are, so a piece put in the wrong place shows. */
@@ -389,6 +399,26 @@ test('loads Fallout Et Tu from the zip it is kept as in the Mods folder of Dropb
   await page.goto('#/fo2');
   await page.locator('.menu button', { hasText: 'Load holodisk from Dropbox' }).click();
   await expect(page.getByRole('alert')).toContainText("No MASTER.DAT in the console's app folder in your Dropbox.");
+});
+
+test('puts a game in Dropbox from this device, for another device to load from there', async ({ page, context }) => {
+  const dropbox = new FakeDropbox();
+  await standIn(context, dropbox);
+  await linkConsole(page, context, dropbox);
+
+  await page.keyboard.press('p');
+  await expect(page.getByRole('heading', { name: 'Put in Dropbox' })).toBeVisible();
+  await page.keyboard.press('1');
+  await pickFolder(page, await fakeFallout2Folder());
+  const done = page.getByRole('status').filter({ hasText: 'Fallout 2.zip (' });
+  await expect(done).toContainText("is in your Dropbox. On any device linked to it, the game's deck loads it: Load holodisk from Dropbox.", { timeout: 60_000 });
+  expect([...dropbox.files.values()].map((file) => file.path)).toEqual(['/Fallout 2.zip']);
+  expect(dropbox.calls.filter((call) => call.startsWith('files/upload_session'))).toEqual(['files/upload_session/start', 'files/upload_session/finish']);
+
+  await page.goto('#/fo2');
+  await page.locator('.menu button', { hasText: 'Load holodisk from Dropbox' }).click();
+  await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByRole('status')).toContainText('5 files');
 });
 
 test('a game on its way from Dropbox can be called off, and the deck is as it was', async ({ page, context }) => {

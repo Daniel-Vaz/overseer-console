@@ -4,7 +4,11 @@
  * Every path here is inside the app folder: with "App folder" access Dropbox
  * treats that folder as the root, and '' names it.
  */
+import { CloudError } from '../cloud/errors';
+import type { SendOptions, UploadOptions } from '../cloud/provider';
 import { validToken } from './auth';
+
+export type { UploadOptions } from '../cloud/provider';
 
 const API_URL = 'https://api.dropboxapi.com/2/';
 const CONTENT_URL = 'https://content.dropboxapi.com/2/';
@@ -18,25 +22,30 @@ const CONTENT_URL = 'https://content.dropboxapi.com/2/';
 const ATTEMPTS = 3;
 const PATIENT_ATTEMPTS = 6;
 
-export class DropboxError extends Error {
+/** What a large file is sent in. Dropbox takes up to 150 MB a request. */
+const SEND_PIECE = 8 << 20;
+
+export class DropboxError extends CloudError {
   override name = 'DropboxError';
 
   constructor(
     message: string,
-    readonly status: number,
+    status: number,
     /** Dropbox's own word for what went wrong: "path/not_found/" and the like. */
-    readonly summary = '',
+    summary = '',
+    /** The error itself, as Dropbox described it. */
+    readonly detail: Record<string, unknown> = {},
   ) {
-    super(message);
+    super(message, status, summary);
   }
 
   /** The file or folder is not there. */
-  get notFound(): boolean {
+  override get notFound(): boolean {
     return /(^|\/)not_found(\/|$)/.test(this.summary);
   }
 
   /** The file changed in Dropbox since it was last looked at. */
-  get conflict(): boolean {
+  override get conflict(): boolean {
     return /(^|\/)conflict(\/|$)/.test(this.summary);
   }
 }
@@ -90,7 +99,7 @@ function pause(ms: number): Promise<void> {
 async function failure(response: Response): Promise<DropboxError> {
   const text = await response.text().catch(() => '');
   let summary = '';
-  let detail: { '.tag'?: string; required_scope?: string } = {};
+  let detail: { '.tag'?: string; required_scope?: string } & Record<string, unknown> = {};
   try {
     const body = JSON.parse(text) as { error_summary?: string; error?: typeof detail };
     summary = body.error_summary ?? '';
@@ -104,12 +113,17 @@ async function failure(response: Response): Promise<DropboxError> {
       `The Dropbox app does not allow ${detail.required_scope ?? 'this'}. Tick it on the app's Permissions tab, press Submit, then link the console again.`,
       response.status,
       summary,
+      detail,
     );
   }
-  if (response.status === 401) return new DropboxError('Dropbox no longer accepts this link. Link the console again in Terminal settings.', 401, summary);
-  if (response.status === 429) return new DropboxError('Dropbox is busy. Try again in a minute.', 429, summary);
-  if (summary.includes('insufficient_space')) return new DropboxError('Your Dropbox is full.', response.status, summary);
-  return new DropboxError(`Dropbox refused the request (${summary || `HTTP ${response.status}`}).`, response.status, summary);
+  if (response.status === 401) return new DropboxError('Dropbox no longer accepts this link. Link the console again in Terminal settings.', 401, summary, detail);
+  if (response.status === 429) return new DropboxError('Dropbox is busy. Try again in a minute.', 429, summary, detail);
+  if (summary.includes('insufficient_space')) return new DropboxError('Your Dropbox is full.', response.status, summary, detail);
+  return new DropboxError(`Dropbox refused the request (${summary || `HTTP ${response.status}`}).`, response.status, summary, detail);
+}
+
+function stopped(): DOMException {
+  return new DOMException('stopped', 'AbortError');
 }
 
 /**
@@ -128,14 +142,16 @@ async function askedPause(response: Response): Promise<number> {
  * says it ran out, waits when asked to slow down, and tries again after
  * network faults; anything else is thrown as a DropboxError.
  */
-async function send(url: string, init: (token: string) => RequestInit, attempts = ATTEMPTS): Promise<Response> {
+async function send(url: string, init: (token: string) => RequestInit, attempts = ATTEMPTS, signal?: AbortSignal): Promise<Response> {
   let renewed = false;
   for (let attempt = 1; ; attempt++) {
+    if (signal?.aborted) throw stopped();
     const token = await validToken();
     let response: Response;
     try {
-      response = await fetch(url, init(token));
+      response = await fetch(url, { ...init(token), signal });
     } catch {
+      if (signal?.aborted) throw stopped();
       if (attempt >= attempts) throw new DropboxError('Could not reach Dropbox. Check the connection and try again.', 0);
       await pause(400 * 2 ** (attempt - 1));
       continue;
@@ -211,17 +227,6 @@ export async function download(file: string, range?: { start: number; end: numbe
   return data;
 }
 
-export interface UploadOptions {
-  /**
-   * The revision this upload replaces, or null when the file must not exist
-   * yet. If Dropbox holds something else by now the upload is refused
-   * (`conflict`) instead of overwriting it.
-   */
-  replaces: string | null;
-  /** When the contents were written. */
-  modified: number;
-}
-
 /** Writes a file of up to 150 MB, creating the folders above it. */
 export async function upload(path: string, data: Uint8Array, options: UploadOptions): Promise<DropboxFile> {
   const arg = {
@@ -245,4 +250,60 @@ export async function upload(path: string, data: Uint8Array, options: UploadOpti
  */
 export async function remove(path: string, rev: string): Promise<void> {
   await rpc('files/delete_v2', { path, parent_rev: rev });
+}
+
+/**
+ * Writes a file of any size, a piece at a time: an upload session, which
+ * Dropbox puts together into the file only once the last piece is in. A
+ * piece whose answer was lost on the way is not sent twice: Dropbox says
+ * where it is at, and the next piece starts there.
+ */
+export async function sendLarge(path: string, data: Blob, options: SendOptions): Promise<DropboxFile> {
+  const { signal } = options;
+  // One piece in memory at a time, as bytes: a body of bytes goes the same way in every browser.
+  const piece = (at: number) => data.slice(at, Math.min(data.size, at + SEND_PIECE)).arrayBuffer();
+  const contentCall = (route: string, arg: unknown, body: ArrayBuffer) =>
+    send(
+      `${CONTENT_URL}${route}`,
+      (token) => ({
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/octet-stream', 'Dropbox-API-Arg': headerJson(arg) },
+        body,
+      }),
+      PATIENT_ATTEMPTS,
+      signal,
+    );
+
+  const first = await piece(0);
+  const started = (await (await contentCall('files/upload_session/start', { close: false }, first)).json()) as { session_id: string };
+  let offset = first.byteLength;
+  options.onProgress?.(offset);
+  while (offset < data.size) {
+    const next = await piece(offset);
+    try {
+      await contentCall('files/upload_session/append_v2', { cursor: { session_id: started.session_id, offset }, close: false }, next);
+      offset += next.byteLength;
+    } catch (err) {
+      const correct = err instanceof DropboxError ? Number((err.detail as { correct_offset?: number }).correct_offset) : NaN;
+      if (!(err instanceof DropboxError && /incorrect_offset/.test(err.summary) && Number.isFinite(correct))) throw err;
+      offset = correct;
+    }
+    options.onProgress?.(offset);
+  }
+  const commit = {
+    path,
+    mode: options.replace ? 'overwrite' : 'add',
+    autorename: false,
+    mute: true,
+    client_modified: toDropboxTime(options.modified),
+  };
+  const finished = await contentCall('files/upload_session/finish', { cursor: { session_id: started.session_id, offset }, commit }, new ArrayBuffer(0));
+  return (await finished.json()) as DropboxFile;
+}
+
+/** How much room the Dropbox has, and how much of it is used. */
+export async function spaceUsage(): Promise<{ used: number; total: number } | null> {
+  const usage = await rpc<{ used?: number; allocation?: { allocated?: number } }>('users/get_space_usage', null);
+  const total = Number(usage.allocation?.allocated);
+  return Number.isFinite(usage.used) && total > 0 ? { used: usage.used!, total } : null;
 }
