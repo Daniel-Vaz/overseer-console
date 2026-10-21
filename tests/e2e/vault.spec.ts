@@ -139,7 +139,19 @@ test('the vault holds still for those who have asked for less motion', async ({ 
   await openConsole(page);
   await expect(page.locator('canvas.vault')).toHaveClass(/showing/);
   await expect.poll(async () => (await picture(page)).colours).toBeGreaterThan(200);
-  const before = (await picture(page)).sum;
+  // Painted once more when it hears whether the storage is sealed (the great door shut or open), which WebKit says late.
+  let before = (await picture(page)).sum;
+  await expect
+    .poll(
+      async () => {
+        const now = (await picture(page)).sum;
+        const steady = now === before;
+        before = now;
+        return steady;
+      },
+      { intervals: [800] },
+    )
+    .toBe(true);
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('overseer:vault', { detail: 'molerat' })));
   await page.waitForTimeout(1500);
   expect((await picture(page)).sum).toBe(before);
