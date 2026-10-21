@@ -17,7 +17,7 @@ the browser tab crashed drawing them.
   decoder.
 ---
 diff --git a/src/audio.cc b/src/audio.cc
-index ad796a5..0b54839 100644
+index 7744f6c..636be1f 100644
 --- a/src/audio.cc
 +++ b/src/audio.cc
 @@ -266,6 +266,13 @@ int audioOpen(const char* fname, AudioFileInfo* info, bool* isMemoryBackedPtr)

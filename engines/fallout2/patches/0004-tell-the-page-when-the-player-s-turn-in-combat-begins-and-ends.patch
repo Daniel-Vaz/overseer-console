@@ -5,7 +5,7 @@ in combat. The page shows its button for it lit while that turn lasts,
 and dimmed the rest of the time.
 ---
 diff --git a/src/combat.cc b/src/combat.cc
-index 744995d..098e1d5 100644
+index 54c6a8e..8002a99 100644
 --- a/src/combat.cc
 +++ b/src/combat.cc
 @@ -50,8 +50,31 @@
@@ -40,7 +40,7 @@ index 744995d..098e1d5 100644
  #define CALLED_SHOT_WINDOW_Y (20)
  #define CALLED_SHOT_WINDOW_WIDTH (504)
  #define CALLED_SHOT_WINDOW_HEIGHT (309)
-@@ -3180,6 +3203,7 @@ void _combat_turn_run()
+@@ -3248,6 +3271,7 @@ void _combat_turn_run()
  static int _combat_input()
  {
      ScopedGameMode gm(GameMode::kPlayerTurn);

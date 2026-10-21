@@ -11,7 +11,7 @@ The main loop also tells the page when it starts and when it ends: while
 it runs, a game is in progress.
 ---
 diff --git a/src/loadsave.cc b/src/loadsave.cc
-index f0dc694..84da4e4 100644
+index c160d77..e1766d9 100644
 --- a/src/loadsave.cc
 +++ b/src/loadsave.cc
 @@ -1637,6 +1637,61 @@ int lsgGetTotalSlotCount()
@@ -51,7 +51,7 @@ index f0dc694..84da4e4 100644
 +    int rc = -1;
 +    if (messageListInit(&gLoadSaveMessageList)) {
 +        char path[COMPAT_MAX_PATH];
-+        snprintf(path, sizeof(path), "%s%s", asc_5186C8, LSGAME_MSG_NAME);
++        snprintf(path, sizeof(path), "%s%s", gGameMsgPath, LSGAME_MSG_NAME);
 +        if (messageListLoad(&gLoadSaveMessageList, path)) {
 +            messageListRepositorySetStandardMessageList(STANDARD_MESSAGE_LIST_LSGAME, &gLoadSaveMessageList);
 +

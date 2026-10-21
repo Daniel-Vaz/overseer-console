@@ -25,10 +25,10 @@ game. Written here from sfall's documented behaviour (sfall itself is GPL):
 - Card titles longer than their buffer are cut short instead of overrunning it.
 ---
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index c3a2117..c9feadf 100644
+index ed27a2e..dd91c38 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -315,7 +315,11 @@ set(FALLOUT_PLATFORM_SOURCES
+@@ -316,7 +316,11 @@ set(FALLOUT_PLATFORM_SOURCES
      "src/sfall_object_name.h"
      "src/sfall_opcodes.cc"
      "src/sfall_opcodes.h"
@@ -41,7 +41,7 @@ index c3a2117..c9feadf 100644
      "src/script_sound.h"
      "src/sfall_arrays.cc"
 diff --git a/src/character_editor.cc b/src/character_editor.cc
-index 0f5259f..1f82c62 100644
+index 317a4d8..7fa76ae 100644
 --- a/src/character_editor.cc
 +++ b/src/character_editor.cc
 @@ -6,6 +6,7 @@
@@ -358,7 +358,7 @@ index 0f5259f..1f82c62 100644
      gPerkDialogCardDrawn = true;
  
 diff --git a/src/combat.cc b/src/combat.cc
-index 098e1d5..48c4aeb 100644
+index 8002a99..afe00d0 100644
 --- a/src/combat.cc
 +++ b/src/combat.cc
 @@ -42,6 +42,7 @@
@@ -369,7 +369,7 @@ index 098e1d5..48c4aeb 100644
  #include "skill.h"
  #include "stat.h"
  #include "svga.h"
-@@ -4682,9 +4683,8 @@ static int attackDetermineToHit(Object* attacker, int tile, Object* defender, Hi
+@@ -4759,9 +4760,8 @@ static int attackDetermineToHit(Object* attacker, int tile, Object* defender, Hi
      }
  
      int toHitUncapped = toHit;
@@ -382,7 +382,7 @@ index 098e1d5..48c4aeb 100644
      if (toHit < -100) {
          debugPrint("Whoa! Bad skill value in determine_to_hit!\n");
 diff --git a/src/game.cc b/src/game.cc
-index 8995801..5ade8a6 100644
+index 0b0ce77..8a66441 100644
 --- a/src/game.cc
 +++ b/src/game.cc
 @@ -61,7 +61,9 @@
@@ -395,7 +395,7 @@ index 8995801..5ade8a6 100644
  #include "skill.h"
  #include "skilldex.h"
  #include "stat.h"
-@@ -471,6 +473,8 @@ void gameReset()
+@@ -480,6 +482,8 @@ void gameReset()
      messageListRepositoryReset();
      scriptHooksReset();
      sfallArraysReset();
@@ -405,7 +405,7 @@ index 8995801..5ade8a6 100644
      sfall_ini_cache_clear();
      sfallOnGameReset();
 diff --git a/src/party_member.cc b/src/party_member.cc
-index 104887b..bac19ec 100644
+index 702fc80..2c81266 100644
 --- a/src/party_member.cc
 +++ b/src/party_member.cc
 @@ -22,6 +22,7 @@
@@ -416,7 +416,7 @@ index 104887b..bac19ec 100644
  #include "proto.h"
  #include "proto_instance.h"
  #include "queue.h"
-@@ -1527,6 +1528,71 @@ int _partyMemberIncLevels()
+@@ -1575,6 +1576,71 @@ int _partyMemberIncLevels()
      return 0;
  }
  
@@ -503,7 +503,7 @@ index 70b3a86..761f2c0 100644
  void partyMemberSetEngineLevelUpEnabled(bool enabled);
  bool partyIsAnyoneCanBeHealedByRest();
 diff --git a/src/perk.cc b/src/perk.cc
-index e1d6da0..5cf58e3 100644
+index df2232a..75bb7d2 100644
 --- a/src/perk.cc
 +++ b/src/perk.cc
 @@ -12,6 +12,7 @@
@@ -550,7 +550,7 @@ index 844d5ff..ec7cfe5 100644
  bool perkSetName(Perk perk, const char* value);
  bool perkSetDescription(Perk perk, const char* value);
 diff --git a/src/pipboy.cc b/src/pipboy.cc
-index d12a3d8..d91f724 100644
+index 263393d..32fee42 100644
 --- a/src/pipboy.cc
 +++ b/src/pipboy.cc
 @@ -468,6 +468,12 @@ static int gPipboyWindowQuestsCurrentPageCount; // kludge for tracking number of
@@ -611,7 +611,7 @@ index 9f7047c..36cf2a5 100644
  void pipboyReset();
  void pipboySetRestHealTime(int minutes);
 diff --git a/src/proto.cc b/src/proto.cc
-index df53aa5..2f17098 100644
+index 1c011e3..866c3b8 100644
 --- a/src/proto.cc
 +++ b/src/proto.cc
 @@ -19,6 +19,7 @@
@@ -705,7 +705,7 @@ index 961f764..33cca43 100644
  
      if (!sfallArraysLoad(stream)) {
 diff --git a/src/sfall_metarules.cc b/src/sfall_metarules.cc
-index 4a1844e..751f841 100644
+index b1c7ae1..d7ebe74 100644
 --- a/src/sfall_metarules.cc
 +++ b/src/sfall_metarules.cc
 @@ -40,6 +40,7 @@
@@ -832,7 +832,7 @@ index 4a1844e..751f841 100644
  {
      int value = ctx.arg(0).asInt();
 diff --git a/src/sfall_opcodes.cc b/src/sfall_opcodes.cc
-index 40ee5de..763e3d6 100644
+index 6119179..a4bfae5 100644
 --- a/src/sfall_opcodes.cc
 +++ b/src/sfall_opcodes.cc
 @@ -5,6 +5,9 @@
@@ -1752,7 +1752,7 @@ index 0000000..f25848c
 +
 +#endif /* FALLOUT_SFALL_STAT_MODS_H_ */
 diff --git a/src/stat.cc b/src/stat.cc
-index 92164e3..4fa388c 100644
+index 7c08eed..05498ad 100644
 --- a/src/stat.cc
 +++ b/src/stat.cc
 @@ -26,6 +26,7 @@

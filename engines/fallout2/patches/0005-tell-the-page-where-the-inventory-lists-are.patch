@@ -6,7 +6,7 @@ time its screen goes round its loop, so that the page can scroll it when a
 finger swipes over it: it puts the pointer there and turns the wheel.
 ---
 diff --git a/src/inventory.cc b/src/inventory.cc
-index db5bdb8..bf26ab9 100644
+index 3936eb6..50d7358 100644
 --- a/src/inventory.cc
 +++ b/src/inventory.cc
 @@ -54,6 +54,13 @@
