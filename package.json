@@ -11,7 +11,8 @@
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "engines": "bash engines/build.sh all",
     "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "mod-releases": "node scripts/mod-releases.ts"
   },
   "devDependencies": {
     "@fontsource/vt323": "^5.3.0",

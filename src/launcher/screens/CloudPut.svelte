@@ -93,11 +93,15 @@
       ['ESC', 'BACK'],
     ];
     // Dropped here, a game or a mod goes to the cloud instead of into this browser.
-    sys.dropTarget = (sources) => {
-      if (sending || planning) return;
-      message = null;
-      dropped = sources;
-      selected = 0;
+    sys.dropTarget = {
+      label: `Release to put it in your ${name}`,
+      blocked: () => sys.sending,
+      take: (sources) => {
+        if (sending || planning) return;
+        message = null;
+        dropped = sources;
+        selected = 0;
+      },
     };
     // ESC takes back a question before it leaves the screen.
     const onKey = (event: KeyboardEvent) => {

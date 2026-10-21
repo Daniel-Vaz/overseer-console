@@ -130,6 +130,27 @@ export async function zipOf(files: Record<string, Uint8Array | string | Blob>, n
   return { name, mimeType: 'application/zip', buffer: Buffer.from(zipSync(entries, { level: 1 })) };
 }
 
+/**
+ * A zip of exactly `bytes` bytes, as a release of that size is: zeros nobody
+ * reads between its last file and its central directory. Its bytes, and the
+ * path of a copy on disk for a file picker.
+ */
+export async function sizedZip(files: Record<string, Uint8Array | string | Blob>, name: string, bytes: number): Promise<{ data: Buffer; path: string }> {
+  const zip = (await zipOf(files, name)).buffer;
+  const end = zip.length - 22;
+  if (zip.readUInt32LE(end) !== 0x06054b50) throw new Error('the zip has a comment');
+  const central = zip.readUInt32LE(end + 16);
+  const gap = bytes - zip.length;
+  if (gap < 0) throw new Error(`the files take more than ${bytes} bytes`);
+  const data = Buffer.alloc(bytes);
+  zip.copy(data, 0, 0, central);
+  zip.copy(data, central + gap, central);
+  data.writeUInt32LE(central + gap, end + gap + 16);
+  const path = join(tempFolder(), name);
+  writeFileSync(path, data);
+  return { data, path };
+}
+
 /** A folder as one zip, the way it is carried to a device that cannot pick folders. */
 export function zipFolder(folder: string, name: string): { name: string; mimeType: string; buffer: Buffer } {
   const files: Record<string, Uint8Array> = {};

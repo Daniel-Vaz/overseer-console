@@ -6,6 +6,7 @@
   import { listCloudMods, modsFolder, type CloudMod } from '../../lib/cloud/games';
   import { BASE_GAMES, gameDef, isGameId, type GameId } from '../../lib/games';
   import { KNOWN_MODS, KNOWN_MOD_IDS, type KnownModId } from '../../lib/mods/catalog';
+  import { MOD_RELEASES, isOlder, releaseOf } from '../../lib/mods/releases';
   import { sourcesFromFileList } from '../../lib/storage/importer';
   import { formatBytes } from '../../lib/storage/manifest';
   import Glyph from '../components/Glyph.svelte';
@@ -108,7 +109,8 @@
     return { state: 'READY' };
   }
 
-  const KEYS = '123456789abcdefghijmnopqrstuvwyz';
+  const KEYS = '123456789abcdefghjmnopqrstuvwyz';
+  const INSTALLABLE = KNOWN_MOD_IDS.filter((id) => MOD_RELEASES[id]);
 
   /** The mods in the order the library lists them: those for Fallout first. */
   const listed = $derived(BASE_GAMES.flatMap((base) => mods.filter((game) => gameDef(game).mod!.base === base)));
@@ -127,6 +129,14 @@
         action: () => go(`mods/${game}`),
       };
     }),
+    {
+      key: 'i',
+      label: 'Install a known mod',
+      state: `${INSTALLABLE.length} MODS`,
+      icon: 'uplink',
+      note: `${INSTALLABLE.map((id) => KNOWN_MODS[id].title).join(', ')}: fetched from their makers' own links and loaded, the version the console's tests play.`,
+      action: () => go('mods/install'),
+    },
     {
       key: 'l',
       label: 'Load a mod',
@@ -175,6 +185,13 @@
       action: () => (sys.cloud.linked ? void lookInCloud() : go('settings/cloud')),
     },
     {
+      key: 'i',
+      label: 'Install a known mod',
+      icon: 'uplink',
+      note: 'The known mods that come as one zip: the console fetches the version its tests play, from its makers\' own link.',
+      action: () => go('mods/install'),
+    },
+    {
       key: 'k',
       label: 'What to hand the console',
       icon: 'manual',
@@ -219,13 +236,25 @@
   ]);
 
   const page = $derived(known ? KNOWN_MODS[known] : null);
+  const pageRelease = $derived(releaseOf(known));
   const pageItems = $derived.by((): MenuItem[] => {
     if (!page) return [];
     const here = isGameId(page.id) && sys.installs[page.id];
     const home = page.project !== page.download;
-    return [
+    const install = pageRelease && (!here || isOlder(gameDef(page.id).mod?.version, pageRelease));
+    const entries: Omit<MenuItem, 'key'>[] = [
+      ...(install
+        ? [
+            {
+              label: here ? `Update to version ${pageRelease.version}` : `Install version ${pageRelease.version}`,
+              state: formatBytes(pageRelease.bytes),
+              icon: 'uplink',
+              note: `${pageRelease.file} from its makers' own link, fetched by your Dropbox or downloaded by this browser, and loaded.`,
+              action: () => go(`mods/install/${page.id}`),
+            } satisfies Omit<MenuItem, 'key'>,
+          ]
+        : []),
       {
-        key: '1',
         label: `Get ${page.title}`,
         state: 'OPENS A NEW TAB',
         icon: 'external',
@@ -235,18 +264,20 @@
       ...(home
         ? [
             {
-              key: '2',
               label: 'Its home page',
               state: 'OPENS A NEW TAB',
               icon: 'external',
               note: 'Where it is made, with its own notes and news.',
               action: () => void window.open(page.project, '_blank', 'noopener'),
-            } satisfies MenuItem,
+            } satisfies Omit<MenuItem, 'key'>,
           ]
         : []),
       here
-        ? { key: home ? '3' : '2', label: 'Open it', icon: 'play', note: 'It is loaded in this browser.', action: () => go(`mods/${page.id}`) }
-        : { key: home ? '3' : '2', label: 'Load it', icon: 'folder', note: page.handOver, action: () => go('mods/load') },
+        ? { label: 'Open it', icon: 'play', note: 'It is loaded in this browser.', action: () => go(`mods/${page.id}`) }
+        : { label: 'Load it', icon: 'folder', note: page.handOver, action: () => go('mods/load') },
+    ];
+    return [
+      ...entries.map((entry, index): MenuItem => ({ ...entry, key: String(index + 1) })),
       { key: '0', label: 'Back', icon: 'back', action: () => go('mods/known') },
     ];
   });
@@ -344,8 +375,8 @@
         {#if !mods.length}
           <p class="gap prose">
             A mod is played on the game it was made for: its own files over the game's, and saves of its own. The game
-            stays as it was sold, one key away on its deck. Load a mod from the zip it is downloaded as, from its folder,
-            or from a game folder it was installed in.
+            stays as it was sold, one key away on its deck. Install one the console knows, or load any mod from the zip it
+            is downloaded as, from its folder, or from a game folder it was installed in.
           </p>
         {/if}
         <Menu items={libraryItems} label="Mod library" bind:selected />

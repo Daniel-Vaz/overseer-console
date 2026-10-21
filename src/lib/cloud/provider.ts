@@ -87,6 +87,12 @@ export interface Cloud {
   remove(path: string, rev: string): Promise<void>;
   /** Writes a file of any size in pieces, read from `data` as they go. */
   send(path: string, data: Blob, options: SendOptions): Promise<CloudFile>;
+  /**
+   * Has the cloud itself download a file from the web into `path`, where it
+   * can (Dropbox can; Google Drive cannot). The file may land under another
+   * name when `path` is taken: the answer says where.
+   */
+  saveUrl?(path: string, url: string, signal?: AbortSignal): Promise<CloudFile>;
   /** How much room the account has and uses, when the cloud says. */
   space(): Promise<{ used: number; total: number } | null>;
 

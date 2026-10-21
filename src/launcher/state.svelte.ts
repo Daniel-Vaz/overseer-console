@@ -3,6 +3,8 @@ import { lastExport, recordExport, type ExportMark, type ExportedTo } from '../l
 import { activeCloud, requireCloud } from '../lib/cloud/clouds';
 import { CloudError, LinkError } from '../lib/cloud/errors';
 import { cloudGameFiles, cloudModFiles } from '../lib/cloud/games';
+import { fetchIntoCloud } from '../lib/mods/install';
+import type { ModRelease } from '../lib/mods/releases';
 import type { CloudFile, CloudId } from '../lib/cloud/provider';
 import { runPut, type PutPlan, type PutProgress } from '../lib/cloud/put';
 import { gameFacts, type Places } from '../lib/gamefacts';
@@ -132,8 +134,13 @@ class ConsoleState {
   job = $state<ImportJob>({ ...IDLE });
   /** What Put in your cloud is sending, or last sent. */
   put = $state<PutJob | null>(null);
-  /** Takes what is dropped on the console instead of loading it: Put in your cloud, while that is on the screen. */
-  dropTarget = $state.raw<((sources: SourceFile[]) => void) | null>(null);
+  /**
+   * Takes what is dropped on the console instead of loading it, while its
+   * screen is up: Put in your cloud, or installing a known mod. `label` is
+   * what the console says while something is held over it; `blocked`, when
+   * it cannot take anything now.
+   */
+  dropTarget = $state.raw<{ take(sources: SourceFile[]): void; label: string; blocked(): boolean } | null>(null);
   /** Another game the last selection held: it can be loaded without picking the folder again. */
   offer = $state.raw<Offer | null>(null);
   hints = $state<Hint[]>([]);
@@ -358,6 +365,34 @@ class ConsoleState {
   }
 
   /**
+   * Installs a known mod's release by itself: the linked cloud downloads it
+   * into its Mods folder, where it can (Dropbox), and it is loaded from
+   * there. A copy already there is not downloaded again. `replacing`: the
+   * mod already here that it updates.
+   */
+  installRelease(release: ModRelease, replacing?: GameId): Promise<GameId | null> {
+    const cloud = requireCloud();
+    const site = new URL(release.url).hostname;
+    return this.importWith(
+      async (signal) => {
+        const file = await fetchIntoCloud(release, cloud, signal, () => {
+          this.job.doing = `${cloud.name} is downloading ${release.file} from ${site} into its Mods folder. It takes a minute or five; were this tab closed, ${cloud.name} would carry on, and Install would find it there.`;
+        });
+        this.job.doing = undefined;
+        return cloudModFiles(file.name, cloud);
+      },
+      replacing ?? 'mod',
+      cloud.name,
+      release,
+    );
+  }
+
+  /** Installs a known mod's release from the file the player downloaded and handed over. */
+  installReleaseFrom(release: ModRelease, sources: SourceFile[], replacing?: GameId): Promise<GameId | null> {
+    return this.importWith(() => openArchives(sources), replacing ?? 'mod', undefined, release);
+  }
+
+  /**
    * Sends what Put in your cloud worked out. It goes on while the player
    * looks at other screens, as a copy into storage does, and can be stopped.
    */
@@ -407,8 +442,17 @@ class ConsoleState {
     this.stopper?.abort();
   }
 
-  /** `remote` names the cloud the files come from, when they come from one. */
-  private async importWith(find: () => Promise<SourceFile[]>, preferred?: GameId | 'mod', remote?: string): Promise<GameId | null> {
+  /**
+   * `remote` names the cloud the files come from, when they come from one.
+   * `release`: the release of a known mod they are, which the mod is then
+   * recorded at, also where the name of its zip does not say.
+   */
+  private async importWith(
+    find: (signal: AbortSignal) => Promise<SourceFile[]>,
+    preferred?: GameId | 'mod',
+    remote?: string,
+    release?: ModRelease,
+  ): Promise<GameId | null> {
     if (this.busy) return null;
     const stopper = (this.stopper = new AbortController());
     const { signal } = stopper;
@@ -421,9 +465,10 @@ class ConsoleState {
     this.offer = null;
     void this.stayAwake();
     try {
-      const sources = await unless(find());
+      const sources = await unless(find(signal));
       const survey = await unless(surveySources(sources));
       const plan = await this.plan(sources, survey, preferred, remote, signal, unless);
+      if (release && plan.mod?.record.known === release.mod) plan.mod.record.version = release.version;
       if (remote && preferred && isBaseGame(preferred) && plan.game !== preferred) {
         throw new ImportError(`${gameDef(preferred).title} was not found in your ${remote}. What is there is ${plan.mod?.record.title ?? gameDef(plan.game).title}.`);
       }
@@ -522,6 +567,8 @@ class ConsoleState {
       },
       signal,
     );
+    // What it is now, when it was here before: loaded again, perhaps at another version.
+    if (plan.mod) registerMod(plan.mod.record);
     await this.refresh();
   }
 

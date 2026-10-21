@@ -10,7 +10,7 @@
  * It works in a folder of its own inside the app folder and removes it again.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { DropboxError, download, listFiles, remove, upload } from '../../src/lib/dropbox/api';
+import { DropboxError, download, listFiles, remove, saveUrl, upload } from '../../src/lib/dropbox/api';
 import { storeLink } from '../../src/lib/dropbox/link';
 
 const token = process.env.DROPBOX_TEST_TOKEN;
@@ -77,4 +77,11 @@ describe.skipIf(!token)('the real Dropbox', () => {
     await remove(zip, second.rev);
     await expect(remove(zip, second.rev)).rejects.toSatisfy(notFound);
   }, 120_000);
+
+  it('downloads a release from GitHub itself, through its redirect', async () => {
+    // A small asset of a release the console installs (src/lib/mods/releases.ts), served the same way as the large ones.
+    const url = 'https://github.com/HogLord69/olympus-2207-english/releases/download/v1.1/Olympus2207-FE-English-Patch.zip';
+    const file = await saveUrl(`${folder}/Mods/patch.zip`, url);
+    expect(file).toMatchObject({ name: 'patch.zip', size: 3_167_225 });
+  }, 480_000);
 });

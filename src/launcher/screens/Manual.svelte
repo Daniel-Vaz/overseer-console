@@ -36,7 +36,7 @@
       title: 'Mods',
       icon: 'gamedata',
       summary: 'Fallout Et Tu, the Restoration Project, Sonora and others: loading a mod, and playing it on its game.',
-      topics: ['What a mod is', 'Loading one', 'Playing it', 'How well they play'],
+      topics: ['What a mod is', 'Loading one', 'Installing one it knows', 'Playing it', 'How well they play'],
     },
     {
       id: 'controls',
@@ -252,6 +252,17 @@
             movies, map tiles) are copied out of its <span class="hot">MASTER.DAT</span>, so Fallout must be in deck A
             then. With your Dropbox or Google Drive linked, a mod can be loaded from the <span class="hot">Mods</span>
             folder inside your games folder there (chapter 8).
+          </p>
+
+          <h2>Installing one it knows</h2>
+          <p>
+            Fallout Et Tu, the Restoration Project, Sonora, Olympus 2207 and Resurrection come as one zip from their
+            makers' own links, which the console installs itself: <span class="hot">Install a known mod</span>, in the Mod
+            library, at the version its tests play. Their sites do not let other sites read what they serve, so the
+            console cannot download them itself. With Dropbox linked, Dropbox downloads the zip into its Mods folder and
+            the console loads it from there; otherwise your browser downloads it, you select it, and the console checks
+            that it is that release before loading it, and offers to put it in your Google Drive when one is linked. A mod
+            loaded at an older version is offered the newer one on its page.
           </p>
 
           <h2>Playing it</h2>

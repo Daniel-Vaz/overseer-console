@@ -40,6 +40,8 @@ const NEEDS: Record<string, string> = {
   'files/upload_session/append_v2': 'files.content.write',
   'files/upload_session/finish': 'files.content.write',
   'files/delete_v2': 'files.content.write',
+  'files/save_url': 'files.content.write',
+  'files/save_url/check_job_status': 'files.content.write',
   'users/get_current_account': 'account_info.read',
   'users/get_space_usage': 'account_info.read',
 };
@@ -73,6 +75,12 @@ export class FakeDropbox {
   readonly files = new Map<string, StoredFile>();
   /** Every call made, by route, in order. */
   readonly calls: string[] = [];
+  /** What save_url finds on the web, by address: the file, or an address it is sent on to. */
+  readonly web = new Map<string, Uint8Array | { redirect: string }>();
+  /** How many times save_url/check_job_status says a job is in progress before it is done. */
+  saveUrlPolls = 1;
+  /** Downloads save_url was asked for, in order. */
+  readonly saved: { path: string; url: string }[] = [];
 
   private approval: { challenge: string; scopes: string[] } | null = null;
   private readonly accessTokens = new Map<string, string[]>();
@@ -81,6 +89,8 @@ export class FakeDropbox {
   private readonly cursors = new Map<string, unknown[]>();
   /** Upload sessions: what has arrived of each. */
   private readonly sessions = new Map<string, Uint8Array[]>();
+  /** save_url jobs: polls left, then what they come to. */
+  private readonly jobs = new Map<string, { polls: number; result: FakeResponse }>();
   private counter = 0;
 
   /** Puts a file in the app folder, as the player would with Dropbox itself. */
@@ -165,6 +175,10 @@ export class FakeDropbox {
       case 'files/upload_session/append_v2':
       case 'files/upload_session/finish':
         return this.session(route, JSON.parse(request.headers['dropbox-api-arg'] ?? '{}') as SessionArg, request.body ?? new Uint8Array(0));
+      case 'files/save_url':
+        return this.saveUrl(JSON.parse(text) as { path: string; url: string });
+      case 'files/save_url/check_job_status':
+        return this.jobStatus(JSON.parse(text) as { async_job_id: string });
       case 'users/get_space_usage':
         return json(200, { used: [...this.files.values()].reduce((sum, file) => sum + file.data.length, 0), allocation: { '.tag': 'individual', allocated: this.allocated } });
       default:
@@ -309,6 +323,34 @@ export class FakeDropbox {
       return fault('path/conflict/file/', { '.tag': 'path', reason: { '.tag': 'conflict', conflict: { '.tag': 'file' } } });
     }
     return json(200, this.metadata(this.put(commit.path, whole, commit.client_modified)));
+  }
+
+  /** Dropbox downloading a file from the web itself, following redirects; a taken name gets " (1)". */
+  private saveUrl({ path, url }: { path: string; url: string }): FakeResponse {
+    this.saved.push({ path, url });
+    if (!/^https?:\/\//.test(url)) return fault('invalid_url/', { '.tag': 'invalid_url' });
+    let found = this.web.get(url);
+    for (let hops = 0; found && !(found instanceof Uint8Array) && hops < 5; hops++) found = this.web.get(found.redirect);
+    let result: FakeResponse;
+    if (!(found instanceof Uint8Array)) {
+      result = json(200, { '.tag': 'failed', failed: { '.tag': 'download_failed' } });
+    } else {
+      let target = path;
+      const dot = path.lastIndexOf('.');
+      for (let n = 1; this.files.has(target.toLowerCase()); n++) target = `${path.slice(0, dot)} (${n})${path.slice(dot)}`;
+      const stored = this.put(target, found);
+      result = json(200, { '.tag': 'complete', ...this.metadata(stored) });
+    }
+    const id = `job-${++this.counter}`;
+    this.jobs.set(id, { polls: this.saveUrlPolls, result });
+    return json(200, { '.tag': 'async_job_id', async_job_id: id });
+  }
+
+  private jobStatus({ async_job_id }: { async_job_id: string }): FakeResponse {
+    const job = this.jobs.get(async_job_id);
+    if (!job) return fault('invalid_async_job_id/', { '.tag': 'invalid_async_job_id' });
+    if (job.polls-- > 0) return json(200, { '.tag': 'in_progress' });
+    return job.result;
   }
 
   private remove({ path, parent_rev }: { path: string; parent_rev?: string }): FakeResponse {

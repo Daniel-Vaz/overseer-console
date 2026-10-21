@@ -3,7 +3,7 @@
  * they made for the console.
  */
 import type { Cloud, CloudFile } from '../cloud/provider';
-import { download, fromDropboxTime, listFiles, remove, sendLarge, spaceUsage, upload, type DropboxFile } from './api';
+import { download, fromDropboxTime, listFiles, remove, saveUrl, sendLarge, spaceUsage, upload, type DropboxFile } from './api';
 import { loadConfig, loadLink, loadSynced, storeSynced } from './link';
 
 function cloudFile(file: DropboxFile): CloudFile {
@@ -35,6 +35,7 @@ export const dropboxCloud: Cloud = {
   upload: async (path, data, options) => cloudFile(await upload(path, data, options)),
   remove,
   send: async (path, data, options) => cloudFile(await sendLarge(path, data, options)),
+  saveUrl: async (path, url, signal) => cloudFile(await saveUrl(path, url, signal)),
   space: spaceUsage,
   loadSynced,
   storeSynced,

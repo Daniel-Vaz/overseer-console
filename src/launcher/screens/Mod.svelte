@@ -8,6 +8,7 @@
   import { gameDef, isGameId, type GameId } from '../../lib/games';
   import { KNOWN_MODS } from '../../lib/mods/catalog';
   import { readComponents, resetComponents, setComponent, type Components } from '../../lib/mods/components';
+  import { isOlder, releaseOf } from '../../lib/mods/releases';
   import { picturesFor } from '../../lib/settings';
   import { sourcesFromFileList } from '../../lib/storage/importer';
   import { formatBytes } from '../../lib/storage/manifest';
@@ -32,6 +33,9 @@
   const base = $derived(gameDef(mod.base));
   const donor = $derived(mod.donor ? gameDef(mod.donor) : null);
   const known = $derived(mod.known ? KNOWN_MODS[mod.known] : null);
+  /** The release of it the console installs, and whether what is here is older. */
+  const release = $derived(releaseOf(mod.known));
+  const outdated = $derived(!!release && isOlder(mod.version, release));
   const install = $derived(sys.installs[game]);
   const canPickFolder = 'webkitdirectory' in HTMLInputElement.prototype;
 
@@ -154,6 +158,16 @@
     const verb = install ? 'Replace' : 'Load';
     const kept = ' Saved games are kept.';
     return [
+      ...(release
+        ? [
+            {
+              label: install ? `${outdated ? 'Update to' : 'Install again,'} version ${release.version}` : `Install version ${release.version}`,
+              state: formatBytes(release.bytes),
+              note: `${release.file} from its makers' own link, fetched by your Dropbox or downloaded by this browser.${kept}`,
+              action: () => go(`mods/install/${known!.id}`),
+            },
+          ]
+        : []),
       {
         label: `${verb} holodisk: select a zip`,
         note: `${known ? known.handOver : `The zip ${def.title} was loaded from, or a newer one.`}${kept}`,
@@ -240,6 +254,17 @@
                 componentSelected = 0;
                 view = 'components';
               },
+            },
+          ]
+        : []),
+      ...(outdated
+        ? [
+            {
+              label: `Update to version ${release!.version}`,
+              state: `HERE: ${mod.version}`,
+              tone: 'amber' as const,
+              note: `A newer version than the ${mod.version} loaded here, the one the console's tests play. Saved games are kept; a save made with one version may not load in another.`,
+              action: () => go(`mods/install/${known!.id}`),
             },
           ]
         : []),
@@ -410,7 +435,7 @@
           {@render needs()}
           {#if mod.version}
             <dt>Version</dt>
-            <dd>{mod.version}</dd>
+            <dd class:amber={outdated}>{mod.version}{outdated ? `, ${release!.version} IS OUT` : ''}</dd>
           {/if}
           <dt>Status</dt>
           <dd class:amber={mod.status === 'experimental'}>{STATUS_NAMES[mod.status]}</dd>

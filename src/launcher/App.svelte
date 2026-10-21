@@ -15,6 +15,7 @@
   import Main from './screens/Main.svelte';
   import Manual from './screens/Manual.svelte';
   import Mod from './screens/Mod.svelte';
+  import ModInstall from './screens/ModInstall.svelte';
   import Modify from './screens/Modify.svelte';
   import Mods from './screens/Mods.svelte';
   import Picture from './screens/Picture.svelte';
@@ -101,7 +102,9 @@
                       ? 'MOD LIBRARY // LOAD'
                       : library === 'known'
                         ? 'MOD LIBRARY // KNOWN MODS'
-                        : 'MOD LIBRARY'
+                        : route[1] === 'install'
+                          ? 'MOD LIBRARY // INSTALL'
+                          : 'MOD LIBRARY'
                   : deck
                     ? `HOLODISK DECK ${gameDef(deck).deck}`
                     : 'UNKNOWN',
@@ -220,13 +223,13 @@
     if (!booted) finishBoot();
     // Put in your cloud takes what is dropped on it to the cloud, not into storage.
     const target = sys.dropTarget;
-    if (target ? sys.sending : sys.busy || !sys.supported) {
+    if (target ? target.blocked() : sys.busy || !sys.supported) {
       sfx.deny();
       return;
     }
     const sources = await sourcesFromDrop(event.dataTransfer);
     if (target) {
-      target(sources);
+      target.take(sources);
       return;
     }
     // On the Mod library a mod, on a mod's page new files for it; on a deck its game.
@@ -306,6 +309,10 @@
               {#key modPage}
                 <Mod {go} game={modPage} />
               {/key}
+            {:else if section === 'mods' && route[1] === 'install'}
+              {#key route.join('/')}
+                <ModInstall {go} mod={isKnownMod(route[2]) ? route[2] : undefined} />
+              {/key}
             {:else if section === 'mods'}
               {#key route.join('/')}
                 <Mods {go} view={library} known={library === 'known' && isKnownMod(route[2]) ? route[2] : undefined} />
@@ -340,7 +347,7 @@
         {#if dragging > 0}
           <div class="dropzone">
             <Glyph name="folder" />
-            <span>{sys.dropTarget ? `Release to put it in your ${sys.cloud.name}` : 'Release to load holodisk'}</span>
+            <span>{sys.dropTarget ? sys.dropTarget.label : 'Release to load holodisk'}</span>
           </div>
         {/if}
 

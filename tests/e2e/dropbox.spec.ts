@@ -2,7 +2,9 @@ import type { BrowserContext, Page } from '@playwright/test';
 import { zipSync } from 'fflate';
 import { FakeDropbox } from '../fake-dropbox';
 import { expect, test as base } from './fixtures';
-import { fakeEttuZip, fakeFallout2Folder, fakeSaveDat, openConsole, pickFolder } from './helpers';
+import { MOD_RELEASES } from '../../src/lib/mods/releases';
+import { resurrectionFiles } from '../mods';
+import { fakeEttuZip, fakeFallout2Folder, fakeSaveDat, openConsole, pickFolder, sizedZip } from './helpers';
 
 /**
  * WebKit sends the requests of a page that a service worker controls straight
@@ -399,6 +401,36 @@ test('loads Fallout Et Tu from the zip it is kept as in the Mods folder of Dropb
   await page.goto('#/fo2');
   await page.locator('.menu button', { hasText: 'Load holodisk from Dropbox' }).click();
   await expect(page.getByRole('alert')).toContainText("No MASTER.DAT in the console's app folder in your Dropbox.");
+});
+
+test('installs a known mod through Dropbox, which downloads it into its Mods folder', async ({ page, context }) => {
+  const release = MOD_RELEASES.resurrection!;
+  const dropbox = new FakeDropbox();
+  dropbox.saveUrlPolls = 0;
+  // Its makers' link, sent on to where the file is, as Bitbucket does.
+  const signed = 'https://bbuseruploads.s3.amazonaws.com/signed/FoRes_EN_1_5.zip';
+  dropbox.web.set(release.url, { redirect: signed });
+  dropbox.web.set(signed, new Uint8Array((await sizedZip(resurrectionFiles(), release.file, release.bytes)).data));
+  await standIn(context, dropbox);
+  await linkConsole(page, context, dropbox);
+  await page.goto('#/fo2');
+  await pickFolder(page, await fakeFallout2Folder(true));
+  await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 60_000 });
+
+  await page.goto('#/mods/install/resurrection');
+  const install = page.locator('.menu li').filter({ hasText: 'Install version 1.5' });
+  await expect(install).toContainText('VIA DROPBOX');
+  await install.locator('button').click();
+  await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 90_000 });
+  expect(dropbox.saved).toEqual([{ path: '/Mods/FoRes_EN_1_5.zip', url: release.url }]);
+  expect(dropbox.files.get('/mods/fores_en_1_5.zip')?.data.length).toBe(release.bytes);
+
+  // Loaded from there at its version; installed again, it is not downloaded a second time.
+  await page.locator('.menu button', { hasText: 'Open Fallout 1.5: Resurrection' }).click();
+  await expect(page.locator('.readout').first()).toContainText('1.5');
+  await page.goto('#/mods/install/resurrection');
+  await expect(page.locator('.menu li').filter({ hasText: 'Install version 1.5 again' })).toContainText('IN YOUR DROPBOX');
+  expect(dropbox.saved).toHaveLength(1);
 });
 
 test('puts a game in Dropbox from this device, for another device to load from there', async ({ page, context }) => {

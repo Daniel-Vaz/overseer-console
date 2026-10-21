@@ -301,6 +301,49 @@ export async function sendLarge(path: string, data: Blob, options: SendOptions):
   return (await finished.json()) as DropboxFile;
 }
 
+type SaveUrlStatus =
+  | { '.tag': 'async_job_id'; async_job_id: string }
+  | { '.tag': 'in_progress' }
+  | ({ '.tag': 'complete' } & Omit<DropboxFile, '.tag'>)
+  | { '.tag': 'failed'; failed: { '.tag': string } };
+
+/** How often Dropbox is asked whether it has a file from the web yet, and for how long (tests shorten them). */
+export const saveUrlTiming = { poll: 3000, patience: 7 * 60_000 };
+
+/**
+ * Has Dropbox download a file from the web into `path` itself, server to
+ * server: what the page could not download, as the site serving it does not
+ * let pages of other sites read it. Dropbox gives itself five minutes, and
+ * names the file "name (1).zip" when `path` is taken.
+ */
+export async function saveUrl(path: string, url: string, signal?: AbortSignal): Promise<DropboxFile> {
+  const site = new URL(url).hostname;
+  let status = await rpc<SaveUrlStatus>('files/save_url', { path, url });
+  const job = status['.tag'] === 'async_job_id' ? status.async_job_id : '';
+  const until = Date.now() + saveUrlTiming.patience;
+  while (status['.tag'] === 'async_job_id' || status['.tag'] === 'in_progress') {
+    if (signal?.aborted) throw stopped();
+    if (Date.now() > until) throw new DropboxError(`Dropbox did not finish downloading from ${site}. Try again later.`, 0);
+    await pause(saveUrlTiming.poll);
+    if (signal?.aborted) throw stopped();
+    status = await rpc<SaveUrlStatus>('files/save_url/check_job_status', { async_job_id: job });
+  }
+  if (status['.tag'] === 'failed') {
+    const why = status.failed['.tag'];
+    if (why === 'path') throw new DropboxError(`Dropbox could not write ${path}.`, 409, 'path/', status.failed);
+    throw new DropboxError(
+      why === 'download_failed'
+        ? `Dropbox could not download it from ${site} in the five minutes it allows. Try again later, or download it yourself.`
+        : `Dropbox refused to download it from ${site} (${why}).`,
+      409,
+      `${why}/`,
+      status.failed,
+    );
+  }
+  const { '.tag': _tag, ...file } = status;
+  return { '.tag': 'file', ...file };
+}
+
 /** How much room the Dropbox has, and how much of it is used. */
 export async function spaceUsage(): Promise<{ used: number; total: number } | null> {
   const usage = await rpc<{ used?: number; allocation?: { allocated?: number } }>('users/get_space_usage', null);
