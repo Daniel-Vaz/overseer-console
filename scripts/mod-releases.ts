@@ -33,10 +33,16 @@ async function servedSize(url: string): Promise<number | string> {
 
 let faults = 0;
 for (const release of Object.values(MOD_RELEASES) as ModRelease[]) {
+  const named = `${release.mod}: ${release.version ?? 'any version'}${release.file ? `, ${release.file}` : ''} (${release.kind})`;
+  if (!release.file || !release.bytes || !release.url.endsWith(`/${release.file}`)) {
+    // Downloaded from a page, mostly one that asks to sign in.
+    console.log(`${named}: from ${release.url}, a page: check it by hand`);
+    continue;
+  }
   const served = await servedSize(release.url).catch((err: unknown) => String(err));
   const here = served === release.bytes ? 'there, at its size' : typeof served === 'string' ? `NOT SERVED (${served})` : `SERVED AT ${served} BYTES, NOT ${release.bytes}`;
   if (served !== release.bytes) faults++;
-  console.log(`${release.mod}: ${release.version}, ${release.file}: ${here}`);
+  console.log(`${named}: ${here}`);
   if (!release.github) {
     console.log('  no GitHub releases to look for newer ones in: check its download page by hand');
     continue;
@@ -49,6 +55,7 @@ for (const release of Object.values(MOD_RELEASES) as ModRelease[]) {
   }
   const latest = (await response.json()) as GithubRelease;
   const asset = latest.assets.find((entry) => release.github!.asset.test(entry.name));
+  // (A release with no file of that kind is not a newer one of this.)
   if (!asset) {
     console.log(`  latest release ${latest.tag_name} has no file like ${release.github.asset}`);
   } else if (asset.browser_download_url === release.url && asset.size === release.bytes) {

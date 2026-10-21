@@ -256,13 +256,14 @@
 
           <h2>Installing one it knows</h2>
           <p>
-            Fallout Et Tu, the Restoration Project, Sonora, Olympus 2207 and Resurrection come as one zip from their
-            makers' own links, which the console installs itself: <span class="hot">Install a known mod</span>, in the Mod
-            library, at the version its tests play. Their sites do not let other sites read what they serve, so the
-            console cannot download them itself. With Dropbox linked, Dropbox downloads the zip into its Mods folder and
-            the console loads it from there; otherwise your browser downloads it, you select it, and the console checks
-            that it is that release before loading it, and offers to put it in your Google Drive when one is linked. A mod
-            loaded at an older version is offered the newer one on its page.
+            <span class="hot">Install a known mod</span>, in the Mod library, installs each mod the console knows from its
+            makers' own link, at the version its tests play. Their sites do not let other sites read what they serve, so
+            the console cannot download them itself. A zip from a link that needs no sign-in (Et Tu, the Restoration
+            Project, Sonora, Olympus 2207, Resurrection) Dropbox downloads into its Mods folder when it is linked, and the
+            console loads it from there. Otherwise your browser downloads it (the Megamod from Nexus Mods, signed in), you
+            select it, and the console checks that it is that release before loading it. Fallout Yesterday (a 7z), Nevada
+            and Fixt (installers for a desktop) it takes step by step: where to get each, what to do with it on a
+            computer, then the folder. A mod loaded at an older version is offered the newer one on its page.
           </p>
 
           <h2>Playing it</h2>

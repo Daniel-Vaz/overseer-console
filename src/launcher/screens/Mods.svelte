@@ -6,7 +6,7 @@
   import { listCloudMods, modsFolder, type CloudMod } from '../../lib/cloud/games';
   import { BASE_GAMES, gameDef, isGameId, type GameId } from '../../lib/games';
   import { KNOWN_MODS, KNOWN_MOD_IDS, type KnownModId } from '../../lib/mods/catalog';
-  import { MOD_RELEASES, isOlder, releaseOf } from '../../lib/mods/releases';
+  import { MOD_RELEASES, isOlder, isZip, releaseOf } from '../../lib/mods/releases';
   import { sourcesFromFileList } from '../../lib/storage/importer';
   import { formatBytes } from '../../lib/storage/manifest';
   import Glyph from '../components/Glyph.svelte';
@@ -134,7 +134,7 @@
       label: 'Install a known mod',
       state: `${INSTALLABLE.length} MODS`,
       icon: 'uplink',
-      note: `${INSTALLABLE.map((id) => KNOWN_MODS[id].title).join(', ')}: fetched from their makers' own links and loaded, the version the console's tests play.`,
+      note: `From their makers' own links, at the version the console's tests play: ${INSTALLABLE.filter((id) => isZip(MOD_RELEASES[id]!)).length} taken as they are downloaded, the rest step by step.`,
       action: () => go('mods/install'),
     },
     {
@@ -188,7 +188,7 @@
       key: 'i',
       label: 'Install a known mod',
       icon: 'uplink',
-      note: 'The known mods that come as one zip: the console fetches the version its tests play, from its makers\' own link.',
+      note: "Each mod the console knows, at the version its tests play, from its makers' own link: downloaded and loaded, or step by step.",
       action: () => go('mods/install'),
     },
     {
@@ -245,13 +245,21 @@
     const entries: Omit<MenuItem, 'key'>[] = [
       ...(install
         ? [
-            {
-              label: here ? `Update to version ${pageRelease.version}` : `Install version ${pageRelease.version}`,
-              state: formatBytes(pageRelease.bytes),
-              icon: 'uplink',
-              note: `${pageRelease.file} from its makers' own link, fetched by your Dropbox or downloaded by this browser, and loaded.`,
-              action: () => go(`mods/install/${page.id}`),
-            } satisfies Omit<MenuItem, 'key'>,
+            (isZip(pageRelease)
+              ? {
+                  label: here ? `Update to version ${pageRelease.version}` : `Install version ${pageRelease.version}`,
+                  state: formatBytes(pageRelease.bytes),
+                  icon: 'uplink',
+                  note: `${pageRelease.file} from its makers' own link, ${pageRelease.kind === 'zip' ? 'fetched by your Dropbox or ' : ''}downloaded by this browser, checked and loaded.`,
+                  action: () => go(`mods/install/${page.id}`),
+                }
+              : {
+                  label: 'Install it, step by step',
+                  state: pageRelease.kind === 'unpack' ? 'UNPACK FIRST' : 'DESKTOP INSTALLER',
+                  icon: 'uplink',
+                  note: 'Where to download it, what to do with it on a computer, and what to hand the console then.',
+                  action: () => go(`mods/install/${page.id}`),
+                }) satisfies Omit<MenuItem, 'key'>,
           ]
         : []),
       {

@@ -1,8 +1,8 @@
 import type { Page } from '@playwright/test';
-import { MOD_RELEASES } from '../../src/lib/mods/releases';
-import { resurrectionFiles, rpuFiles } from '../mods';
+import { MOD_RELEASES, type ZipRelease } from '../../src/lib/mods/releases';
+import { nevadaFiles, resurrectionFiles, rpuFiles } from '../mods';
 import { expect, test } from './fixtures';
-import { fakeFallout2Folder, openConsole, pickFolder, sizedZip, zipOf } from './helpers';
+import { fakeFallout2Folder, openConsole, pickFolder, sizedZip, writeFolder, zipOf } from './helpers';
 
 /**
  * Installing a known mod's release without a cloud that downloads it: the
@@ -14,15 +14,19 @@ const loaded = (page: Page) => expect(page.getByText('HOLODISK LOADED', { exact:
 const entry = (page: Page, text: string) => page.locator('.menu li').filter({ hasText: text });
 
 test('installs Resurrection from the release the player downloaded, once Fallout 2 is in its deck', async ({ page, context }) => {
-  const release = MOD_RELEASES.resurrection!;
+  const release = MOD_RELEASES.resurrection as ZipRelease;
   await openConsole(page, 'mods');
   await entry(page, 'Install a known mod').locator('button').click();
   await expect(page.getByRole('heading', { name: 'Install a known mod' })).toBeVisible();
-  for (const title of ['Fallout Et Tu', 'Restoration Project', 'Fallout: Sonora', 'Olympus 2207', 'Fallout 1.5: Resurrection']) {
-    await expect(entry(page, title)).toBeVisible();
-  }
-  await expect(entry(page, 'Megamod')).toHaveCount(0);
+  // Every mod the console knows: each taken as it is downloaded, or step by step.
+  await expect(page.locator('.menu .label')).toHaveText(
+    ['Fallout Fixt', 'Fallout Et Tu', 'Restoration Project', 'Fallout 2 Megamod', 'Fallout: Sonora', 'Fallout: Nevada', 'Olympus 2207', 'Fallout 1.5: Resurrection', 'Fallout Yesterday', 'Back'],
+    { ignoreCase: true },
+  );
   await expect(entry(page, 'Resurrection')).toContainText('1.5, 341.5 MB');
+  await expect(entry(page, 'Megamod')).toContainText('2.47.8, 998.4 MB');
+  await expect(entry(page, 'Yesterday')).toContainText('UNPACK FIRST');
+  await expect(entry(page, 'Fixt')).toContainText('DESKTOP INSTALLER');
 
   await entry(page, 'Resurrection').locator('button').click();
   await expect(page.getByRole('heading', { name: 'Install Fallout 1.5: Resurrection' })).toBeVisible();
@@ -94,4 +98,33 @@ test('offers the release as an update to a mod loaded at an older version', asyn
   await expect(entry(page, 'Update from the download')).toBeVisible();
   await page.goto('#/mods/install');
   await expect(entry(page, 'Restoration Project')).toContainText(`UPDATE TO ${MOD_RELEASES.rpu!.version}`);
+});
+
+test('walks through a mod that comes as an installer, and takes the folder it filled once it looks like that mod', async ({ page }) => {
+  await openConsole(page, 'fo2');
+  await pickFolder(page, await fakeFallout2Folder(true));
+  await loaded(page);
+  await page.goto('#/mods/install/nevada');
+  await expect(page.getByRole('heading', { name: 'Install Fallout: Nevada' })).toBeVisible();
+  await expect(page.getByText('Run it on a Windows desktop, or with Wine: it cannot run in a browser.')).toBeVisible();
+  await expect(entry(page, 'Get it from No Mutants Allowed')).toContainText('OPENS A NEW TAB');
+  await expect(entry(page, 'Select a zip of the folder')).toBeVisible();
+  // No size to tell it by, and nothing about it says Nevada.
+  await page.locator('input[accept*="zip"]').setInputFiles(await zipOf(rpuFiles(), 'stuff.zip'));
+  await expect(page.getByText('THAT DOES NOT LOOK LIKE FALLOUT: NEVADA')).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  // The folder its installer filled, its English translation over it.
+  await pickFolder(page, await writeFolder(nevadaFiles(), 'FalloutNevadaEng'));
+  await loaded(page);
+  await entry(page, 'Open Fallout: Nevada').locator('button').click();
+  await expect(page.getByRole('heading', { name: 'Fallout: Nevada' })).toBeVisible();
+});
+
+test('takes the Megamod, which Nexus Mods asks to sign in for, only from the browser', async ({ page }) => {
+  await openConsole(page, 'mods/install/megamod');
+  await expect(entry(page, 'Get version 2.47.8 from Nexus Mods')).toContainText('OPENS A NEW TAB');
+  await expect(page.locator('.readout')).toContainText('Nexus Mods, which asks you to sign in');
+  await expect(entry(page, 'Install the download')).toBeVisible();
+  await expect(page.locator('.board')).toContainText('asks you to sign in');
 });

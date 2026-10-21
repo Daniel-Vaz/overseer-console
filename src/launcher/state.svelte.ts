@@ -4,7 +4,7 @@ import { activeCloud, requireCloud } from '../lib/cloud/clouds';
 import { CloudError, LinkError } from '../lib/cloud/errors';
 import { cloudGameFiles, cloudModFiles } from '../lib/cloud/games';
 import { fetchIntoCloud } from '../lib/mods/install';
-import type { ModRelease } from '../lib/mods/releases';
+import { isZip, type ModRelease, type ZipRelease } from '../lib/mods/releases';
 import type { CloudFile, CloudId } from '../lib/cloud/provider';
 import { runPut, type PutPlan, type PutProgress } from '../lib/cloud/put';
 import { gameFacts, type Places } from '../lib/gamefacts';
@@ -370,7 +370,7 @@ class ConsoleState {
    * there. A copy already there is not downloaded again. `replacing`: the
    * mod already here that it updates.
    */
-  installRelease(release: ModRelease, replacing?: GameId): Promise<GameId | null> {
+  installRelease(release: ZipRelease, replacing?: GameId): Promise<GameId | null> {
     const cloud = requireCloud();
     const site = new URL(release.url).hostname;
     return this.importWith(
@@ -468,7 +468,8 @@ class ConsoleState {
       const sources = await unless(find(signal));
       const survey = await unless(surveySources(sources));
       const plan = await this.plan(sources, survey, preferred, remote, signal, unless);
-      if (release && plan.mod?.record.known === release.mod) plan.mod.record.version = release.version;
+      // Only a zip told by its size is known to be that version.
+      if (release && isZip(release) && plan.mod?.record.known === release.mod) plan.mod.record.version = release.version;
       if (remote && preferred && isBaseGame(preferred) && plan.game !== preferred) {
         throw new ImportError(`${gameDef(preferred).title} was not found in your ${remote}. What is there is ${plan.mod?.record.title ?? gameDef(plan.game).title}.`);
       }

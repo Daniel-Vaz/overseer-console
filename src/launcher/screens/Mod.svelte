@@ -8,7 +8,7 @@
   import { gameDef, isGameId, type GameId } from '../../lib/games';
   import { KNOWN_MODS } from '../../lib/mods/catalog';
   import { readComponents, resetComponents, setComponent, type Components } from '../../lib/mods/components';
-  import { isOlder, releaseOf } from '../../lib/mods/releases';
+  import { isOlder, isZip, releaseOf } from '../../lib/mods/releases';
   import { picturesFor } from '../../lib/settings';
   import { sourcesFromFileList } from '../../lib/storage/importer';
   import { formatBytes } from '../../lib/storage/manifest';
@@ -34,7 +34,9 @@
   const donor = $derived(mod.donor ? gameDef(mod.donor) : null);
   const known = $derived(mod.known ? KNOWN_MODS[mod.known] : null);
   /** The release of it the console installs, and whether what is here is older. */
-  const release = $derived(releaseOf(mod.known));
+  const found = $derived(releaseOf(mod.known));
+  // Only a zip told by its size: for the rest, its folder is handed over as below.
+  const release = $derived(found && isZip(found) ? found : undefined);
   const outdated = $derived(!!release && isOlder(mod.version, release));
   const install = $derived(sys.installs[game]);
   const canPickFolder = 'webkitdirectory' in HTMLInputElement.prototype;

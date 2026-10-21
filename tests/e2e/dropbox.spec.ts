@@ -2,7 +2,7 @@ import type { BrowserContext, Page } from '@playwright/test';
 import { zipSync } from 'fflate';
 import { FakeDropbox } from '../fake-dropbox';
 import { expect, test as base } from './fixtures';
-import { MOD_RELEASES } from '../../src/lib/mods/releases';
+import { MOD_RELEASES, type ZipRelease } from '../../src/lib/mods/releases';
 import { resurrectionFiles } from '../mods';
 import { fakeEttuZip, fakeFallout2Folder, fakeSaveDat, openConsole, pickFolder, sizedZip } from './helpers';
 
@@ -404,7 +404,7 @@ test('loads Fallout Et Tu from the zip it is kept as in the Mods folder of Dropb
 });
 
 test('installs a known mod through Dropbox, which downloads it into its Mods folder', async ({ page, context }) => {
-  const release = MOD_RELEASES.resurrection!;
+  const release = MOD_RELEASES.resurrection as ZipRelease;
   const dropbox = new FakeDropbox();
   dropbox.saveUrlPolls = 0;
   // Its makers' link, sent on to where the file is, as Bitbucket does.

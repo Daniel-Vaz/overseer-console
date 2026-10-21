@@ -11,7 +11,8 @@ import { modsFolder } from '../cloud/games';
 import type { Cloud, CloudFile } from '../cloud/provider';
 import { formatBytes } from '../storage/manifest';
 import { ImportError } from '../storage/plan';
-import type { ModRelease } from './releases';
+import { KNOWN_MODS, type KnownModId } from './catalog';
+import type { ZipRelease } from './releases';
 
 /** Whether the cloud can download a release by itself. */
 export function cloudFetches(cloud: Cloud | null): boolean {
@@ -23,7 +24,7 @@ export function cloudFetches(cloud: Cloud | null): boolean {
  * its name, or under another name at its exact size (a second copy Dropbox
  * numbered, or one the player renamed).
  */
-export async function releaseInCloud(release: ModRelease, cloud: Cloud): Promise<CloudFile | null> {
+export async function releaseInCloud(release: ZipRelease, cloud: Cloud): Promise<CloudFile | null> {
   let files: CloudFile[];
   try {
     files = await cloud.listFiles(modsFolder(cloud));
@@ -40,7 +41,7 @@ export async function releaseInCloud(release: ModRelease, cloud: Cloud): Promise
  * there already, and returns it as the cloud holds it. `started` is called
  * when the cloud has been asked to download it.
  */
-export async function fetchIntoCloud(release: ModRelease, cloud: Cloud, signal?: AbortSignal, started?: () => void): Promise<CloudFile> {
+export async function fetchIntoCloud(release: ZipRelease, cloud: Cloud, signal?: AbortSignal, started?: () => void): Promise<CloudFile> {
   const held = await releaseInCloud(release, cloud);
   if (held) return held;
   if (!cloud.saveUrl) throw new ImportError(`${cloud.name} cannot download from the web by itself: download ${release.file} with this browser and hand it over.`);
@@ -54,4 +55,18 @@ export async function fetchIntoCloud(release: ModRelease, cloud: Cloud, signal?:
     );
   }
   return file;
+}
+
+/**
+ * Whether what was handed over looks like the mod: a file only it has, or a
+ * folder (or zip) named after it. For a mod handed over as a folder, where no
+ * one file can be told by its size.
+ */
+export function looksLikeMod(mod: KnownModId, sources: { path: string; zip?: string }[]): boolean {
+  const known = KNOWN_MODS[mod];
+  const paths = sources.map((source) => source.path.replace(/\\/g, '/').toLowerCase());
+  if (known.files?.some((file) => paths.some((path) => path === file || path.endsWith(`/${file}`)))) return true;
+  const folders = new Set(paths.flatMap((path) => path.split('/').slice(0, -1)));
+  for (const source of sources) if (source.zip) folders.add(source.zip);
+  return [...folders].some((name) => known.names.test(name));
 }
