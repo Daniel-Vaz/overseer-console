@@ -14,3 +14,6 @@ Yesterday, whose unpacked folder is 9 GB. For both games with a few mods, Google
 
 What a linked cloud does is the same in either, and is described in [Features](features.md): saves
 kept as one zip per slot, games and mods loaded from it, and **Put in your cloud**, which sends them from this device.
+One thing only Dropbox does: when a mod the console knows is installed (see [Mods](mods.md)), Dropbox downloads its
+zip into the Mods folder itself. Google Drive cannot download from the web, so there your browser downloads it, and
+the console offers to put it in the Mods folder once it is loaded.

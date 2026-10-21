@@ -114,6 +114,17 @@ binary, for profiling in the browser's developer tools. For a crash, add `-sASSE
 read or write then stops the engine with a stack trace (on the page's console) where the browser would crash the tab.
 (`SAFE_HEAP=1` also stops on unaligned reads, which the film player makes and WebAssembly allows.)
 
+## Moving a mod to a newer release
+
+The mods the console installs itself, and the release of each, are listed in
+[`src/lib/mods/releases.ts`](../src/lib/mods/releases.ts). `npm run mod-releases` says whether each file listed is
+still served at its size, and which mods have a newer release on GitHub (Resurrection's download page has to be looked
+at by hand). To move one on, change its version, file, url and bytes there, play it from its real files (the table
+above), and update the table in [Mods](mods.md). A mod loaded at the old version is then offered the new one.
+
+`DROPBOX_TEST_TOKEN` also checks that the real Dropbox downloads a release from GitHub through its redirect, the way
+Install does.
+
 ## Deploying
 
 The workflow in [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) builds the engines and the

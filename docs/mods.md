@@ -26,6 +26,35 @@ Google Drive*) shows. **Put in your cloud**, under Cloud link, puts it there fro
 one zip on the way: a zip is a few large downloads where a folder is thousands of small ones. In Google Drive that is
 the only way in, as Google lets the console see only what it put there itself.
 
+## Installing one the console knows
+
+Five of the mods the console knows come as one zip, from a link that needs no sign-in: Fallout Et Tu, the Restoration
+Project, Fallout: Sonora, Olympus 2207 and Fallout 1.5: Resurrection. The console installs these itself: **Install a
+known mod**, in the Mod library (or the mod's own page among *Mods the console knows*), at the version its tests
+play.
+
+| Mod | Version | File |
+| --- | --- | --- |
+| Fallout Et Tu | 2.0.3911 | `Fallout1in2.zip`, 394 MB |
+| Restoration Project | 2.4.34 | `rpu_v2.4.34.zip`, 827 MB |
+| Fallout: Sonora | 1.16.4E | `Fallout_Sonora_1.16.4E.zip`, 1.6 GB |
+| Olympus 2207 | 1.1 | `Olympus-2207-English.zip`, 1.7 GB |
+| Fallout 1.5: Resurrection | 1.5 | `FoRes_EN_1_5.zip`, 342 MB |
+
+The sites they come from (GitHub's releases, Bitbucket) do not let a page of another site read what they serve, and
+the console has no server of its own to fetch through. So:
+
+- **With your Dropbox linked**, Dropbox downloads the zip itself, from its makers' link into the **Mods** folder, and
+  the console loads it from there. It stays there for your other devices, and is not downloaded again. Dropbox gives
+  itself five minutes for a download; were this tab closed meanwhile, Dropbox would carry on.
+- **Otherwise** your browser downloads it (*Download*, in a tab of its own), and you select it or drop it on the
+  screen. The console checks by its size that it is that release, and asks before loading anything else. With your
+  Google Drive linked it then offers to put the zip in the Mods folder there.
+
+A mod loaded at an older version than the one listed (as the name of its zip says) is offered the newer one on its
+page; its saves are kept. The list is in
+[`src/lib/mods/releases.ts`](../src/lib/mods/releases.ts); see [Developing](developing.md) for moving it on.
+
 ## Playing one
 
 A mod's page starts it, and holds its save archives and its picture. **In deck B** (or A) puts it in its game's
