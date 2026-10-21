@@ -19,13 +19,18 @@ const test = base.extend({
  * The console linked to a Google Drive that is not there: every request to
  * Google's hosts is answered by tests/fake-drive.ts.
  */
-async function standIn(context: BrowserContext, drive: FakeDrive, line: { pieceMs: number } = { pieceMs: 0 }): Promise<void> {
+async function standIn(context: BrowserContext, drive: FakeDrive, line: { held: Promise<void> | null } = { held: null }): Promise<void> {
   // The console asks every second whether the code was entered, not every five.
   drive.interval = 1;
   await context.route(/^https:\/\/(oauth2\.googleapis\.com|www\.googleapis\.com|www\.google\.com)\//, async (route) => {
     const request = route.request();
-    // A slow line, where a test wants to act while something is still on its way.
-    if (line.pieceMs && request.url().includes('upload_id')) await new Promise((resolve) => setTimeout(resolve, line.pieceMs));
+    // A line that holds pieces of an upload until let go, where a test wants to act while something is still on its way.
+    if (line.held && request.url().includes('upload_id')) {
+      await line.held;
+      // Called off meanwhile: the piece never arrived.
+      await route.abort().catch(() => undefined);
+      return;
+    }
     const answer = drive.handle({ method: request.method(), url: request.url(), headers: request.headers(), body: request.postDataBuffer() });
     await route.fulfill({ status: answer.status, headers: answer.headers, body: typeof answer.body === 'string' ? answer.body : Buffer.from(answer.body) });
   });
@@ -320,13 +325,15 @@ test('loads Fallout Et Tu from the Mods folder of Google Drive', async ({ page, 
 
 test('a game on its way to Google Drive can be called off, and nothing of it is left there', async ({ page, context }) => {
   const drive = new FakeDrive();
-  const line = { pieceMs: 0 };
+  const line: { held: Promise<void> | null } = { held: null };
   await standIn(context, drive, line);
   await linkConsole(page, drive);
   await page.goto('#/settings/cloud/put');
   await expect(page.getByRole('heading', { name: 'Put in Google Drive' })).toBeVisible();
 
-  line.pieceMs = 1500;
+  // Its pieces are held on the way, however fast this browser packs and sends.
+  let letGo = () => {};
+  line.held = new Promise((resolve) => (letGo = resolve));
   await page.keyboard.press('1');
   await pickFolder(page, await fakeFallout2Folder());
   await expect(page.getByText('SENDING FALLOUT 2.ZIP TO GOOGLE DRIVE')).toBeVisible({ timeout: 30_000 });
@@ -336,4 +343,5 @@ test('a game on its way to Google Drive can be called off, and nothing of it is 
   await page.keyboard.press('y');
   await expect(page.getByText('Stopped. Nothing of Fallout 2.zip was left in your Google Drive.')).toBeVisible({ timeout: 30_000 });
   expect(drive.paths).toEqual([]);
+  letGo();
 });
