@@ -31,9 +31,9 @@ own **Operations manual** (entry 6 of the main directory) explains each of these
   was sold, one key away on its deck. See [Mods](mods.md).
 - **Bring your own.** Hand the console a mod as it is downloaded (a zip or its folder) or a game folder it was
   installed in. It keeps only what differs from your game in the deck, and does what a mod's installer would do.
-- **Five it installs itself.** Fallout Et Tu, the Restoration Project, Sonora, Olympus 2207 and Resurrection, at the
-  version the console's tests play, from their makers' own links: downloaded by your Dropbox into its Mods folder, or
-  by your browser and checked when you hand it over. A mod loaded at an older version is offered the newer one.
+- **Install a known mod.** Each of the nine at the version the console's tests play, from its makers' own link: a zip
+  downloaded by your Dropbox into its Mods folder, or by your browser and checked when you hand it over; a 7z or an
+  installer step by step, then its folder. A mod loaded at an older version is offered the newer one.
 - **Nine it knows by name.** Fallout Et Tu (put together from your Fallout and played on your Fallout 2, no
   extraction tool), the Restoration Project, the Megamod, Sonora, Nevada, Olympus 2207, Resurrection and Fallout
   Yesterday for Fallout 2, Fallout Fixt for Fallout: where to get each, what to hand over, and how well it plays on the

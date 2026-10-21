@@ -118,8 +118,8 @@ read or write then stops the engine with a stack trace (on the page's console) w
 
 The mods the console installs itself, and the release of each, are listed in
 [`src/lib/mods/releases.ts`](../src/lib/mods/releases.ts). `npm run mod-releases` says whether each file listed is
-still served at its size, and which mods have a newer release on GitHub (Resurrection's download page has to be looked
-at by hand). To move one on, change its version, file, url and bytes there, play it from its real files (the table
+still served at its size, and which mods have a newer release on GitHub (those downloaded from a page, Resurrection's,
+Nexus Mods' and Nevada's, have to be looked at by hand). To move one on, change its version, file, url and bytes there, play it from its real files (the table
 above), and update the table in [Mods](mods.md). A mod loaded at the old version is then offered the new one.
 
 `DROPBOX_TEST_TOKEN` also checks that the real Dropbox downloads a release from GitHub through its redirect, the way

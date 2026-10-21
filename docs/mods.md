@@ -28,32 +28,39 @@ the only way in, as Google lets the console see only what it put there itself.
 
 ## Installing one the console knows
 
-Five of the mods the console knows come as one zip, from a link that needs no sign-in: Fallout Et Tu, the Restoration
-Project, Fallout: Sonora, Olympus 2207 and Fallout 1.5: Resurrection. The console installs these itself: **Install a
-known mod**, in the Mod library (or the mod's own page among *Mods the console knows*), at the version its tests
-play.
+**Install a known mod**, in the Mod library (or the mod's own page among *Mods the console knows*), installs each of
+the mods the console knows from its makers' own link, at the version its tests play. How depends on what its makers
+ship:
 
-| Mod | Version | File |
-| --- | --- | --- |
-| Fallout Et Tu | 2.0.3911 | `Fallout1in2.zip`, 394 MB |
-| Restoration Project | 2.4.34 | `rpu_v2.4.34.zip`, 827 MB |
-| Fallout: Sonora | 1.16.4E | `Fallout_Sonora_1.16.4E.zip`, 1.6 GB |
-| Olympus 2207 | 1.1 | `Olympus-2207-English.zip`, 1.7 GB |
-| Fallout 1.5: Resurrection | 1.5 | `FoRes_EN_1_5.zip`, 342 MB |
+| Mod | Version | What is downloaded | How |
+| --- | --- | --- | --- |
+| Fallout Et Tu | 2.0.3911 | `Fallout1in2.zip`, 394 MB | Fetched by Dropbox, or by your browser |
+| Restoration Project | 2.4.34 | `rpu_v2.4.34.zip`, 827 MB | Fetched by Dropbox, or by your browser |
+| Fallout: Sonora | 1.16.4E | `Fallout_Sonora_1.16.4E.zip`, 1.6 GB | Fetched by Dropbox, or by your browser |
+| Olympus 2207 | 1.1 | `Olympus-2207-English.zip`, 1.7 GB | Fetched by Dropbox, or by your browser |
+| Fallout 1.5: Resurrection | 1.5 | `FoRes_EN_1_5.zip`, 342 MB | Fetched by Dropbox, or by your browser |
+| Fallout 2 Megamod | 2.47.8 | `Fallout 2 Megamod 2.47.8.zip`, 998 MB | Your browser, signed in to Nexus Mods |
+| Fallout Yesterday | 0.6.5 | `FYv065.1.7z` (Nexus Mods, signed in) | You unpack it, and hand over the folder |
+| Fallout: Nevada | | Its installer, and its English translation | You install it on a desktop, and hand over the folder |
+| Fallout Fixt | 0.81alpha | `Fallout_Fixt_0.81alpha_FULL_CUSTOM.exe`, 204 MB | You install it on a desktop, and hand over the folder |
 
-The sites they come from (GitHub's releases, Bitbucket) do not let a page of another site read what they serve, and
-the console has no server of its own to fetch through. So:
+The sites they come from (GitHub's releases, Bitbucket, Nexus Mods) do not let a page of another site read what they
+serve, and the console has no server of its own to fetch through. So:
 
-- **With your Dropbox linked**, Dropbox downloads the zip itself, from its makers' link into the **Mods** folder, and
-  the console loads it from there. It stays there for your other devices, and is not downloaded again. Dropbox gives
-  itself five minutes for a download; were this tab closed meanwhile, Dropbox would carry on.
-- **Otherwise** your browser downloads it (*Download*, in a tab of its own), and you select it or drop it on the
-  screen. The console checks by its size that it is that release, and asks before loading anything else. With your
-  Google Drive linked it then offers to put the zip in the Mods folder there.
+- **A zip from a link that needs no sign-in**, with your Dropbox linked: Dropbox downloads it itself, from its makers'
+  link into the **Mods** folder, and the console loads it from there. It stays there for your other devices, and is
+  not downloaded again. Dropbox gives itself five minutes for a download; were this tab closed meanwhile, Dropbox would
+  carry on.
+- **Any zip, otherwise**: your browser downloads it (in a tab of its own; Nexus Mods asks you to sign in first), and you
+  select it or drop it on the screen. The console checks by its size that it is that release, and asks before loading
+  anything else. With your cloud linked it then offers to put the zip in its Mods folder.
+- **A 7z or an installer**: the console says where to get it and what to do with it on a computer (unpack it; run the
+  installer on a Windows desktop or with Wine), then takes the folder, or a zip of it. It checks that what it is handed
+  holds a file only that mod has, or is named after it, and asks before loading anything else.
 
-A mod loaded at an older version than the one listed (as the name of its zip says) is offered the newer one on its
-page; its saves are kept. The list is in
-[`src/lib/mods/releases.ts`](../src/lib/mods/releases.ts); see [Developing](developing.md) for moving it on.
+A mod loaded at an older version than the zip listed (as the name of its zip says) is offered the newer one on its
+page; its saves are kept. The list is in [`src/lib/mods/releases.ts`](../src/lib/mods/releases.ts); see
+[Developing](developing.md) for moving it on.
 
 ## Playing one
 
