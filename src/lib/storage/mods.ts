@@ -14,6 +14,9 @@
  *  - Files to unpack into a game folder, as a mod's zip holds them, are
  *    stored as they are, and the game's own files are used beside them, less
  *    whatever the mod's installer would have moved out of the way.
+ *  - A mod played from a folder of its own inside the game's (Resurrection)
+ *    is stored as that folder, and started with the game's archives and
+ *    music below it.
  *
  * What only a desktop needs (programs, libraries, installers) is left out.
  * Folders of many small files are packed into archives, as Fallout Et Tu's
@@ -65,6 +68,37 @@ const PLAIN = /\.(ini|cfg|txt)$/;
 export const MOD_DATA = 'mod-data.dat';
 /** Fewer loose files than this are not worth an archive of their own. */
 const PACK_FROM = 16;
+/** The archives the engine opens one after another by number, as sfall names them unless told otherwise. */
+const PATCH = /^patch(\d{3})\.dat$/i;
+/** What one archive holds of the files in it, with its directory: each file, its name and 17 bytes, and 12 more. */
+const ARCHIVE_ROOM = MAX_ARCHIVE_BYTES - 12;
+
+/**
+ * A folder of files as an archive, or as many archives as it takes,
+ * where it is more than one holds (Fallout Yesterday's patch001.dat is 4.6 GB).
+ * Each file is in one of them only, so they may be opened in any order.
+ */
+function packFolder(members: PackMember[]): SourceBlob[] {
+  // Of two that share a name in any case, the later one, as packDat2 keeps it.
+  const unique = new Map<string, PackMember>();
+  for (const member of members) {
+    const key = pathKey(member.name);
+    unique.delete(key);
+    unique.set(key, member);
+  }
+  const parts: PackMember[][] = [];
+  let room = 0;
+  for (const member of unique.values()) {
+    const size = member.file.size + member.name.length + 17;
+    if (!parts.length || size > room) {
+      parts.push([]);
+      room = ARCHIVE_ROOM;
+    }
+    parts[parts.length - 1]!.push(member);
+    room -= size;
+  }
+  return parts.map((part) => packDat2(part));
+}
 
 /** Where a selection holds a folder (lower-cased): the part of `key` before `/<name>/`, or null. */
 function parentOf(key: string, name: string): string | null {
@@ -119,10 +153,11 @@ export function findMod(sources: SourceFile[], candidates: Candidate[]): FoundMo
     const folder = parentOf(key, 'master.dat');
     if (folder !== null) add(folder, true, 'fo2');
   }
-  // Files to unpack into a game folder: else, in a game folder the console does not know as a mod, an
-  // installer's own folder inside it that the console knows by a file of its own (Fixt's sits in Fallout's).
+  // Files to unpack into a game folder: else, in a game folder the console does not know by a file of a mod,
+  // an installer's own folder inside it that the console knows by a file of its own (Fixt's sits in Fallout's,
+  // Resurrection's in Fallout 2's).
   const nested = found.length > 0;
-  if (!found.length || !found.some((mod) => mod.known)) {
+  if (!found.some((mod) => mod.byFile)) {
     for (const key of keys) {
       for (const name of ['mods', 'data']) {
         const root = parentOf(key, name);
@@ -133,7 +168,13 @@ export function findMod(sources: SourceFile[], candidates: Candidate[]): FoundMo
       }
     }
   }
-  found.sort((a, b) => Number(!a.known) - Number(!b.known) || Number(!a.complete) - Number(!b.complete) || depthOf(a.root) - depthOf(b.root));
+  found.sort(
+    (a, b) =>
+      Number(!a.byFile) - Number(!b.byFile) ||
+      Number(!a.known) - Number(!b.known) ||
+      Number(!a.complete) - Number(!b.complete) ||
+      depthOf(a.root) - depthOf(b.root),
+  );
   const best = found[0];
   if (!best) return null;
   // A mod the console knows is played on the game it was made for.
@@ -152,6 +193,13 @@ interface Recipe {
   skips?: { pattern: RegExp; why: string };
   /** Its loose item and critter protos are its own, not what an engine left behind (see isLeftoverState). */
   protos?: boolean;
+  /**
+   * Played from a folder of its own inside the game's, which its settings reach up from for the game's
+   * archives and music: here, with them in a folder below it (see mount.ts).
+   */
+  nested?: boolean;
+  /** Folders it unpacks into beside its own, in the game's: taken along as if they were in its own. */
+  beside?: string[];
   /** Turns what the mod brings for sfall into what the Community Edition engine reads. */
   adapt?(items: Map<string, Item>): Promise<string[]>;
 }
@@ -190,6 +238,21 @@ const RECIPES: Partial<Record<KnownModId, Recipe>> = {
       }
       return moved ? [`${count(moved, 'of its protos', 'of its protos')} put where its tool would have put them.`] : [];
     },
+  },
+  // Unpacked into the Fallout 2 folder: a Resurrection folder whose settings reach up for the game's archives
+  // and music, and its new music, in the game's music folder beside it. Its content is the high resolution
+  // patch's archive (fores.dat), its new critters the second patch location (fores_critter.dat).
+  resurrection: {
+    nested: true,
+    beside: ['sound/music/'],
+  },
+  // Unpacked into a folder of its own, into which Fallout 2's master.dat, critter.dat and patch000.dat are
+  // copied: of the game, those alone.
+  yesterday: {
+    // Every file of the game, at the top of its folder and in the folders below.
+    hides: ['*', '*/'],
+    keeps: ['master.dat', 'critter.dat', 'patch000.dat'],
+    skips: { pattern: /^appearance\//, why: 'its Hero Appearance art, a feature the engine does not have' },
   },
   // Its installer puts it in a folder of its own inside the game's, whose settings name the game's archives
   // and music but its own data folder: the game's loose data is not read, its music is.
@@ -310,6 +373,22 @@ export async function planFoundMod(sources: SourceFile[], found: FoundMod, conte
   const recipe = found.known ? RECIPES[found.known] : undefined;
   const notes: string[] = [];
   const warnings: string[] = [];
+  // What it unpacks beside its own folder, into the game's: as if it were in its own.
+  if (recipe?.beside) {
+    const parent = found.root.includes('/') ? `${dirname(found.root)}/` : '';
+    let beside = 0;
+    for (const source of found.root ? sources : []) {
+      const full = source.path.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+      const key = full.toLowerCase();
+      const relative = key.slice(parent.length);
+      if (!key.startsWith(parent) || !recipe.beside.some((folder) => relative.startsWith(folder)) || items.has(relative)) continue;
+      items.set(relative, { path: full.slice(parent.length), file: source.file });
+      beside++;
+    }
+    if (!beside) {
+      notes.push(`Its zip also puts files in ${recipe.beside.join(' and ')}, beside its own folder, and none were handed over. Hand the console the zip, or the game folder it was installed in, for all of it.`);
+    }
+  }
   for (const [from, to] of Object.entries(recipe?.moves ?? {})) {
     const item = items.get(from);
     if (!item || items.has(to)) continue;
@@ -411,8 +490,15 @@ export async function planFoundMod(sources: SourceFile[], found: FoundMod, conte
         loose.push(item);
       }
     }
+    const splits: { at: number; name: string; parts: SourceBlob[] }[] = [];
     try {
-      for (const { name, members } of folders.values()) entries.push({ path: name, file: packDat2(members) });
+      for (const { name, members } of folders.values()) {
+        const parts = packFolder(members);
+        const patch = PATCH.exec(name);
+        if (parts.length === 1) entries.push({ path: name, file: parts[0]! });
+        else if (patch) splits.push({ at: Number(patch[1]), name, parts });
+        else throw new RangeError(`${name} is too large`);
+      }
       if (data.length >= PACK_FROM && data.reduce((sum, member) => sum + member.file.size, 0) < MAX_ARCHIVE_BYTES) {
         entries.push({ path: MOD_DATA, file: packDat2(data) });
         patches = MOD_DATA;
@@ -429,6 +515,26 @@ export async function planFoundMod(sources: SourceFile[], found: FoundMod, conte
       throw err;
     }
     entries.push(...loose.map(({ path, file }) => ({ path, file })));
+    // A patch archive more than one archive holds is stored as several, numbered on from its own number, and
+    // the patch archives after it are numbered on past them: the engine opens them by number until one is missing.
+    if (splits.length) {
+      const after = (n: number) => n + splits.filter((split) => split.at < n).reduce((sum, split) => sum + split.parts.length - 1, 0);
+      const numbered = (name: string, n: number) => name.replace(/\d{3}/, String(n).padStart(3, '0'));
+      const renamed: string[] = [];
+      for (const entry of entries) {
+        const match = PATCH.exec(entry.path);
+        if (!match || after(Number(match[1])) === Number(match[1])) continue;
+        const to = numbered(entry.path, after(Number(match[1])));
+        renamed.push(`its ${entry.path} is ${to} here`);
+        entry.path = to;
+      }
+      for (const split of splits) {
+        const first = after(split.at);
+        split.parts.forEach((file, index) => entries.push({ path: numbered(split.name, first + index), file }));
+        notes.push(`Its ${split.name} folder is more than one archive holds: it is stored as ${numbered(split.name, first)} to ${numbered(split.name, first + split.parts.length - 1)}.`);
+      }
+      if (renamed.length) notes.push(`The engine opens patch archives by number: ${renamed.join(', ')}.`);
+    }
   } else {
     entries.push(...own.map(({ path, file }) => ({ path, file })));
   }
@@ -439,10 +545,11 @@ export async function planFoundMod(sources: SourceFile[], found: FoundMod, conte
     warnings.push(`Nothing in it looks like game data. Is it the mod itself, as it is unpacked into the ${base.title} folder?`);
   }
 
+  const nested = !!recipe?.nested && !found.complete;
   const mod: ModInstall = {
     record,
-    layout: 'over',
-    ...(found.complete ? { reuses } : { hides: [...hides], keeps }),
+    layout: nested ? 'nested' : 'over',
+    ...(found.complete || nested ? { reuses } : { hides: [...hides], keeps }),
     ...(patches ? { patches } : {}),
   };
   const dirs = new Set<string>();

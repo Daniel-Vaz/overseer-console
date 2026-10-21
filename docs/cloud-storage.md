@@ -9,8 +9,8 @@ and links the console to it. It links to one cloud at a time.
 | Dropbox | 2 GB: the two games and a mod | [Dropbox link](dropbox.md) |
 | Google Drive | Up to 15 GB, shared with Gmail and Google Photos | [Google Drive link](google-drive.md) |
 
-A game is about 550 MB; the mods the console knows are 0.4 to 3 GB each as they are downloaded. For both games with a
-few mods, Google Drive has the room.
+A game is about 550 MB; the mods the console knows are 0.4 to 3 GB each as they are downloaded, but for Fallout
+Yesterday, whose unpacked folder is 9 GB. For both games with a few mods, Google Drive has the room.
 
 What a linked cloud does is the same in either, and is described in [Features](features.md): saves
 kept as one zip per slot, games and mods loaded from it, and **Put in your cloud**, which sends them from this device.

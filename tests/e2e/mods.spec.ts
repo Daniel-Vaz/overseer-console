@@ -1,16 +1,17 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
-import { pattern, rpuFiles } from '../mods';
+import { pattern, resurrectionFiles, rpuFiles } from '../mods';
 import { expect, test } from './fixtures';
 import { fakeFallout2Folder, openConsole, pickFolder, writeFolder, zipOf } from './helpers';
 
 /**
  * Mods other than Fallout Et Tu, made up for the tests and laid out as the
  * real ones are (see tests/mods.ts). As far as made-up data goes: loaded,
- * laid over the game in the deck, and handed to the engine, which opens what
- * the console put together and finds no game in it. Playing the real mods
- * needs them (see game.spec.ts).
+ * laid over the game in the deck (Resurrection: in a folder of its own, the
+ * game's archives below it), and handed to the engine, which opens what the
+ * console put together and finds no game in it. Playing the real mods needs
+ * them (see game.spec.ts).
  */
 
 const loaded = (page: Page) => expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 60_000 });
@@ -140,6 +141,52 @@ test('loads a game folder a mod was installed in, and stores only what differs f
   expect(started.exists).toEqual({ 'master.dat': true, 'critter.dat': true, 'patch000.dat': false, backup: false, 'mod-data.dat': true, 'mods/my_mod': true, 'data/scripts': false });
   expect(started.text['fallout2.cfg']).toContain('critter_patches=mod-data.dat');
   expect(started.text['fallout2.cfg']).toContain('combat_speed=75');
+});
+
+test('loads Resurrection from its zip, and starts it in a folder of its own with Fallout 2\'s archives below it', async ({ page }) => {
+  await openConsole(page, 'fo2');
+  await pickFolder(page, await fakeFallout2Folder(true));
+  await loaded(page);
+
+  await page.goto('#/mods/load');
+  await page.locator('input[accept*="zip"]').setInputFiles(await zipOf(resurrectionFiles(), 'FoRes_EN_1_5.zip'));
+  await expect(page.getByRole('heading', { name: 'Fallout 1.5: Resurrection' })).toBeVisible({ timeout: 60_000 });
+  await loaded(page);
+  await expect(page.getByRole('status')).toContainText('3 files only a desktop needs (programs, installers) were left out.');
+  const readout = page.locator('.readout').first();
+  await expect(readout).toContainText('FALLOUT 2, DECK B: LOADED');
+  await expect(readout).toContainText('1.5');
+
+  await page.waitForTimeout(1500);
+  await page.locator('.menu button', { hasText: 'Begin simulation' }).click();
+  await page.waitForURL(/play\.html\?game=resurrection$/);
+  await expect(page.getByText('PRESS ANY KEY')).toBeVisible({ timeout: 60_000 });
+  await expect(page.locator('#bar-title')).toHaveText('OVERSEER CONSOLE // SIMULATION 02 // RESURRECTION');
+  const game = await engineFiles(
+    page,
+    ['fores.dat', 'fores_critter.dat', 'fo2/master.dat', 'fo2/critter.dat', 'fo2/sound/music/01hub.acm', 'sound/music/06VAULT.ACM', 'master.dat', 'patch000.dat', 'data/worldmap.dat', 'fores.exe'],
+    ['fores.cfg'],
+  );
+  expect(game.exists).toEqual({
+    'fores.dat': true,
+    'fores_critter.dat': true,
+    'fo2/master.dat': true,
+    'fo2/critter.dat': true,
+    'fo2/sound/music/01hub.acm': true,
+    'sound/music/06VAULT.ACM': true,
+    'master.dat': false,
+    'patch000.dat': false,
+    'data/worldmap.dat': false,
+    'fores.exe': false,
+  });
+  // The settings file its sfall settings name, given the archives where they are here.
+  const config = game.text['fores.cfg'];
+  expect(config).toContain('master_dat=fo2\\master.dat');
+  expect(config).toContain('critter_dat=fo2\\critter.dat');
+  expect(config).toContain('critter_patches=fores_critter.dat');
+  expect(config).toContain('f2_res_dat=fores.dat');
+  expect(config).toContain('music_path1=sound\\music\\');
+  expect(config).toContain('music_path2=fo2\\sound\\music\\');
 });
 
 test('says what to hand it instead of an installer, or of an archive it cannot open', async ({ page }) => {

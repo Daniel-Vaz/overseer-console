@@ -234,7 +234,7 @@
           </p>
           <dl class="readout gap">
             <dt>Fallout 2</dt>
-            <dd>Fallout Et Tu, the Restoration Project, the Megamod, Sonora, Nevada, Olympus 2207, and others like them</dd>
+            <dd>Fallout Et Tu, the Restoration Project, the Megamod, Sonora, Nevada, Olympus 2207, Resurrection, Fallout Yesterday, and others like them</dd>
             <dt>Fallout</dt>
             <dd>Fallout Fixt, and others like it</dd>
           </dl>
@@ -300,7 +300,7 @@
           <p>
             Every game and every mod is played at a picture of its own, chosen on its deck or its page (all of them side
             by side under Terminal settings, <span class="hot">Picture</span>). Fallout and Fallout 2 start at the
-            original picture, a mod at the one its makers meant: Fallout Et Tu at high resolution. Olympus 2207 needs a
+            original picture, a mod at the one its makers meant: Fallout Et Tu at high resolution, Fallout Yesterday wide. Olympus 2207 needs a
             picture at least 600 lines tall, and is played at high resolution only. A change takes hold the next time the
             game is started.
           </p>

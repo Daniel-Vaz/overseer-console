@@ -16,10 +16,11 @@ export const STATUS_NOTES: Record<ModStatus, string> = {
   unknown: 'Nobody has said how well it plays on this engine.',
 };
 
-/** A mod's name with its version, where it has one. */
+/** A mod's name with its version, where it has one and its name does not already say it (Fallout 1.5: Resurrection 1.5). */
 export function modName(game: GameId): string {
   const def = gameDef(game);
-  return def.mod?.version ? `${def.title} ${def.mod.version}` : def.title;
+  const version = def.mod?.version;
+  return version && !def.title.split(/[\s:]+/).includes(version) ? `${def.title} ${version}` : def.title;
 }
 
 /** The console's screen for a game: its deck, or a mod's own page. */

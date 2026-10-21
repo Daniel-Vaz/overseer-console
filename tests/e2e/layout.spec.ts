@@ -61,7 +61,7 @@ async function furnish(page: Page): Promise<void> {
   await expect(page.locator('.menu li.selected')).toBeVisible();
 }
 
-const SCREENS = ['', 'fo2', 'mods', 'mods/ettu', 'mods/load', 'mods/known', 'mods/known/olympus', 'saves/fo2', 'settings', 'settings/picture', 'settings/cloud', 'manual'];
+const SCREENS = ['', 'fo2', 'mods', 'mods/ettu', 'mods/load', 'mods/known', 'mods/known/olympus', 'mods/known/resurrection', 'mods/known/yesterday', 'saves/fo2', 'settings', 'settings/picture', 'settings/cloud', 'manual'];
 
 test('holds the same page however large the window is: nothing runs off the tube, nothing is cut short', async ({ page }) => {
   await furnish(page);

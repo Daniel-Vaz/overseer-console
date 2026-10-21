@@ -31,9 +31,12 @@ own **Operations manual** (entry 6 of the main directory) explains each of these
   was sold, one key away on its deck. See [Mods](mods.md).
 - **Bring your own.** Hand the console a mod as it is downloaded (a zip or its folder) or a game folder it was
   installed in. It keeps only what differs from your game in the deck, and does what a mod's installer would do.
-- **Seven it knows by name.** Fallout Et Tu (put together from your Fallout and played on your Fallout 2, no
-  extraction tool), the Restoration Project, the Megamod, Sonora, Nevada and Olympus 2207 for Fallout 2, Fallout Fixt
-  for Fallout: where to get each, what to hand over, and how well it plays on the engine.
+- **Nine it knows by name.** Fallout Et Tu (put together from your Fallout and played on your Fallout 2, no
+  extraction tool), the Restoration Project, the Megamod, Sonora, Nevada, Olympus 2207, Resurrection and Fallout
+  Yesterday for Fallout 2, Fallout Fixt for Fallout: where to get each, what to hand over, and how well it plays on the
+  engine.
+- **sfall's made-up traits and perks.** The Fallout 2 engine plays a mod's own traits and perks: on the character
+  screen, offered in the perk box, and kept in saved games. Fallout Yesterday's hundred and more are made that way.
 - **A mod in its deck.** Put a mod in its game's deck and the deck plays it; switch back with one key.
 - **Components.** The parts a mod's load order switches on, as its installer would offer them, switched on and off
   any time.

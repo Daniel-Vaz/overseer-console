@@ -13,6 +13,7 @@
  * and kept.
  */
 import { indexDat, readDatEntry, type DatEntry } from './dat';
+import { namedArchives } from './engine/config';
 import { GAMES, gameDef, type GameId } from './games';
 import { enabledMods } from './storage/ettu';
 import { pathKey } from './storage/manifest';
@@ -43,17 +44,21 @@ const bytesOf = async (source: SourceBlob): Promise<Uint8Array> => new Uint8Arra
 type Opener = (path: string) => Promise<SourceBlob | null>;
 
 /** The archives of the chain, highest first, as the engine would open them. */
-async function chain(game: GameId, mounted: Mounted, open: Opener, order: () => Promise<Uint8Array | null>): Promise<SourceBlob[]> {
+async function chain(game: GameId, mounted: Mounted, open: Opener, plain: (path: string) => Promise<Uint8Array | null>, installConfig: string | undefined): Promise<SourceBlob[]> {
   const def = gameDef(game);
   const has = (path: string) => mounted.files.has(pathKey(path));
   const names: string[] = [];
   if (def.engine.id === 'fo1') {
     names.push('master.dat', 'critter.dat');
   } else {
-    // A mod's second patch location may be an archive made of its data folder.
-    if (mounted.mod?.patches && has(mounted.mod.patches)) names.push(mounted.mod.patches);
-    // Mods are opened in the order their list gives, each above the one before.
-    const list = await order();
+    // What the settings file names in place of the engine's own: a mod's second patch location, an archive
+    // made of its data folder or one of its own, and the high resolution patch's art.
+    const highRes = await plain('f2_res.ini');
+    const named = namedArchives(mounted, installConfig, highRes ? new TextDecoder('latin1').decode(highRes) : undefined);
+    if (named.patches && has(named.patches)) names.push(named.patches);
+    // Mods are opened in the order their list gives, each above the one before. The list may have been
+    // changed by the player under the mod's Components.
+    const list = await plain('mods/mods_order.txt');
     if (list) {
       for (const mod of enabledMods(new TextDecoder('latin1').decode(list)).reverse()) if (has(`mods/${mod}`)) names.push(`mods/${mod}`);
     }
@@ -61,7 +66,8 @@ async function chain(game: GameId, mounted: Mounted, open: Opener, order: () => 
     const patches: string[] = [];
     for (let index = 0; index < 1000 && has(`patch${String(index).padStart(3, '0')}.dat`); index++) patches.push(`patch${String(index).padStart(3, '0')}.dat`);
     names.push(...patches.reverse());
-    if (has('f2_res.dat')) names.push('f2_res.dat');
+    const art = named.art ?? 'f2_res.dat';
+    if (has(art)) names.push(art);
     const folder = mounted.mod?.layout === 'nested' ? `${baseFolder(mounted.mod.record.base)}/` : '';
     names.push(`${folder}critter.dat`, `${folder}master.dat`);
   }
@@ -114,8 +120,7 @@ async function open(game: GameId): Promise<GameData | null> {
     const source = await openMounted(path);
     return source ? bytesOf(source) : null;
   };
-  // The load order a player may have changed under the mod's Components.
-  const archives: Archive[] = (await chain(game, mounted, openMounted, () => plain('mods/mods_order.txt'))).map((source) => ({ source, index: null }));
+  const archives: Archive[] = (await chain(game, mounted, openMounted, plain, install.manifest.installConfig)).map((source) => ({ source, index: null }));
 
   return {
     game,

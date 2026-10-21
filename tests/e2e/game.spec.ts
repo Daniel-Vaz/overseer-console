@@ -262,8 +262,9 @@ test('Fallout Et Tu: put together from both games and its package, started, and 
  * archives), where the new game begins (read from a save, where one can be
  * made), and the pictures attached to the test.
  *   FO2_DIR=... RPU="/path/to/rpu_v2.4.34.zip" SONORA="/path/to/Fallout_Sonora_1.16.4E.zip"
- *   OLYMPUS="/path/to/Olympus-2207-English.zip" npm run test:e2e -- game
- * NEVADA and MEGAMOD (with FO2_DIR) and FIXT (with FO1_DIR) take the folder each was installed in, or a zip of it.
+ *   OLYMPUS="/path/to/Olympus-2207-English.zip" RESURRECTION="/path/to/FoRes_EN_1_5.zip" npm run test:e2e -- game
+ * NEVADA and MEGAMOD (with FO2_DIR) and FIXT (with FO1_DIR) take the folder each was installed in, or a zip of it;
+ * YESTERDAY, the folder its 7z unpacks to.
  */
 const MODS = [
   // `menu`: how long the game takes to reach its main menu. `reads`: archives of the mod's own the engine reads by its
@@ -277,6 +278,11 @@ const MODS = [
   { id: 'nevada', title: 'Fallout: Nevada', base: 'fo2', env: 'NEVADA', menu: 15000, reads: [/^master\.dat$/i], usesBase: false, text: undefined, saved: { map: 'ARTEMPLE', character: 'Slash' } },
   // Its own first character's name begins with a stray byte, 0x8D, as its PREMADE/COMBAT.GCD spells it.
   { id: 'megamod', title: 'Fallout 2 Megamod', base: 'fo2', env: 'MEGAMOD', menu: 8000, reads: [/^mod-data\.dat$/i], usesBase: true, text: undefined, saved: { map: 'ARTEMPLE', character: '\x8dNarg' } },
+  // In a folder of its own, Fallout 2's archives below it: its content is the high resolution patch's archive.
+  { id: 'resurrection', title: 'Fallout 1.5: Resurrection', base: 'fo2', env: 'RESURRECTION', menu: 8000, reads: [/^fores\.dat$/i, /^fores_critter\.dat$/i], usesBase: true, text: undefined, saved: { map: 'NH_CAVE', character: 'Kyle' } },
+  // Its patch001.dat, more than one archive holds, is three here (its patch002.dat, the fourth, is small enough to be
+  // read whole, and not counted).
+  { id: 'yesterday', title: 'Fallout Yesterday', base: 'fo2', env: 'YESTERDAY', menu: 15000, reads: [/^patch001\.dat$/i, /^patch003\.dat$/i], usesBase: true, text: undefined, saved: { map: 'V8EXT', character: 'Spuck' } },
   // Fallout's engine reads only Fallout's own archives: a mod of it is loose files, handed to the engine whole.
   { id: 'fixt', title: 'Fallout Fixt', base: 'fo1', env: 'FIXT', menu: 8000, reads: [], usesBase: true, text: ['data/text/english/game/misc.msg', 'Fallout Fixt 0.81alpha'], saved: { map: 'V13ENT', character: 'Max Stone' } },
 ] as const;
@@ -358,7 +364,8 @@ for (const mod of MODS) {
     const reads = await fileReads(page);
     console.log(`${mod.title}: the engine read, of the mod's own files, ${reads.own.join(', ') || 'none'}; of ${game.title}'s, ${reads.base.join(', ') || 'none'}`);
     for (const pattern of mod.reads) expect(reads.own.some((path) => pattern.test(path)), `${pattern} read`).toBe(true);
-    if (mod.usesBase) expect(reads.base.some((path) => /^master\.dat$/i.test(path))).toBe(true);
+    // A mod in a folder of its own has the game's archives in a folder below it (see storage/mount.ts).
+    if (mod.usesBase) expect(reads.base.some((path) => /^(fo2\/)?master\.dat$/i.test(path))).toBe(true);
     else expect(reads.base).toEqual([]);
     if (mod.text) {
       const [path, words] = mod.text;
@@ -387,6 +394,134 @@ for (const mod of MODS) {
     expect(faults).toEqual([]);
   });
 }
+
+/**
+ * Fallout Yesterday's own traits are made with sfall's fake traits, which the
+ * engine of Fallout 2 was given for it (engines/fallout2/patches): its first
+ * ready-made character is given a free trait slot, and the trait chosen for
+ * it in the game's perk box is kept in the save, through a load and a save
+ * again.
+ */
+test('Fallout Yesterday: a trait of its own, chosen in the perk box, kept in a save', async ({ page }) => {
+  const source = process.env.YESTERDAY;
+  const fallout2 = GAMES.find((entry) => entry.id === 'fo2')!;
+  test.skip(!source || !fallout2.dir, 'set FO2_DIR and YESTERDAY to run this');
+  test.setTimeout(1_800_000);
+  const faults: string[] = [];
+  page.on('pageerror', (error) => faults.push(error.message));
+
+  await openConsole(page, 'fo2', { skipIntro: true });
+  await pickFolder(page, fallout2.dir!);
+  await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 300_000 });
+  await page.goto('#/mods/load');
+  await pickFolder(page, source!);
+  await expect(page.getByRole('heading', { name: 'Fallout Yesterday' })).toBeVisible({ timeout: 1_800_000 });
+  await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 1_800_000 });
+
+  await launch(page, 'Begin simulation', '1');
+  await waitForPicture(page, 15000);
+
+  // A point of the game's 640 x 480 screens, centred in its picture, pressed the way a person does.
+  const press = async (x: number, y: number) => {
+    const box = (await page.locator('#canvas').boundingBox())!;
+    const size = await page.locator('#canvas').evaluate((canvas: HTMLCanvasElement) => ({ width: canvas.width, height: canvas.height }));
+    await page.mouse.move(box.x + ((size.width - 640) / 2 + x) * (box.width / size.width), box.y + ((size.height - 480) / 2 + y) * (box.height / size.height));
+    await pause(page, 300);
+    await page.mouse.down();
+    await pause(page, 200);
+    await page.mouse.up();
+    await pause(page, 1200);
+  };
+
+  // A new game with its first ready-made character, who is given up one of its traits.
+  await page.keyboard.press('n');
+  await pause(page, 6000);
+  await page.keyboard.press('m');
+  await pause(page, 5000);
+  await press(248, 410); // Chem Resistant, on the creation screen
+  await page.keyboard.press('ArrowRight');
+  await pause(page, 1500);
+  await press(464, 462); // Done
+  // Past the film that opens it, as a player would.
+  await pause(page, 10_000);
+  await page.keyboard.press(' ');
+  await expect.poll(() => inProgress(page), { timeout: 600_000, intervals: [1000] }).toBe(true);
+
+  // Its scripts ask for a trait for the free slot on the character screen, which opens once its first scenes let
+  // go of the player (back from the simulation of Vault 8), with the perk box over it. That screen covers the interface bar, which stays as it is through
+  // the changes of map and the words of the scenes: by its strip of the picture it is told from the map.
+  const bar = (print: number[]) => print.slice(32 * 20);
+  // The bar, once it is drawn (the map fades in from black) and holds still.
+  let inGameBar = bar(await fingerprint(page));
+  await expect
+    .poll(
+      async () => {
+        const now = bar(await fingerprint(page));
+        const ready = now.reduce((sum, cell) => sum + cell, 0) / now.length > 30 && distance(now, inGameBar) < 2;
+        inGameBar = now;
+        return ready;
+      },
+      { timeout: 180_000, intervals: [2000] },
+    )
+    .toBe(true);
+  // The character screen over the bar: unlike the fades of its scenes, which darken the bar with the rest, it is
+  // bright, and it holds still.
+  const brightness = (strip: number[]) => strip.reduce((sum, cell) => sum + cell, 0) / strip.length;
+  const covered = (strip: number[]) => distance(strip, inGameBar) > 15 && brightness(strip) > 35;
+  let opened = false;
+  for (let attempt = 0; attempt < 100 && !opened; attempt++) {
+    await page.keyboard.press('c');
+    await pause(page, 3000);
+    const first = bar(await fingerprint(page));
+    await pause(page, 1000);
+    const second = bar(await fingerprint(page));
+    opened = covered(first) && covered(second) && distance(first, second) < 3;
+    if (!opened) {
+      // Its first scene, in the simulation of Vault 8, waits for the player to go on.
+      await page.keyboard.press('Enter');
+      await pause(page, 2000);
+    }
+  }
+  expect(opened, 'the character screen opens').toBe(true);
+  // Its own traits, in the order of their names: Apprenticed to a Trader, Army Training, Arsonist.
+  await page.keyboard.press('ArrowDown');
+  await pause(page, 500);
+  await page.keyboard.press('ArrowDown');
+  await pause(page, 1000);
+  const box = page.locator('#canvas');
+  await box.screenshot({ path: test.info().outputPath('yesterday-perk-box.png') });
+  await test.info().attach('Fallout Yesterday: its traits in the perk box', { path: test.info().outputPath('yesterday-perk-box.png'), contentType: 'image/png' });
+  await page.keyboard.press('Enter');
+  await pause(page, 3000);
+  await box.screenshot({ path: test.info().outputPath('yesterday-traits.png') });
+  await test.info().attach('Fallout Yesterday: the trait taken', { path: test.info().outputPath('yesterday-traits.png'), contentType: 'image/png' });
+  await page.keyboard.press('Enter');
+  await pause(page, 3000);
+
+  // The made-up traits of the save, out of sfallgv.sav: its global variables (16 bytes each), two words, and
+  // then they (1096 bytes each, the name at 8), before the made-up perks and the selectable ones.
+  const traitsSaved = async () => {
+    const data = Buffer.from((await engineFile(page, 'data/savegame/slot07/sfallgv.sav')) ?? []);
+    let at = 4 + data.readInt32LE(0) * 16 + 8;
+    const names: string[] = [];
+    for (let count = data.readInt32LE(at), index = 0; index < count; index++) {
+      const name = data.subarray(at + 4 + index * 1096 + 8, at + 4 + index * 1096 + 72);
+      names.push(name.subarray(0, name.indexOf(0)).toString('latin1'));
+    }
+    return names;
+  };
+  await page.keyboard.press('F6');
+  await expect(page.locator('#toast')).toHaveText('QUICK SAVED IN SLOT 07', { timeout: 30_000 });
+  expect(await traitsSaved()).toContain('Arsonist');
+  // Loaded, and saved again: the trait came back with the game.
+  await page.keyboard.press('F7');
+  await pause(page, 10_000);
+  await expect.poll(() => inProgress(page), { timeout: 120_000, intervals: [1000] }).toBe(true);
+  await page.keyboard.press('F6');
+  await expect(page.locator('#toast')).toHaveText('QUICK SAVED IN SLOT 07', { timeout: 30_000 });
+  expect(await traitsSaved()).toContain('Arsonist');
+  expect(faults).toEqual([]);
+});
 
 /**
  * A mod of Fallout made on Windows: its lists end their lines in CR LF, which

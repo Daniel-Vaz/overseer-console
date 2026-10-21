@@ -1,0 +1,77 @@
+Do not take a sound the ACM decoder cannot read for one
+
+A sound named in a way that is neither a WAV nor an OGG file is opened as
+ACM. When it is not one (Fallout Yesterday plays MP3 files from its
+scripts), the decoder could not be made and freed itself, but the open went
+on with no decoder, and closing it freed that again: the count of decoders
+went below zero. The next decoder then found the count at zero rather than
+one and did not make the table all decoders share, and decoded through the
+one freed before it, writing 128 KB over whatever had been given that
+memory since. On Yesterday's first map that was the map's object lists, and
+the browser tab crashed drawing them.
+
+- Opening such a file fails, as it does for a WAV or OGG file that cannot
+  be decoded; reading from one without a decoder reads nothing.
+- Freeing no decoder does nothing.
+- The shared table is made whenever there is none, not only for the first
+  decoder.
+---
+diff --git a/src/audio.cc b/src/audio.cc
+index ad796a5..0b54839 100644
+--- a/src/audio.cc
++++ b/src/audio.cc
+@@ -266,6 +266,13 @@ int audioOpen(const char* fname, AudioFileInfo* info, bool* isMemoryBackedPtr)
+     } else if (openMode == AUDIO_OPEN_MODE_COMPRESSED) {
+         audioFile->flags |= AUDIO_COMPRESSED;
+         audioFile->soundDecoder = soundDecoderInit(audioSoundDecoderReadHandler, audioFile->stream, &(audioFile->channels), &(audioFile->sampleRate), &(audioFile->fileSize));
++        if (audioFile->soundDecoder == nullptr) {
++            // Not an ACM file (a mod's MP3, say): it cannot be played.
++            fileClose(stream);
++            memset(audioFile, 0, sizeof(*audioFile));
++            debugPrint("AudioOpen: Couldn't decode %s\n", path);
++            return -1;
++        }
+         audioFile->fileSize *= 2;
+         audioFile->bitsPerSample = 16;
+ 
+@@ -335,7 +342,7 @@ int audioRead(int handle, void* buffer, unsigned int size)
+             memcpy(buffer, audioFile->data + audioFile->position, bytesRead);
+         }
+     } else if ((audioFile->flags & AUDIO_COMPRESSED) != AUDIO_NONE) {
+-        bytesRead = soundDecoderDecode(audioFile->soundDecoder, buffer, size);
++        bytesRead = audioFile->soundDecoder != nullptr ? soundDecoderDecode(audioFile->soundDecoder, buffer, size) : 0;
+     } else {
+         bytesRead = fileRead(buffer, 1, size, audioFile->stream);
+     }
+diff --git a/src/sound_decoder.cc b/src/sound_decoder.cc
+index 15e2b6f..0f1329f 100644
+--- a/src/sound_decoder.cc
++++ b/src/sound_decoder.cc
+@@ -1113,6 +1113,12 @@ size_t soundDecoderDecode(SoundDecoder* soundDecoder, void* buffer, size_t size)
+ // 0x4D5048 AudioDecoder_Close
+ void soundDecoderFree(SoundDecoder* soundDecoder)
+ {
++    // A decoder that could not be made was freed then; freeing it again would
++    // count it down twice, and the table the others share would be lost.
++    if (soundDecoder == nullptr) {
++        return;
++    }
++
+     if (soundDecoder->bufferIn != nullptr) {
+         free(soundDecoder->bufferIn);
+     }
+@@ -1231,8 +1237,13 @@ SoundDecoder* soundDecoderInit(SoundDecoderReadProc* readProc, void* data, int*
+ 
+     soundDecoder->samp_cnt = 0;
+ 
+-    if (gSoundDecodersCount == 1) {
++    // CE: whenever there is none, rather than for the first decoder only: should the count ever be wrong,
++    // decoding through a table already freed would write over memory in use.
++    if (_AudioDecoder_scale_tbl == nullptr) {
+         _AudioDecoder_scale_tbl = (unsigned char*)malloc(0x20000);
++        if (_AudioDecoder_scale_tbl == nullptr) {
++            goto L66;
++        }
+         _AudioDecoder_scale0 = _AudioDecoder_scale_tbl + 0x10000;
+     }
+ 

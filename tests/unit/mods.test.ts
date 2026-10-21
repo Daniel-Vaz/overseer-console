@@ -8,7 +8,23 @@ import type { Manifest } from '../../src/lib/storage/manifest';
 import { findMod, MOD_DATA } from '../../src/lib/storage/mods';
 import { mountGame } from '../../src/lib/storage/mount';
 import { ascii } from '../archives';
-import { fallout1Files, fallout2Files, fixtFiles, fixtInstalledFiles, installOf, megamodFiles, moddedFallout2Files, nevadaFiles, olympusFiles, rpuFiles, sonoraFiles, sources } from '../mods';
+import {
+  fallout1Files,
+  fallout2Files,
+  fixtFiles,
+  fixtInstalledFiles,
+  installOf,
+  megamodFiles,
+  moddedFallout2Files,
+  nevadaFiles,
+  olympusFiles,
+  resurrectionFiles,
+  resurrectionInstalledFiles,
+  rpuFiles,
+  sonoraFiles,
+  sources,
+  yesterdayFiles,
+} from '../mods';
 
 const fallout2 = installOf('fo2', fallout2Files());
 const fallout1 = installOf('fo1', fallout1Files());
@@ -45,6 +61,11 @@ const inArchive = async (plan: ImportPlan, archive: string, path: string): Promi
   const found = (await findInDat(entry.file, 'dat2', [path])).get(path.toLowerCase());
   return found ? new TextDecoder().decode(await readDatEntry(entry.file, 'dat2', found)) : null;
 };
+/** Whether an archive of the plan holds a file, without reading the file. */
+const listedIn = async (plan: ImportPlan, archive: string, path: string): Promise<boolean> => {
+  const entry = plan.entries.find((candidate) => candidate.path === archive);
+  return !!entry && (await findInDat(entry.file, 'dat2', [path])).has(path.toLowerCase());
+};
 
 describe('finding a mod', () => {
   const find = async (files: Parameters<typeof sources>[0], prefix = '', zip?: string) => {
@@ -68,6 +89,14 @@ describe('finding a mod', () => {
     expect(await find(fixtInstalledFiles(), 'Fallout/')).toEqual({ root: 'fallout/fallout fixt', name: 'Fallout Fixt', complete: false, base: 'fo1', known: 'fixt', byFile: true });
     // A game folder with no such folder inside stays the mod itself.
     expect(await find(moddedFallout2Files(), 'Fallout 2/')).toMatchObject({ root: 'fallout 2', complete: true });
+    // Resurrection's, in Fallout 2's; also where the game's folder is named after the mod.
+    expect(await find(resurrectionInstalledFiles(), 'Fallout 2/')).toEqual({ root: 'fallout 2/resurrection', name: 'Resurrection', complete: false, base: 'fo2', known: 'resurrection', byFile: true });
+    expect(await find(resurrectionInstalledFiles(), 'Fallout 2 Resurrection/')).toMatchObject({ root: 'fallout 2 resurrection/resurrection', known: 'resurrection' });
+  });
+
+  it('knows Resurrection and Fallout Yesterday by files of their own', async () => {
+    expect(await find(resurrectionFiles(), '', 'FoRes_EN_1_5.zip')).toEqual({ root: 'resurrection', name: 'Resurrection', complete: false, base: 'fo2', known: 'resurrection', byFile: true });
+    expect(await find(yesterdayFiles(), 'FalloutYesterday/')).toEqual({ root: 'falloutyesterday', name: 'FalloutYesterday', complete: false, base: 'fo2', known: 'yesterday', byFile: true });
   });
 
   it('takes any other mod for what it is: a game folder, or files to unpack into one', async () => {
@@ -276,6 +305,182 @@ describe('the whole games of their own', () => {
     expect(await inArchive(plan, 'master.dat', 'text/english/dialog/npc7.msg')).toBe('{100}{}{Line 7}');
     const config = Ini.parse(buildConfigFiles({ game: 'nevada', manifest: manifestOf(plan), base: fallout2.manifest, screen: { width: 640, height: 480 }, skipIntro: false })['fallout2.cfg']!);
     expect(config.get('system', 'master_dat')).toBe('master.dat');
+  });
+});
+
+describe('Resurrection, in a folder of its own inside Fallout 2\'s', () => {
+  let plan: ImportPlan;
+  beforeAll(async () => {
+    plan = await load(resurrectionFiles(), '', 'FoRes_EN_1_5.zip');
+  });
+  const ddraw = resurrectionFiles()['Resurrection/ddraw.ini'] as string;
+  const highRes = resurrectionFiles()['Resurrection/f2_res.ini'] as string;
+  const configOf = (from: ImportPlan) =>
+    Ini.parse(
+      buildConfigFiles({
+        game: 'resurrection',
+        manifest: manifestOf(from),
+        base: fallout2.manifest,
+        screen: { width: 640, height: 480 },
+        skipIntro: false,
+        configFile: settingsFileOf('resurrection', ddraw),
+        highRes,
+      })['fores.cfg']!,
+    );
+
+  it('is stored as its folder, with the music its zip puts beside it, less what only a desktop needs', () => {
+    expect(plan.game).toBe('resurrection');
+    expect(plan.mod?.record).toEqual({ id: 'resurrection', known: 'resurrection', title: 'Fallout 1.5: Resurrection', version: '1.5', base: 'fo2' });
+    expect(plan.mod?.layout).toBe('nested');
+    expect(paths(plan)).toEqual([
+      'CriticalOverrides.ini',
+      'data/art/cuts/intro.mve',
+      'data/art/cuts/intro.pal',
+      'ddraw.ini',
+      'f2_res.ini',
+      'fores.cfg',
+      'fores.dat',
+      'fores_critter.dat',
+      'sound/music/06VAULT.ACM',
+      'sound/music/25albuq.acm',
+    ]);
+    expect(plan.notes).toContain('3 files only a desktop needs (programs, installers) were left out.');
+    expect(plan.installConfig).toContain('critter_patches=fores_critter.dat');
+  });
+
+  it('is started in its folder, with Fallout 2\'s archives and music below it', () => {
+    const mounted = mountGame('resurrection', manifestOf(plan), fallout2.manifest);
+    const at = (path: string) => mounted.files.get(path)?.from ?? null;
+    expect(at('fores.dat')).toBe('own');
+    expect(at('sound/music/06vault.acm')).toBe('own');
+    expect(at('fo2/master.dat')).toBe('base');
+    expect(at('fo2/critter.dat')).toBe('base');
+    expect(at('fo2/sound/music/01hub.acm')).toBe('base');
+    // Not in its folder on a desktop: the game's patch archive, its loose data.
+    expect(at('patch000.dat')).toBeNull();
+    expect(at('fo2/patch000.dat')).toBeNull();
+    expect(at('master.dat')).toBeNull();
+
+    // Its own settings file, as its sfall settings name it, with the archives where they are here.
+    expect(settingsFileOf('resurrection', ddraw)).toBe('fores.cfg');
+    const config = configOf(plan);
+    expect(config.get('system', 'master_dat')).toBe('fo2\\master.dat');
+    expect(config.get('system', 'critter_dat')).toBe('fo2\\critter.dat');
+    // Its new critters, and its content: the archive its high resolution patch's settings name.
+    expect(config.get('system', 'critter_patches')).toBe('fores_critter.dat');
+    expect(config.get('system', 'f2_res_dat')).toBe('fores.dat');
+    expect(config.get('sound', 'music_path1')).toBe('sound\\music\\');
+    expect(config.get('sound', 'music_path2')).toBe('fo2\\sound\\music\\');
+    expect(config.get('preferences', 'combat_speed')).toBe('60');
+  });
+
+  it('is taken out of a Fallout 2 folder it was unpacked into, the game\'s own music used from the deck', async () => {
+    const installed = await load(resurrectionInstalledFiles(), 'Fallout 2/', undefined, 'resurrection');
+    expect(installed.game).toBe('resurrection');
+    expect(installed.mod?.record.version).toBeUndefined();
+    expect(paths(installed)).toEqual(paths(plan));
+    // The game's music in the folder beside it is the deck's: not stored again, and there where the mod looks.
+    expect(installed.mod?.reuses?.map((reuse) => reuse.path).sort()).toEqual(['sound/music/01hub.acm', 'sound/music/02mstrlr.acm']);
+    const mounted = mountGame('resurrection', manifestOf(installed), fallout2.manifest);
+    expect(mounted.files.get('sound/music/01hub.acm')?.from).toBe('base');
+    expect(mounted.files.get('data/worldmap.dat')).toBeUndefined();
+    expect(configOf(installed).get('system', 'critter_patches')).toBe('fores_critter.dat');
+  });
+
+  it('says what is missing when its folder is handed over alone', async () => {
+    const alone = Object.fromEntries(Object.entries(resurrectionFiles()).filter(([path]) => path.startsWith('Resurrection/')));
+    const plan = await load(alone, '', undefined, 'resurrection');
+    expect(paths(plan)).toContain('fores.dat');
+    expect(plan.notes).toContain(
+      'Its zip also puts files in sound/music/, beside its own folder, and none were handed over. Hand the console the zip, or the game folder it was installed in, for all of it.',
+    );
+  });
+});
+
+describe('Fallout Yesterday, a game of its own on three of Fallout 2\'s archives', () => {
+  let plan: ImportPlan;
+  beforeAll(async () => {
+    plan = await load(yesterdayFiles(), 'FalloutYesterday/');
+  });
+
+  it('is stored as its folder, its patch archive too large for one made into two, those after it numbered on', async () => {
+    expect(plan.game).toBe('yesterday');
+    expect(plan.mod?.record).toMatchObject({ known: 'yesterday', title: 'Fallout Yesterday', base: 'fo2' });
+    expect(paths(plan)).toEqual([
+      'data/art/cuts/title.mve',
+      'data/sound/music/45mesa.wav',
+      'ddraw.ini',
+      'f2_res.dat',
+      'f2_res.ini',
+      'fallouty.cfg',
+      MOD_DATA,
+      'mods/FalloutYesterday.ini',
+      'mods/mods_order.txt',
+      'mods/sfall-mods.ini',
+      'patch001.dat',
+      'patch002.dat',
+      'patch003.dat',
+    ]);
+    expect(plan.notes).toContain('Its patch001.dat folder is more than one archive holds: it is stored as patch001.dat to patch002.dat.');
+    expect(plan.notes).toContain('The engine opens patch archives by number: its patch002.dat is patch003.dat here.');
+    expect(plan.notes).toContain('Left out: its Hero Appearance art, a feature the engine does not have (1 file).');
+    // Each of its files in one of the two, under the archives' limit; its own patch002.dat after them.
+    const sizes = plan.entries.filter((entry) => /^patch00[12]\.dat$/.test(entry.path)).map((entry) => entry.file.size);
+    expect(sizes.every((size) => size <= 0x7fffffff)).toBe(true);
+    expect(await inArchive(plan, 'patch001.dat', 'text/english/game/map.msg')).toBe('{100}{}{Tibbets}');
+    expect(await listedIn(plan, 'patch001.dat', 'art/critters/margosaa.frm')).toBe(true);
+    expect(await listedIn(plan, 'patch002.dat', 'art/walls/wpool.frm')).toBe(true);
+    expect(await listedIn(plan, 'patch001.dat', 'art/walls/wpool.frm')).toBe(false);
+    expect(await inArchive(plan, 'patch003.dat', 'text/english/game/misc.msg')).toBe('{100}{}{Fixed}');
+    expect(await inArchive(plan, 'f2_res.dat', 'maps/artemple.edg')).not.toBeNull();
+    expect(await listedIn(plan, MOD_DATA, 'scripts/gl_fy7.int')).toBe(true);
+    expect(plan.warnings[0]).toMatch(/^Made for sfall 4 on the original engine/);
+  });
+
+  it('is started over Fallout 2\'s master.dat, critter.dat and patch000.dat, and nothing else of the game', () => {
+    const mounted = mountGame('yesterday', manifestOf(plan), fallout2.manifest);
+    const at = (path: string) => mounted.files.get(path)?.from ?? null;
+    expect(at('master.dat')).toBe('base');
+    expect(at('critter.dat')).toBe('base');
+    expect(at('patch000.dat')).toBe('base');
+    expect(at('f2_res.dat')).toBe('own');
+    expect(at('patch003.dat')).toBe('own');
+    expect(at('sound/music/01hub.acm')).toBeNull();
+    expect(at('data/worldmap.dat')).toBeNull();
+    expect(at('data/art/tiles/grid000.frm')).toBeNull();
+
+    const ddraw = yesterdayFiles()['ddraw.ini'] as string;
+    expect(settingsFileOf('yesterday', ddraw)).toBe('fallouty.cfg');
+    const files = buildConfigFiles({
+      game: 'yesterday',
+      manifest: manifestOf(plan),
+      base: fallout2.manifest,
+      screen: { width: 854, height: 480 },
+      skipIntro: false,
+      configFile: settingsFileOf('yesterday', ddraw),
+      highRes: yesterdayFiles()['f2_res.ini'] as string,
+    });
+    expect(Object.keys(files)).not.toContain('fallout2.cfg');
+    const config = Ini.parse(files['fallouty.cfg']!);
+    expect(config.get('system', 'master_dat')).toBe('master.dat');
+    expect(config.get('system', 'critter_patches')).toBe(MOD_DATA);
+    expect(config.get('system', 'f2_res_dat')).toBe('f2_res.dat');
+    expect(config.get('sound', 'music_path1')).toBe('data\\sound\\music\\');
+  });
+
+  it('is loaded as well from the folder it was installed in, with the game\'s archives copied into it, and never into a deck', async () => {
+    const game = fallout2Files();
+    const installed = { ...yesterdayFiles(), 'master.dat': game['master.dat']!, 'critter.dat': game['critter.dat']!, 'patch000.dat': game['patch000.dat']!, 'fallout2.exe': 'not a program' };
+    const again = await load(installed, 'Fallout Yesterday/', undefined, 'yesterday');
+    expect(again.game).toBe('yesterday');
+    expect(again.mod?.reuses?.map((reuse) => reuse.path).sort()).toEqual(['critter.dat', 'master.dat', 'patch000.dat']);
+    expect(paths(again)).toEqual(paths(plan));
+    const mounted = mountGame('yesterday', manifestOf(again), fallout2.manifest);
+    expect(mounted.files.get('patch000.dat')?.from).toBe('base');
+    expect(mounted.files.get('patch003.dat')?.from).toBe('own');
+    await expect(planImport(sources(installed, 'Fallout Yesterday/'), 'fo2', decks)).rejects.toThrow(
+      'That is Fallout Yesterday, a mod of Fallout 2: it is loaded in the Mod library, and played over the game in deck B.',
+    );
   });
 });
 

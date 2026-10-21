@@ -52,9 +52,9 @@ your browser's private storage and plays from there, on a desktop, a tablet or a
 </table>
 
 Bring your own mods: whole new games on the old engines, restorations of what was cut, and fixes. Each is played on
-the game it was made for, with saves of its own, from the console's Mod library. Seven are known by name (Sonora,
-Nevada, Olympus 2207, the Restoration Project, the Megamod, Fallout Et Tu and Fallout Fixt); any other loads from
-its zip or its folder. See [Mods](docs/mods.md).
+the game it was made for, with saves of its own, from the console's Mod library. Nine are known by name (Sonora,
+Nevada, Olympus 2207, Resurrection, Fallout Yesterday, the Restoration Project, the Megamod, Fallout Et Tu and Fallout
+Fixt); any other loads from its zip or its folder. See [Mods](docs/mods.md).
 
 ## Play in three steps
 
@@ -169,7 +169,9 @@ The mods the console knows by name are the work of their makers, and of the many
 [Fallout: Sonora](https://cambragol.github.io/Fallout-Sonora/) and
 [Fallout: Nevada](https://github.com/BGforgeNet/fallout-nevada-english-translation) of the Nevada Band (alposh),
 translated by cambragol and others; [Olympus 2207](https://github.com/HogLord69/olympus-2207-english) of NEBESA
-GAMES, rebuilt by Foxx and translated by HogLord69; the
+GAMES, rebuilt by Foxx and translated by HogLord69; [Fallout 1.5: Resurrection](https://resurrection.cz/en/) of the
+Resurrection Team; [Fallout Yesterday](https://gitlab.com/falloutfans/fallouty) of PJ Hexer and its many
+contributors; the
 [Restoration Project](https://github.com/BGforgeNet/Fallout2_Restoration_Project) of Killap, carried on by BGforge;
 the [Megamod](https://www.nma-fallout.com/resources/mib88-megamod.11/) of MIB88;
 [Fallout Et Tu](https://github.com/rotators/Fo1in2) of Lexx, Wipe, Mayck and Ghosthack; and

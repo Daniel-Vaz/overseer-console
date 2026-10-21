@@ -7,7 +7,7 @@
  */
 import type { BaseGameId } from '../games';
 
-export type KnownModId = 'ettu' | 'rpu' | 'megamod' | 'sonora' | 'nevada' | 'olympus' | 'fixt';
+export type KnownModId = 'ettu' | 'rpu' | 'megamod' | 'sonora' | 'nevada' | 'olympus' | 'resurrection' | 'yesterday' | 'fixt';
 
 /**
  * How well a mod is known to play here.
@@ -187,6 +187,41 @@ export const KNOWN_MODS: Record<KnownModId, KnownMod> = {
     minHeight: 600,
     names: /olympus/i,
     files: ['olympus.cfg', 'olympus.exe'],
+  },
+  resurrection: {
+    id: 'resurrection',
+    title: 'Fallout 1.5: Resurrection',
+    short: 'RESURRECTION',
+    base: 'fo2',
+    blurb: 'New Mexico in 2170, between Fallout and Fallout 2: a whole new story on the engine of Fallout 2.',
+    authors: 'the Resurrection Team: Daemon, Maryo, Ratman and Saruman',
+    project: 'https://resurrection.cz/en/',
+    download: 'https://resurrection.cz/en/download/',
+    handOver: 'FoRes_EN_1_5.zip from its download page, not the installer; or a Fallout 2 folder it was installed in. It is played in a folder of its own, with the archives of your Fallout 2 in deck B.',
+    status: 'tested',
+    caveat: "What its scripts change in the original program itself does not come along.",
+    picture: 'classic',
+    names: /resurrection|(^|[^a-z])fores([^a-z]|$)/i,
+    files: ['fores.dat', 'fores.exe', 'fores_critter.dat'],
+    version: /fores[_ -]?(?:en[_ -])?v?(\d+(?:[._]\d+)+)/i,
+  },
+  yesterday: {
+    id: 'yesterday',
+    standalone: true,
+    title: 'Fallout Yesterday',
+    short: 'YESTERDAY',
+    base: 'fo2',
+    blurb: "Black Isle's lost Fallout 3, Van Buren, made into a whole game on the engine of Fallout 2.",
+    authors: 'PJ Hexer and its many contributors',
+    project: 'https://gitlab.com/falloutfans/fallouty',
+    download: 'https://www.nexusmods.com/fallout2/mods/91',
+    handOver: 'The folder its 7z unpacks to, as it is (the console opens zips only), or the folder it was installed in. The archives it takes from Fallout 2 are those of your Fallout 2 in deck B.',
+    status: 'tested',
+    caveat: "Made for sfall 4 on the original engine: Hero Appearance (the look picked for your character), its few MP3 sounds, and what its scripts change in the original program itself (its footstep sounds among them) are not there.",
+    picture: 'wide',
+    names: /yesterday|fallouty|van ?buren/i,
+    files: ['fallouty.cfg', 'foyesterday.ico'],
+    version: /(?:yesterday|fallouty|fy)[_ -]?v?(\d+(?:\.\d+)+)/i,
   },
   fixt: {
     id: 'fixt',

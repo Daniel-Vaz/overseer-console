@@ -59,7 +59,7 @@ export interface ModInstall {
    * How its files meet those of the game it is played on, when it starts.
    * over: laid over that game's folder, as a mod installed into it is on a desktop.
    * nested: in a folder of its own, with that game's archives and music in
-   *   a folder below it (Fallout Et Tu; see engine/config.ts).
+   *   a folder below it (Fallout Et Tu, Resurrection; see engine/config.ts).
    */
   layout: 'over' | 'nested';
   /**
@@ -67,6 +67,8 @@ export interface ModInstall {
    * but `hides` (lower-case paths, or folders ending in '/') save `keeps`, as
    * for files to unpack into a game folder; or, for a complete game folder,
    * nothing but `reuses`: the files its own copies were identical to.
+   * nested: `reuses` as well, in its own folder, besides the game's archives
+   * and music below it.
    */
   hides?: string[];
   keeps?: string[];

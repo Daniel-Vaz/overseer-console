@@ -51,15 +51,29 @@ by a file of their own or the name of their folder.
 | [Fallout: Sonora](https://cambragol.github.io/Fallout-Sonora/) | Fallout 2 | `Fallout_Sonora_*.zip` from its English releases page, or its folder | Tested here |
 | [Fallout: Nevada](https://github.com/BGforgeNet/fallout-nevada-english-translation) | Fallout 2 | The folder it was installed in, its English translation copied over it | Tested here |
 | [Olympus 2207](https://github.com/HogLord69/olympus-2207-english) | Fallout 2 | `Olympus-2207-English.zip`, or its folder | Tested here |
+| [Fallout 1.5: Resurrection](https://resurrection.cz/en/) | Fallout 2 | `FoRes_EN_1_5.zip` from its download page, not the installer; or a Fallout 2 folder it was installed in | Tested here |
+| [Fallout Yesterday](https://gitlab.com/falloutfans/fallouty) | Fallout 2, three of its archives | The folder its 7z ([Nexus Mods](https://www.nexusmods.com/fallout2/mods/91)) unpacks to, or the folder it was installed in | Tested here |
 | [Fallout Fixt](https://www.moddb.com/mods/fallout-fixt) | Fallout | The Fallout folder its installer ran in, or the `Fallout Fixt` folder it made there | Tested here |
 
 *Tested here* means the console's own tests play it from its real files: loaded, started, and into a new game, with
 the engine reading the mod's own archives. What is known not to work on this engine is said on the mod's page and
-when it is loaded: Olympus 2207 was made for sfall 5, the Megamod for the original engine with sfall, and what Fixt
-changes in the game's program itself does not come along.
+when it is loaded: Olympus 2207 was made for sfall 5, the Megamod for the original engine with sfall, Fallout
+Yesterday for sfall 4 (its Hero Appearance, the look picked for your character, and its few MP3 sounds are not there),
+and what Fixt, Resurrection and Yesterday change in the game's program itself does not come along.
 
 Sonora, Nevada and Olympus are whole games of their own, with their own archives; they still need Fallout 2 in deck B,
 whose engine they play on. Olympus needs a picture at least 600 lines tall, so it is played at high resolution.
+
+Fallout Yesterday is a game of its own as well, made to have Fallout 2's `master.dat`, `critter.dat` and
+`patch000.dat` copied into its folder: the console takes those three from the Fallout 2 in deck B, and nothing else of
+it. Its download is a 7z, which the console does not open: unpack it and hand over the folder. It starts at the wide
+picture, the nearest to the one its makers set. Its hundred and more traits and perks are made with sfall's fake
+traits and perks, which the console's Fallout 2 engine was given for it: on the character screen, in the perk box,
+and in saved games.
+
+Resurrection is played as its manual installation leaves it, in a `Resurrection` folder inside Fallout 2's that
+reaches up for the game's archives and music. Its zip puts its own music in Fallout 2's `sound/music` folder, so hand
+the console the zip, or the Fallout 2 folder it was unpacked into, rather than the `Resurrection` folder alone.
 
 > [!NOTE]
 > fo2.exe and similar launchers run the original programs of the games, with sfall, the original engine's
@@ -92,16 +106,20 @@ A mod's files go into the console's storage beside the games', and are laid over
   moves aside: the Restoration Project's installer puts the game's patch archive and loose data out of the way, and
   so does the console. A complete game folder (one holding `MASTER.DAT`) is started with nothing of the deck's game
   but the files its own copies were identical to.
-- **Nested**, as Fallout Et Tu is: in a folder of its own, with Fallout 2's archives and music in a folder below it.
+- **Nested**, as Fallout Et Tu and Resurrection are: in a folder of its own, with Fallout 2's archives and music in a
+  folder below it.
 
 The engine and the console's storage are built for a few large archives, so folders of many small files are packed
 into archives in the games' own format ([`src/lib/datpack.ts`](../src/lib/datpack.ts)): each mod folder in `mods/`,
 an archive kept as a folder (Nevada's `MASTER.DAT`), and the bulk of a mod's data folder, which the engine is given as
-its second patch location, directly below the data folder itself. Music and settings, read by plain path, stay
-files. Fallout's engine reads only Fallout's own archives, so a mod of Fallout is stored as loose files.
+its second patch location, directly below the data folder itself. An archive kept as a folder that is more than one
+archive holds (2 GB) is stored as several, when the engine opens it by number: Fallout Yesterday's 4.6 GB
+`patch001.dat` becomes `patch001.dat` to `patch003.dat`, and its `patch002.dat` the fourth. Music and settings, read
+by plain path, stay files. Fallout's engine reads only Fallout's own archives, so a mod of Fallout is stored as loose
+files.
 
 What the mods the console knows need besides is in [`src/lib/storage/mods.ts`](../src/lib/storage/mods.ts) (the
-Restoration Project's installer, the Megamod's proto tool, Fixt's folder of its own, Olympus's sfall 5 load order
-and scripts) and
+Restoration Project's installer, the Megamod's proto tool, Fixt's and Resurrection's folders of their own, Olympus's
+sfall 5 load order and scripts, the three archives Fallout Yesterday takes from Fallout 2) and
 [`src/lib/storage/ettu.ts`](../src/lib/storage/ettu.ts); what the console knows of each, in
 [`src/lib/mods/catalog.ts`](../src/lib/mods/catalog.ts).

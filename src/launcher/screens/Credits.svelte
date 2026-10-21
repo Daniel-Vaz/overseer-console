@@ -71,7 +71,8 @@
     spinning, direct pointer input, a browser build target, skipping the opening movies, starting straight into a
     save, and reading a mod's loose text files as Windows does. Both engines carry patches for autosaves, for quick saves that always use slot 07 and for telling the page
     when it is the player's turn in a fight; Fallout 2's also lets the page hold a key down for its scripts, for the
-    touch screen's switch that lights things up. Both are linked with the console's own glue code, which gives them a pausable clock, on-demand file reading and save persistence. The
+    touch screen's switch that lights things up, and gives its scripts sfall's made-up traits and perks and more of
+    what Fallout Yesterday calls. Both are linked with the console's own glue code, which gives them a pausable clock, on-demand file reading and save persistence. The
     patches and build scripts are in the
     <a href={REPO_URL} target="_blank" rel="noopener">console's repository</a>.
   </p>

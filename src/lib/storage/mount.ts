@@ -6,7 +6,7 @@
  * was made for, and this is where the two meet (see ModInstall): over that
  * game's files, less those the mod does without, as a mod installed into a
  * game folder is on a desktop; or in a folder of its own with the game's
- * archives in a folder below it, as Fallout Et Tu is.
+ * archives in a folder below it, as Fallout Et Tu and Resurrection are.
  *
  * The player puts exactly this in front of the engine, and the save editor
  * reads exactly this: what one sees, the other does.
@@ -111,6 +111,18 @@ export function mountGame(game: GameId, own: Manifest, base?: Manifest): Mounted
   const mod = modInstall(game, own);
   if (mod && base) {
     const baseDef = gameDef(mod.record.base);
+    // What the mod's own copies were identical to, where the mod has them.
+    const reuse = (reuses: NonNullable<ModInstall['reuses']>) => {
+      const byKey = new Map(base.files.map((file) => [pathKey(file.path), file]));
+      for (const reused of reuses) {
+        const file = byKey.get(pathKey(reused.from ?? reused.path));
+        if (!file || file.size !== reused.size) {
+          missing.push(reused.from ?? reused.path);
+          continue;
+        }
+        put(reused.path, 'base', file);
+      }
+    };
     if (mod.layout === 'nested') {
       // The game's archives and its music, in a folder of their own.
       const under = baseFolder(mod.record.base);
@@ -119,17 +131,10 @@ export function mountGame(game: GameId, own: Manifest, base?: Manifest): Mounted
         const key = pathKey(file.path);
         if (key === 'master.dat' || key === 'critter.dat' || (music && key.startsWith(`${music}/`))) put(`${under}/${file.path}`, 'base', file);
       }
+      if (mod.reuses) reuse(mod.reuses);
     } else if (mod.reuses) {
       // A complete game folder: only what its own copies were identical to.
-      const byKey = new Map(base.files.map((file) => [pathKey(file.path), file]));
-      for (const reuse of mod.reuses) {
-        const file = byKey.get(pathKey(reuse.from ?? reuse.path));
-        if (!file || file.size !== reuse.size) {
-          missing.push(reuse.from ?? reuse.path);
-          continue;
-        }
-        put(reuse.path, 'base', file);
-      }
+      reuse(mod.reuses);
     } else {
       // Files to unpack into a game folder: the whole game, less what the mod does without.
       for (const file of base.files) {

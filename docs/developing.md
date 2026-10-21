@@ -39,18 +39,23 @@ The other mods the console knows are played from their real files when told wher
 | `RPU` | `rpu_v2.4.34.zip` | its GitHub releases |
 | `SONORA` | `Fallout_Sonora_1.16.4E.zip` | its English GitHub releases |
 | `OLYMPUS` | `Olympus-2207-English.zip` | its English GitHub releases |
+| `RESURRECTION` | `FoRes_EN_1_5.zip` | its download page, from the Bitbucket mirror |
+| `YESTERDAY` | the folder its 7z unpacks to | its 7z from Nexus Mods (signed in); or the GitLab repository's `main` without the two films too large for it, LFS files fetched |
 | `MEGAMOD` | `Fallout 2 Megamod 2.47.8.zip` | Nexus Mods (signed in) |
 | `NEVADA` | the folder it was installed in, English translation over it | the English 2.0.3.3 folder fallout-nevada.ru serves |
 | `FIXT` | the Fallout folder its installer ran in (`Fallout Fixt` inside it) | `Fallout_Fixt_0.81alpha_FULL_CUSTOM.exe` from its GitHub releases, run with Wine (`/VERYSILENT "/DIR=<Fallout folder>"`) |
 
 ```sh
-FO1_DIR=... FO2_DIR=... RPU=... SONORA=... OLYMPUS=... MEGAMOD=... NEVADA=... FIXT=... npm run test:e2e -- game -g "loaded over the game"
+FO1_DIR=... FO2_DIR=... RPU=... SONORA=... OLYMPUS=... MEGAMOD=... NEVADA=... RESURRECTION=... YESTERDAY=... FIXT=... npm run test:e2e -- game -g "loaded over the game"
 ```
 
 Each is loaded, started, and taken into a new game. That it is the mod being played, not the game under it, is
 checked on what the engine reads (the mod's own archives, and the game's only when the mod is laid over it), on a
 file of the mod's as the engine finds it, and on the map in the quick save its first scene allows; the main menu
-and the first scene are attached to the test as pictures. `tests/e2e/mods.spec.ts` and `tests/unit/mods.test.ts`
+and the first scene are attached to the test as pictures. With `YESTERDAY` one more test frees a trait slot of its
+ready-made character, takes one of its own traits in the perk box, and finds it in the save (`sfallgv.sav`) after a
+load and a save again: the engine's sfall fake traits and perks, played for real. Yesterday's GitLab repository lacks
+two films too large for it (`INTRO.MVE`, `MESAVERD.MVE`); the tests do not reach them. `tests/e2e/mods.spec.ts` and `tests/unit/mods.test.ts`
 cover them on made-up files laid out as the real ones are (`tests/mods.ts`).
 
 `tests/e2e/touch.spec.ts` plays them again with fingers only, on a phone-sized screen.
@@ -105,7 +110,9 @@ engines/build.sh fo1
 ```
 
 `EXTRA_LINK_FLAGS=--profiling-funcs FORCE=1 engines/build.sh fo1` keeps function names in the
-binary, for profiling in the browser's developer tools.
+binary, for profiling in the browser's developer tools. For a crash, add `-sASSERTIONS=1 -sSAFE_HEAP=2`: a stray
+read or write then stops the engine with a stack trace (on the page's console) where the browser would crash the tab.
+(`SAFE_HEAP=1` also stops on unaligned reads, which the film player makes and WebAssembly allows.)
 
 ## Deploying
 

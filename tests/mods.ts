@@ -1,16 +1,24 @@
 /**
  * Mods made up for the tests, laid out as the real ones are: the Restoration
  * Project's zip, a game folder a mod was installed in, Sonora and Olympus as
- * whole games of their own, Nevada with its MASTER.DAT as a folder, and the
- * game in the deck they are laid over. A few bytes in each file.
+ * whole games of their own, Nevada with its MASTER.DAT as a folder,
+ * Resurrection in a folder of its own inside Fallout 2's, Fallout Yesterday
+ * with a patch archive larger than one archive holds, and the game in the
+ * deck they are laid over. A few bytes in each file, but for the large ones,
+ * which are never read.
  */
+import { sourceOf } from '../src/lib/blobs';
 import type { Manifest } from '../src/lib/storage/manifest';
-import type { Install } from '../src/lib/storage/opfs';
+import type { Install, SourceBlob } from '../src/lib/storage/opfs';
 import type { SourceFile } from '../src/lib/storage/plan';
 import { ascii, dat2 } from './archives';
 
 /** Bytes that are the same however often they are made: a file of the game in the deck. */
 export const pattern = (size: number, seed: number): Uint8Array => Uint8Array.from({ length: size }, (_, i) => (i * 31 + seed * 7 + (i >>> 9)) & 0xff);
+
+/** A file far larger than memory would hold, whose bytes are only made when they are read. */
+export const huge = (size: number, seed: number): SourceBlob =>
+  sourceOf(size, 0, async (start, end) => Uint8Array.from({ length: end - start }, (_, i) => (start + i + seed) & 0xff));
 
 /** An archive of Fallout 2 as far as telling one apart goes: its last eight bytes the size of its directory, and its own. */
 export function dat2Bytes(size: number, seed: number): Uint8Array {
@@ -32,11 +40,15 @@ export function dat1Bytes(size: number, seed: number): Uint8Array {
 }
 
 type Data = Uint8Array | string | Blob;
+/** Data, or a file whose bytes are made as they are read (see huge). */
+type AnyData = Data | SourceBlob;
 
-const file = (data: Data, name = 'file') => new File([typeof data === 'string' ? ascii(data) : data instanceof Blob ? data : (data as Uint8Array<ArrayBuffer>)], name);
+const isMade = (data: AnyData): data is SourceBlob => typeof data === 'object' && !(data instanceof Uint8Array) && !(data instanceof Blob);
+const file = (data: AnyData, name = 'file'): SourceBlob =>
+  isMade(data) ? data : new File([typeof data === 'string' ? ascii(data) : data instanceof Blob ? data : (data as Uint8Array<ArrayBuffer>)], name);
 
 /** Files as a picked folder gives them, below `prefix`; `zip` as if they came out of one. */
-export function sources(files: Record<string, Data>, prefix = '', zip?: string): SourceFile[] {
+export function sources(files: Record<string, AnyData>, prefix = '', zip?: string): SourceFile[] {
   return Object.entries(files).map(([path, data]) => ({ path: `${prefix}${path}`, file: file(data, path.split('/').pop()), ...(zip ? { zip } : {}) }));
 }
 
@@ -67,7 +79,7 @@ export function fallout1Files(): Record<string, Data> {
 
 /** An install as the console stores one: every file in a blob of its own, read through a stand-in for the browser's storage. */
 export function installOf(game: 'fo1' | 'fo2', files: Record<string, Data>): Install {
-  const blobs = new Map<string, File>();
+  const blobs = new Map<string, SourceBlob>();
   const manifest: Manifest = {
     version: 1,
     game,
@@ -265,5 +277,74 @@ export function megamodFiles(): Record<string, Data> {
     'readme files/Abbey Readme.txt': 'Read me.',
   };
   for (let i = 0; i < 20; i++) files[`Data/text/english/dialog/mm${i}.msg`] = `{100}{}{Line ${i}}`;
+  return files;
+}
+
+/**
+ * Fallout 1.5: Resurrection as its zip holds it, to be unpacked into the Fallout 2 folder: a folder of its own
+ * whose settings reach up for the game's archives and music, and its new music in the game's music folder.
+ */
+export function resurrectionFiles(): Record<string, Data> {
+  return {
+    'Resurrection/fores.dat': dat2({ 'text\\english\\game\\map.msg': { data: ascii('{100}{}{Albuquerque}'), packed: false } }),
+    'Resurrection/fores_critter.dat': pattern(4000, 101),
+    'Resurrection/fores.cfg':
+      '[sound]\r\nmusic_path1=..\\data\\sound\\music\\\r\nmusic_path2=..\\sound\\music\\\r\n[system]\r\ncritter_dat=..\\critter.dat\r\ncritter_patches=fores_critter.dat\r\nmaster_dat=..\\master.dat\r\nmaster_patches=data\r\nlanguage=english\r\n[preferences]\r\ncombat_speed=60\r\n',
+    'Resurrection/ddraw.ini': '[Misc]\r\nStartingMap=nh_cave.map\r\nConfigFile=fores.cfg\r\n',
+    'Resurrection/f2_res.ini': '[MAIN]\r\nSCR_WIDTH=640\r\nf2_res_dat=fores.dat\r\nf2_res_patches=data\\\r\n',
+    'Resurrection/CriticalOverrides.ini': '[c_00_0]\r\n',
+    'Resurrection/fores.exe': 'not a program',
+    'Resurrection/fores_config.exe': 'not a program either',
+    // A copy of the game's program, named without its extension.
+    'Resurrection/FALLOUT2': 'not a program',
+    'Resurrection/ddraw.dll': 'sfall',
+    'Resurrection/fores_readme.txt': 'read me',
+    'Resurrection/data/art/cuts/intro.mve': pattern(1200 << 10, 102),
+    'Resurrection/data/art/cuts/intro.pal': pattern(768, 103),
+    'sound/music/06VAULT.ACM': pattern(120 << 10, 104),
+    'sound/music/25albuq.acm': pattern(130 << 10, 105),
+  };
+}
+
+/** A Fallout 2 folder Resurrection was unpacked into: the game as it was, Resurrection's folder and music in it. */
+export function resurrectionInstalledFiles(): Record<string, Data> {
+  return { ...fallout2Files(), ...resurrectionFiles() };
+}
+
+/**
+ * Fallout Yesterday as its folder holds it, before Fallout 2's archives are copied in: a game of its own on
+ * those three, with its patch001.dat a folder larger than one archive holds and a patch002.dat after it.
+ */
+export function yesterdayFiles(): Record<string, AnyData> {
+  const files: Record<string, AnyData> = {
+    'fallouty.cfg': '[sound]\r\nmusic_path1=data\\sound\\music\\\r\nmusic_path2=data\\sound\\music\\\r\n[system]\r\ncritter_dat=critter.dat\r\ncritter_patches=data\r\nmaster_dat=master.dat\r\nmaster_patches=data\r\nlanguage=english\r\n',
+    'ddraw.ini': '[Misc]\r\nStartingMap=tbcb13.map\r\nConfigFile=fallouty.cfg\r\nPatchFile=patch%03d.dat\r\n',
+    'f2_res.ini': '[MAIN]\r\nSCR_WIDTH=960\r\nSCR_HEIGHT=540\r\nf2_res_dat=f2_res.dat\r\nf2_res_patches=data\\\r\n',
+    'FOYesterday.ico': 'an icon',
+    'FY_v0.65_Walkthrough.pdf': 'a walkthrough',
+    'ddraw.dll': 'sfall',
+    'f2_res.dll': 'the high resolution patch',
+    'f2_res_Config.exe': 'not a program',
+    'install.sh': '#!/usr/bin/env bash\n',
+    'sfall.dat': pattern(2000, 111),
+    'patch002.dat': dat2({ 'text\\english\\game\\misc.msg': { data: ascii('{100}{}{Fixed}'), packed: false } }),
+    'f2_res.dat/maps/artemple.edg': pattern(100, 112),
+    'f2_res.dat/art/intrface/hr_iface_800.frm': pattern(900, 113),
+    'patch001.dat/premade/combat.gcd': pattern(600, 114),
+    'patch001.dat/text/english/game/map.msg': '{100}{}{Tibbets}',
+    // 2.7 GB of art: more than one archive holds.
+    'patch001.dat/art/critters/margosaa.frm': huge(900 << 20, 115),
+    'patch001.dat/art/critters/maprtrbl.frm': huge(900 << 20, 116),
+    'patch001.dat/art/walls/wpool.frm': huge(900 << 20, 117),
+    'mods/mods_order.txt': '',
+    'mods/FalloutYesterday.ini': '[Main]\r\nHunger=0\r\n',
+    'mods/sfall-mods.ini': '[Highlighting]\r\nKey=42\r\n',
+    'data/sound/music/45mesa.wav': pattern(150 << 10, 118),
+    'data/art/cuts/title.mve': pattern(1100 << 10, 119),
+    'appearance/hmr00s01/art/critters/hmjmpsaa.frm': pattern(900, 120),
+    'translations/german/patch001.dat/text/german/game/map.msg': '{100}{}{Tibbets}',
+    '_tools/Art/Tiles/PS - Tile Cutter.psd': 'tools',
+  };
+  for (let i = 0; i < 20; i++) files[`data/scripts/gl_fy${i}.int`] = pattern(300 + i, 130 + i);
   return files;
 }

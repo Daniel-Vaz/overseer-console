@@ -220,6 +220,24 @@ function ownArchive(config: Ini, key: string, mounted: Mounted): string | null {
   return mountedArchive(config.get('system', key), mounted);
 }
 
+/**
+ * The engine's second patch location and the high resolution patch's art,
+ * where a game keeps them under names of its own: what the settings file is
+ * given, and what the save editor reads the same chain from (gamedata.ts).
+ * Null where the engine's own names stand.
+ */
+export function namedArchives(mounted: Mounted, installConfig: string | undefined, highRes: string | undefined): { patches: string | null; art: string | null } {
+  const mod = mounted.mod;
+  // A mod's settings may name an archive of its own, as Resurrection does for its new critters.
+  let patches = mod && installConfig ? ownArchive(Ini.parse(installConfig), 'critter_patches', mounted) : null;
+  // The second patch location is free to be an archive: the bulk of a mod's data folder (see storage/mods.ts).
+  if (mod?.patches && mounted.files.has(pathKey(mod.patches))) patches = mod.patches;
+  // The art of the high resolution patch, where the game's settings for that patch put it (the Restoration
+  // Project keeps its own in mods/, Resurrection all of itself in fores.dat).
+  const art = highRes === undefined ? null : mountedArchive(Ini.parse(highRes).get('MAIN', 'f2_res_dat'), mounted);
+  return { patches, art };
+}
+
 /** Settings files to place in the game folder, by name. */
 export function buildConfigFiles({
   game,
@@ -270,8 +288,8 @@ export function buildConfigFiles({
       if (path) ini.set('system', key, path);
     }
   }
-  // The second patch location is free to be an archive: the bulk of a mod's data folder (see storage/mods.ts).
-  if (mod?.patches && mounted.files.has(pathKey(mod.patches))) ini.set('system', 'critter_patches', mod.patches);
+  const named = namedArchives(mounted, manifest.installConfig, highRes);
+  if (named.patches) ini.set('system', 'critter_patches', named.patches);
 
   if (def.engine.id === 'fo2') {
     ini.set('screen', 'resolution_x', screen.width);
@@ -281,10 +299,8 @@ export function buildConfigFiles({
     // The pointer belongs to the browser; the game reads its position.
     ini.set('screen', 'mouse_lock', 0);
     ini.set('ui', 'skip_opening_movies', skipIntro ? 1 : 0);
-    // The art of the high resolution patch, where the game's settings for that patch put it (the Restoration
-    // Project keeps its own in mods/). The engine takes them over only when no picture size is set.
-    const art = highRes === undefined ? null : mountedArchive(Ini.parse(highRes).get('MAIN', 'f2_res_dat'), mounted);
-    if (art) ini.set('system', 'f2_res_dat', art);
+    // The engine takes the high resolution patch's settings over only when no picture size is set.
+    if (named.art) ini.set('system', 'f2_res_dat', named.art);
 
     // A game that was made with the engine's additions brings its own choice of them.
     const files: Record<string, string> = {};

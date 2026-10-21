@@ -5,8 +5,9 @@ and mods loaded from your own cloud on any of them. The console has no Google ap
 one in their own Google account, with access to the console's own files only, and links the console to it.
 
 Why Google Drive: a free Google account holds up to 15 GB, where a free Dropbox holds 2 GB. A game is about 550 MB;
-the mods the console knows are 0.4 to 3 GB each as they are downloaded, and both games with all seven come to about
-11 GB. Google's room is shared with Gmail and Google Photos, and Drive's trash counts until it is emptied. In some
+the mods the console knows are 0.4 to 3 GB each as they are downloaded, but for Fallout Yesterday, whose unpacked
+folder is 9 GB. Both games with all nine come to about 21 GB, more than a free account holds; without Yesterday,
+about 12 GB. Google's room is shared with Gmail and Google Photos, and Drive's trash counts until it is emptied. In some
 regions Google gives new accounts 5 GB until a phone number is added to them.
 
 The console links to one cloud at a time. To switch from Dropbox, fetch the saves you want from there, then unlink it.
