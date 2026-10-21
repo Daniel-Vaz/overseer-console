@@ -243,6 +243,17 @@
         action: () => sys.setPicture(game, step(pictures, picture)),
         adjust: (direction) => sys.setPicture(game, step(pictures, picture, direction)),
       },
+      ...(outdated
+        ? [
+            {
+              label: `Update to version ${release!.version}`,
+              state: `HERE: ${mod.version}`,
+              tone: 'amber' as const,
+              note: `A newer version than the ${mod.version} loaded here, the one the console's tests play. Saved games are kept; a save made with one version may not load in another.`,
+              action: () => go(`mods/install/${known!.id}`),
+            },
+          ]
+        : []),
       ...(components && components.list.length > 1
         ? [
             {
@@ -256,17 +267,6 @@
                 componentSelected = 0;
                 view = 'components';
               },
-            },
-          ]
-        : []),
-      ...(outdated
-        ? [
-            {
-              label: `Update to version ${release!.version}`,
-              state: `HERE: ${mod.version}`,
-              tone: 'amber' as const,
-              note: `A newer version than the ${mod.version} loaded here, the one the console's tests play. Saved games are kept; a save made with one version may not load in another.`,
-              action: () => go(`mods/install/${known!.id}`),
             },
           ]
         : []),

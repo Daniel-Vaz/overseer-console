@@ -92,6 +92,8 @@ test('offers the release as an update to a mod loaded at an older version', asyn
   await expect(page.getByRole('heading', { name: 'Restoration Project' })).toBeVisible({ timeout: 60_000 });
   await loaded(page);
   await expect(page.locator('.readout').first()).toContainText(`2.4.30, ${MOD_RELEASES.rpu!.version} IS OUT`);
+  // Its components are read once it is here, and their entry comes in below the update a moment later.
+  await expect(entry(page, 'Components')).toBeVisible();
   await entry(page, `Update to version ${MOD_RELEASES.rpu!.version}`).locator('button').click();
   await expect(page.getByRole('heading', { name: 'Install Restoration Project' })).toBeVisible();
   await expect(page.locator('.readout')).toContainText('VERSION 2.4.30, OLDER');
