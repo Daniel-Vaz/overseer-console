@@ -12,7 +12,8 @@
     "engines": "bash engines/build.sh all",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "mod-releases": "node scripts/mod-releases.ts"
+    "mod-releases": "node scripts/mod-releases.ts",
+    "sfall-scan": "node --import ./scripts/ts-resolve.js scripts/sfall-scan.ts"
   },
   "devDependencies": {
     "@fontsource/vt323": "^5.3.0",

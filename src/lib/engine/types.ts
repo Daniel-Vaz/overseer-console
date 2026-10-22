@@ -54,7 +54,11 @@ export interface OverseerApi {
   requestSave(slot: number): Promise<boolean>;
   /** Hears how each quick save and quick load went. Both use slot 7 alone. */
   onQuick(handler: (kind: QuickKind, outcome: QuickOutcome) => void): void;
-  /** Holds a key (a DirectInput scan code) down for the game's scripts alone, or lets go of it. Fallout 2's engine only. */
+  /**
+   * Holds a key (a DirectInput scan code) down for the game's scripts alone, or
+   * lets go of it: Fallout 2's scripts, and what Fallout's engine follows of a
+   * mod's sfall settings (the key that lights up what lies on the ground).
+   */
   holdScriptKey(key: number, held: boolean): void;
   /** The list that takes the mouse wheel at (x, y), in pixels of the game's screen (an inventory), or null. */
   scrollListAt(x: number, y: number): ScreenRect | null;

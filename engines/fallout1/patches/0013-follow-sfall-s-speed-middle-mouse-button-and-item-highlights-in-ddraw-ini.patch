@@ -1,0 +1,758 @@
+Follow sfall's speed, middle mouse button and item highlights in ddraw.ini
+
+What else Fallout Fixt sets in its ddraw.ini (see the patch before):
+
+- [Speed] Enable and SpeedMultiInitial: the game runs that much faster (Fixt:
+  110%) on the map, in combat and on the world map, as sfall does - not in the
+  screens and menus. The game's clock goes faster while their loops wait for
+  input; it never jumps when it goes on or off.
+- [Input] MiddleMouse: the middle mouse button presses that key (Fixt: B, which
+  switches hands).
+- [Input] ToggleItemHighlightsKey and TurnHighlightContainers: while that key
+  is held (Fixt: left Shift), items on the ground are outlined in yellow, and
+  containers and the bodies that can be searched in grey; an item keeps its
+  outline once the cursor leaves it. The page can hold the key down for a touch
+  screen, as for Fallout 2.
+
+Keys are DirectInput scan codes, as sfall reads them.
+---
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 74388ea..ed65922 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -155,6 +155,8 @@ target_sources(${EXECUTABLE_NAME} PUBLIC
+     "src/game/selfrun.h"
+     "src/game/sfall_config.cc"
+     "src/game/sfall_config.h"
++    "src/game/sfall_input.cc"
++    "src/game/sfall_input.h"
+     "src/game/sfxcache.cc"
+     "src/game/sfxcache.h"
+     "src/game/sfxlist.cc"
+diff --git a/src/game/combat.cc b/src/game/combat.cc
+index 4a1fd2b..d1eec0a 100644
+--- a/src/game/combat.cc
++++ b/src/game/combat.cc
+@@ -27,6 +27,7 @@
+ #include "game/roll.h"
+ #include "game/scripts.h"
+ #include "game/sfall_config.h"
++#include "game/sfall_input.h"
+ #include "game/skill.h"
+ #include "game/stat.h"
+ #include "game/tile.h"
+@@ -2193,6 +2194,8 @@ static int combat_input()
+             break;
+         }
+ 
++        // SFALL: see main_game_loop.
++        sfall_input_process();
+         input = get_input();
+ 
+         if (input == KEY_SPACE) {
+@@ -2203,7 +2206,9 @@ static int combat_input()
+             combat_end();
+         } else {
+             scripts_check_state_in_combat();
++            set_time_scale_active(false);
+             game_handle_input(input, true);
++            set_time_scale_active(true);
+         }
+ 
+         renderPresent();
+@@ -2407,6 +2412,10 @@ void combat(STRUCT_664980* attack)
+         || (attack->defender == NULL || attack->defender->elevation == map_elevation)) {
+         int v3 = combat_state & 0x01;
+ 
++        // SFALL: the faster clock is for the whole fight, but for the screens
++        // the player opens on their turn (see combat_input).
++        set_time_scale_active(true);
++
+         combat_begin(NULL);
+ 
+         int v6;
+@@ -2473,6 +2482,8 @@ void combat(STRUCT_664980* attack)
+ 
+         combat_end_due_to_load = 0;
+ 
++        set_time_scale_active(false);
++
+         if (game_user_wants_to_quit == 1) {
+             game_user_wants_to_quit = 0;
+         }
+diff --git a/src/game/game.cc b/src/game/game.cc
+index 14b6c12..f583085 100644
+--- a/src/game/game.cc
++++ b/src/game/game.cc
+@@ -137,6 +137,7 @@ int game_init(const char* windowTitle, bool isMapper, int font, int flags, int a
+ 
+     // SFALL: what a mod tells sfall in its ddraw.ini.
+     sfall_config_init();
++    set_time_scale(sfall_settings.speedPercent);
+ 
+     game_in_mapper = isMapper;
+ 
+diff --git a/src/game/gmouse.cc b/src/game/gmouse.cc
+index 73dfd7a..65357fd 100644
+--- a/src/game/gmouse.cc
++++ b/src/game/gmouse.cc
+@@ -17,6 +17,7 @@
+ #include "game/object.h"
+ #include "game/protinst.h"
+ #include "game/proto.h"
++#include "game/sfall_input.h"
+ #include "game/skilldex.h"
+ #include "game/tile.h"
+ #include "platform_compat.h"
+@@ -667,6 +668,12 @@ void gmouse_bk_process()
+                     case OBJ_TYPE_ITEM:
+                         primaryAction = GAME_MOUSE_ACTION_MENU_ITEM_USE;
+                         if (gmouse_3d_item_highlight) {
++                            // SFALL: an item lit up with the rest takes the
++                            // cursor's outline (see sfall_input.h).
++                            if (sfall_input_highlighting() && (target->flags & OBJECT_NO_HIGHLIGHT) == 0) {
++                                target->outline = 0;
++                            }
++
+                             Rect tmp;
+                             if (obj_outline_object(target, OUTLINE_TYPE_ITEM, &tmp) == 0) {
+                                 tile_refresh_rect(&tmp, map_elevation);
+@@ -819,6 +826,7 @@ void gmouse_bk_process()
+             v34 |= 2;
+         }
+         outlined_object = NULL;
++        sfall_input_outline_removed();
+     }
+ 
+     switch (v34) {
+@@ -2390,6 +2398,7 @@ void gmouse_remove_item_outline(Object* object)
+             tile_refresh_rect(&rect, map_elevation);
+         }
+         outlined_object = NULL;
++        sfall_input_outline_removed();
+     }
+ }
+ 
+diff --git a/src/game/main.cc b/src/game/main.cc
+index a6cbec7..6ca51a6 100644
+--- a/src/game/main.cc
++++ b/src/game/main.cc
+@@ -37,6 +37,7 @@
+ #include "game/scripts.h"
+ #include "game/select.h"
+ #include "game/selfrun.h"
++#include "game/sfall_input.h"
+ #include "game/wordwrap.h"
+ #include "game/worldmap.h"
+ #include "plib/color/color.h"
+@@ -383,7 +384,13 @@ static void main_game_loop()
+     while (game_user_wants_to_quit == 0) {
+         sharedFpsLimiter.mark();
+ 
++        // SFALL: what a mod sets of sfall's speed, keys and mouse buttons
++        // (see sfall_input.h); the faster clock is for the map, not for the
++        // screens a key opens.
++        sfall_input_process();
++        set_time_scale_active(true);
+         int keyCode = get_input();
++        set_time_scale_active(false);
+         game_handle_input(keyCode, false);
+ 
+         scripts_check_state();
+diff --git a/src/game/sfall_config.cc b/src/game/sfall_config.cc
+index bfe8420..bdd0cc8 100644
+--- a/src/game/sfall_config.cc
++++ b/src/game/sfall_config.cc
+@@ -23,6 +23,7 @@ static int sfall_config_int(Config* config, const char* section, const char* key
+ void sfall_config_init()
+ {
+     sfall_settings = SfallSettings();
++    sfall_settings.speedPercent = 100;
+ 
+     // (config_load says it read a file that is not there.)
+     FILE* stream = compat_fopen("ddraw.ini", "rt");
+@@ -47,6 +48,14 @@ void sfall_config_init()
+         sfall_settings.freeWeight = sfall_config_int(&config, "Misc", "FreeWeight", 0) != 0;
+         sfall_settings.drugExploitFix = sfall_config_int(&config, "Misc", "DrugExploitFix", 0) != 0;
+         sfall_settings.removeFriendlyFoe = sfall_config_int(&config, "Misc", "RemoveFriendlyFoe", 0) != 0;
++
++        if (sfall_config_int(&config, "Speed", "Enable", 0) != 0) {
++            sfall_settings.speedPercent = sfall_config_int(&config, "Speed", "SpeedMultiInitial", 100);
++        }
++
++        sfall_settings.middleMouseKey = sfall_config_int(&config, "Input", "MiddleMouse", 0x30);
++        sfall_settings.itemHighlightsKey = sfall_config_int(&config, "Input", "ToggleItemHighlightsKey", 0);
++        sfall_settings.highlightContainers = sfall_config_int(&config, "Input", "TurnHighlightContainers", 0) != 0;
+     }
+ 
+     config_exit(&config);
+diff --git a/src/game/sfall_config.h b/src/game/sfall_config.h
+index 4bc4762..fc2cef8 100644
+--- a/src/game/sfall_config.h
++++ b/src/game/sfall_config.h
+@@ -18,6 +18,14 @@ typedef struct SfallSettings {
+     bool freeWeight;
+     bool drugExploitFix;
+     bool removeFriendlyFoe;
++
++    // [Speed]: how fast the game runs, in percent (100 when it is off).
++    int speedPercent;
++
++    // [Input], keys by their DirectInput scan codes; 0 for none.
++    int middleMouseKey;
++    int itemHighlightsKey;
++    bool highlightContainers;
+ } SfallSettings;
+ 
+ extern SfallSettings sfall_settings;
+diff --git a/src/game/sfall_input.cc b/src/game/sfall_input.cc
+new file mode 100644
+index 0000000..eb46db5
+--- /dev/null
++++ b/src/game/sfall_input.cc
+@@ -0,0 +1,410 @@
++#include "game/sfall_input.h"
++
++#include <SDL.h>
++
++#include "game/critter.h"
++#include "game/map.h"
++#include "game/object.h"
++#include "game/proto.h"
++#include "game/sfall_config.h"
++#include "game/tile.h"
++#include "plib/gnw/svga.h"
++
++#if defined(__EMSCRIPTEN__)
++// Overseer Console: whether the page holds this key (a DirectInput scan code)
++// down, as the touch deck's HILITE switch does (engines/lib/overseer.js).
++extern "C" int overseer_script_key(int key);
++#endif
++
++namespace fallout {
++
++constexpr int DIK_MAP_COUNT = 256;
++
++// sfall names keys by their DirectInput scan codes. Maps them to SDL's.
++static constexpr SDL_Scancode kDiks[DIK_MAP_COUNT] = {
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_ESCAPE, // DIK_ESCAPE
++    SDL_SCANCODE_1, // DIK_1
++    SDL_SCANCODE_2, // DIK_2
++    SDL_SCANCODE_3, // DIK_3
++    SDL_SCANCODE_4, // DIK_4
++    SDL_SCANCODE_5, // DIK_5
++    SDL_SCANCODE_6, // DIK_6
++    SDL_SCANCODE_7, // DIK_7
++    SDL_SCANCODE_8, // DIK_8
++    SDL_SCANCODE_9, // DIK_9
++    SDL_SCANCODE_0, // DIK_0
++    SDL_SCANCODE_MINUS, // DIK_MINUS
++    SDL_SCANCODE_EQUALS, // DIK_EQUALS
++    SDL_SCANCODE_BACKSPACE, // DIK_BACK
++    SDL_SCANCODE_TAB, // DIK_TAB
++    SDL_SCANCODE_Q, // DIK_Q
++    SDL_SCANCODE_W, // DIK_W
++    SDL_SCANCODE_E, // DIK_E
++    SDL_SCANCODE_R, // DIK_R
++    SDL_SCANCODE_T, // DIK_T
++    SDL_SCANCODE_Y, // DIK_Y
++    SDL_SCANCODE_U, // DIK_U
++    SDL_SCANCODE_I, // DIK_I
++    SDL_SCANCODE_O, // DIK_O
++    SDL_SCANCODE_P, // DIK_P
++    SDL_SCANCODE_LEFTBRACKET, // DIK_LBRACKET
++    SDL_SCANCODE_RIGHTBRACKET, // DIK_RBRACKET
++    SDL_SCANCODE_RETURN, // DIK_RETURN
++    SDL_SCANCODE_LCTRL, // DIK_LCONTROL
++    SDL_SCANCODE_A, // DIK_A
++    SDL_SCANCODE_S, // DIK_S
++    SDL_SCANCODE_D, // DIK_D
++    SDL_SCANCODE_F, // DIK_F
++    SDL_SCANCODE_G, // DIK_G
++    SDL_SCANCODE_H, // DIK_H
++    SDL_SCANCODE_J, // DIK_J
++    SDL_SCANCODE_K, // DIK_K
++    SDL_SCANCODE_L, // DIK_L
++    SDL_SCANCODE_SEMICOLON, // DIK_SEMICOLON
++    SDL_SCANCODE_APOSTROPHE, // DIK_APOSTROPHE
++    SDL_SCANCODE_GRAVE, // DIK_GRAVE
++    SDL_SCANCODE_LSHIFT, // DIK_LSHIFT
++    SDL_SCANCODE_BACKSLASH, // DIK_BACKSLASH
++    SDL_SCANCODE_Z, // DIK_Z
++    SDL_SCANCODE_X, // DIK_X
++    SDL_SCANCODE_C, // DIK_C
++    SDL_SCANCODE_V, // DIK_V
++    SDL_SCANCODE_B, // DIK_B
++    SDL_SCANCODE_N, // DIK_N
++    SDL_SCANCODE_M, // DIK_M
++    SDL_SCANCODE_COMMA, // DIK_COMMA
++    SDL_SCANCODE_PERIOD, // DIK_PERIOD
++    SDL_SCANCODE_SLASH, // DIK_SLASH
++    SDL_SCANCODE_RSHIFT, // DIK_RSHIFT
++    SDL_SCANCODE_KP_MULTIPLY, // DIK_MULTIPLY
++    SDL_SCANCODE_LALT, // DIK_LMENU
++    SDL_SCANCODE_SPACE, // DIK_SPACE
++    SDL_SCANCODE_CAPSLOCK, // DIK_CAPITAL
++    SDL_SCANCODE_F1, // DIK_F1
++    SDL_SCANCODE_F2, // DIK_F2
++    SDL_SCANCODE_F3, // DIK_F3
++    SDL_SCANCODE_F4, // DIK_F4
++    SDL_SCANCODE_F5, // DIK_F5
++    SDL_SCANCODE_F6, // DIK_F6
++    SDL_SCANCODE_F7, // DIK_F7
++    SDL_SCANCODE_F8, // DIK_F8
++    SDL_SCANCODE_F9, // DIK_F9
++    SDL_SCANCODE_F10, // DIK_F10
++    SDL_SCANCODE_NUMLOCKCLEAR, // DIK_NUMLOCK
++    SDL_SCANCODE_SCROLLLOCK, // DIK_SCROLL
++    SDL_SCANCODE_KP_7, // DIK_NUMPAD7
++    SDL_SCANCODE_KP_8, // DIK_NUMPAD8
++    SDL_SCANCODE_KP_9, // DIK_NUMPAD9
++    SDL_SCANCODE_KP_MINUS, // DIK_SUBTRACT
++    SDL_SCANCODE_KP_4, // DIK_NUMPAD4
++    SDL_SCANCODE_KP_5, // DIK_NUMPAD5
++    SDL_SCANCODE_KP_6, // DIK_NUMPAD6
++    SDL_SCANCODE_KP_PLUS, // DIK_ADD
++    SDL_SCANCODE_KP_1, // DIK_NUMPAD1
++    SDL_SCANCODE_KP_2, // DIK_NUMPAD2
++    SDL_SCANCODE_KP_3, // DIK_NUMPAD3
++    SDL_SCANCODE_KP_0, // DIK_NUMPAD0
++    SDL_SCANCODE_KP_PERIOD, // DIK_DECIMAL
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_F11, // DIK_F11
++    SDL_SCANCODE_F12, // DIK_F12
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_KP_EQUALS, // DIK_NUMPADEQUALS
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN, // DIK_AT
++    SDL_SCANCODE_UNKNOWN, // DIK_COLON
++    SDL_SCANCODE_UNKNOWN, // DIK_UNDERLINE
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN, // DIK_STOP
++    SDL_SCANCODE_UNKNOWN, // DIK_AX
++    SDL_SCANCODE_UNKNOWN, // DIK_UNLABELED
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_KP_ENTER, // DIK_NUMPADENTER
++    SDL_SCANCODE_RCTRL, // DIK_RCONTROL
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_KP_COMMA, // DIK_NUMPADCOMMA
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_SLASH, // DIK_DIVIDE
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_SYSREQ, // DIK_SYSRQ
++    SDL_SCANCODE_RALT, // DIK_RMENU
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_HOME, // DIK_HOME
++    SDL_SCANCODE_UP, // DIK_UP
++    SDL_SCANCODE_PAGEUP, // DIK_PRIOR
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_LEFT, // DIK_LEFT
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_RIGHT, // DIK_RIGHT
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_END, // DIK_END
++    SDL_SCANCODE_DOWN, // DIK_DOWN
++    SDL_SCANCODE_PAGEDOWN, // DIK_NEXT
++    SDL_SCANCODE_INSERT, // DIK_INSERT
++    SDL_SCANCODE_DELETE, // DIK_DELETE
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_LGUI, // DIK_LWIN
++    SDL_SCANCODE_RGUI, // DIK_RWIN
++    SDL_SCANCODE_APPLICATION, // DIK_APPS
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++    SDL_SCANCODE_UNKNOWN,
++};
++
++// Whether what lies on the ground is lit up.
++static bool highlighting = false;
++
++// Whether the middle mouse button was down at the last look.
++static bool middleMouseDown = false;
++
++static bool sfall_input_key_held(int key)
++{
++    if (key <= 0 || key >= DIK_MAP_COUNT) {
++        return false;
++    }
++
++#if defined(__EMSCRIPTEN__)
++    if (overseer_script_key(key)) {
++        return true;
++    }
++#endif
++
++    SDL_Scancode scancode = kDiks[key];
++    if (scancode == SDL_SCANCODE_UNKNOWN) {
++        return false;
++    }
++
++    const Uint8* state = SDL_GetKeyboardState(NULL);
++    return state[scancode] != 0;
++}
++
++// Presses and lets go of a key, as the keyboard does.
++static void sfall_input_press_key(int key)
++{
++    if (key <= 0 || key >= DIK_MAP_COUNT || kDiks[key] == SDL_SCANCODE_UNKNOWN) {
++        return;
++    }
++
++    SDL_Event event;
++    SDL_zero(event);
++    event.type = SDL_KEYDOWN;
++    event.key.timestamp = SDL_GetTicks();
++    event.key.windowID = gSdlWindow != NULL ? SDL_GetWindowID(gSdlWindow) : 0;
++    event.key.state = SDL_PRESSED;
++    event.key.keysym.scancode = kDiks[key];
++    event.key.keysym.sym = SDL_GetKeyFromScancode(kDiks[key]);
++    event.key.keysym.mod = SDL_GetModState();
++    SDL_PushEvent(&event);
++
++    event.type = SDL_KEYUP;
++    event.key.state = SDL_RELEASED;
++    SDL_PushEvent(&event);
++}
++
++// What lies on the ground on the elevation in view, items in yellow, and
++// containers and the bodies that can be searched in grey if the mod asks for
++// them; or none of it.
++static void sfall_input_outline_items(bool on)
++{
++    for (Object* object = obj_find_first_at(map_elevation); object != NULL; object = obj_find_next_at()) {
++        if (object->owner != NULL) {
++            continue;
++        }
++
++        bool container;
++        switch (FID_TYPE(object->fid)) {
++        case OBJ_TYPE_ITEM:
++            container = (object->flags & OBJECT_NO_HIGHLIGHT) != 0;
++            break;
++        case OBJ_TYPE_CRITTER: {
++            if (!critter_is_dead(object)) {
++                continue;
++            }
++
++            Proto* proto;
++            if (proto_ptr(object->pid, &proto) == -1 || (proto->critter.data.flags & CRITTER_NO_STEAL) != 0) {
++                continue;
++            }
++
++            container = true;
++            break;
++        }
++        default:
++            continue;
++        }
++
++        if (!on) {
++            object->outline = 0;
++        } else if ((object->flags & OBJECT_HIDDEN) == 0) {
++            if (!container) {
++                object->outline = OUTLINE_TYPE_ITEM;
++            } else if (sfall_settings.highlightContainers) {
++                object->outline = OUTLINE_TYPE_4;
++            }
++        }
++    }
++
++    tile_refresh_display();
++}
++
++void sfall_input_process()
++{
++    if (sfall_settings.middleMouseKey != 0) {
++        bool down = (SDL_GetMouseState(NULL, NULL) & SDL_BUTTON(SDL_BUTTON_MIDDLE)) != 0;
++        if (down && !middleMouseDown) {
++            sfall_input_press_key(sfall_settings.middleMouseKey);
++        }
++        middleMouseDown = down;
++    }
++
++    if (sfall_settings.itemHighlightsKey != 0) {
++        bool held = sfall_input_key_held(sfall_settings.itemHighlightsKey);
++        if (held != highlighting) {
++            highlighting = held;
++            sfall_input_outline_items(held);
++        }
++    }
++}
++
++bool sfall_input_highlighting()
++{
++    return highlighting;
++}
++
++void sfall_input_outline_removed()
++{
++    if (highlighting) {
++        sfall_input_outline_items(true);
++    }
++}
++
++} // namespace fallout
+diff --git a/src/game/sfall_input.h b/src/game/sfall_input.h
+new file mode 100644
+index 0000000..f5a1a28
+--- /dev/null
++++ b/src/game/sfall_input.h
+@@ -0,0 +1,22 @@
++#ifndef FALLOUT_GAME_SFALL_INPUT_H_
++#define FALLOUT_GAME_SFALL_INPUT_H_
++
++namespace fallout {
++
++// What sfall1 adds to the keyboard and mouse, as a mod's ddraw.ini sets it
++// (see sfall_config.h): the middle mouse button standing for a key, and a key
++// that, held, lights up what lies on the ground.
++
++// Once a turn of the loops of the map and of combat.
++void sfall_input_process();
++
++// Whether what lies on the ground is lit up now.
++bool sfall_input_highlighting();
++
++// The cursor's outline was taken off an object: it is lit up again with the
++// rest, if they are.
++void sfall_input_outline_removed();
++
++} // namespace fallout
++
++#endif /* FALLOUT_GAME_SFALL_INPUT_H_ */
+diff --git a/src/game/worldmap.cc b/src/game/worldmap.cc
+index b479e3b..44c5f1a 100644
+--- a/src/game/worldmap.cc
++++ b/src/game/worldmap.cc
+@@ -1152,8 +1152,11 @@ int world_map(WorldMapContext ctx)
+             if (is_entering_random_encounter || is_entering_city || is_entering_random_terrain) {
+                 break;
+             }
++            // SFALL: the world map has the faster clock (see main_game_loop).
++            set_time_scale_active(true);
+             time = get_time();
+             input = get_input();
++            set_time_scale_active(false);
+             mouseGetPositionInWindow(world_win, &mouse_x, &mouse_y);
+ 
+             mouse_dx = abs(mouse_x - (world_xpos - viewport_x + 22));
+diff --git a/src/plib/gnw/input.cc b/src/plib/gnw/input.cc
+index ba13666..5c08b51 100644
+--- a/src/plib/gnw/input.cc
++++ b/src/plib/gnw/input.cc
+@@ -629,9 +629,56 @@ void register_screendump(int new_screendump_key, ScreenDumpFunc* new_screendump_
+ }
+ 
+ // 0x4B3BB8
++// SFALL: [Speed]: the game's clock runs this much faster, in percent, while
++// the game is played on the map, in combat or on the world map - not in its
++// screens and menus. Their loops switch it on while they wait for input, and
++// a look at the clock goes by the switch for all the time since the last one:
++// each turn's wait for the next frame included.
++static int time_scale_percent = 100;
++static bool time_scale_active = false;
++
++void set_time_scale(int percent)
++{
++    time_scale_percent = percent > 0 ? percent : 100;
++}
++
++void set_time_scale_active(bool active)
++{
++    time_scale_active = active;
++}
++
++// The game's clock: SDL's, gone faster while the scale is on, and never
++// jumping when it goes on or off.
++static unsigned int scaled_ticks()
++{
++    static bool started = false;
++    static unsigned int lastTicks;
++    static unsigned int ticks;
++    static unsigned int fraction;
++
++    unsigned int now = SDL_GetTicks();
++    if (!started) {
++        started = true;
++        lastTicks = now;
++        ticks = now;
++    }
++
++    unsigned int elapsed = now - lastTicks;
++    lastTicks = now;
++
++    if (time_scale_active && time_scale_percent != 100) {
++        unsigned long long scaled = (unsigned long long)elapsed * time_scale_percent + fraction;
++        elapsed = (unsigned int)(scaled / 100);
++        fraction = (unsigned int)(scaled % 100);
++    }
++
++    ticks += elapsed;
++    return ticks;
++}
++
+ unsigned int get_time()
+ {
+-    return SDL_GetTicks();
++    return scaled_ticks();
+ }
+ 
+ // 0x4B3BC4
+@@ -661,13 +708,13 @@ void pause_for_tocks(unsigned int delay)
+ void block_for_tocks(unsigned int ms)
+ {
+     // CE: Original code is a busy-wait loop.
+-    wait_until_elapsed(SDL_GetTicks(), ms);
++    wait_until_elapsed(get_time(), ms);
+ }
+ 
+ // 0x4B3C28
+ unsigned int elapsed_time(unsigned int start)
+ {
+-    unsigned int end = SDL_GetTicks();
++    unsigned int end = get_time();
+ 
+     // NOTE: Uninline.
+     return elapsed_tocks(end, start);
+diff --git a/src/plib/gnw/input.h b/src/plib/gnw/input.h
+index fa489ff..981ee39 100644
+--- a/src/plib/gnw/input.h
++++ b/src/plib/gnw/input.h
+@@ -31,6 +31,8 @@ void dump_screen();
+ int default_screendump(int width, int height, unsigned char* data, unsigned char* palette);
+ void register_screendump(int new_screendump_key, ScreenDumpFunc* new_screendump_func);
+ unsigned int get_time();
++void set_time_scale(int percent);
++void set_time_scale_active(bool active);
+ void pause_for_tocks(unsigned int ms);
+ void block_for_tocks(unsigned int ms);
+ unsigned int elapsed_time(unsigned int a1);

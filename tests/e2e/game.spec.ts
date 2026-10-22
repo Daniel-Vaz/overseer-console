@@ -589,3 +589,127 @@ test('Fallout: a mod whose lists end their lines as Windows writes them plays', 
   await expect(page.locator('#toast')).toHaveText('QUICK SAVED IN SLOT 07', { timeout: 30_000 });
   expect(faults).toEqual([]);
 });
+
+/**
+ * What the engine of Fallout 2 was given of sfall for the known mods
+ * (engines/fallout2/patches 0008-0011), played in the real game by two scripts
+ * of tests/sfall loaded as a mod: a global script that calls them and writes
+ * what it saw into a virtual file kept in the save, and a hook script, found
+ * by its file name, that counts its runs in another. Both are read back out of
+ * the quick save's sfallfs.sav.
+ */
+test('Fallout 2: sfall virtual files, hook scripts and the calls the mods make, kept in a save', async ({ page }) => {
+  const fallout2 = GAMES[1].dir;
+  test.skip(!fallout2, 'set FO2_DIR to your Fallout 2 folder to run this');
+  test.setTimeout(900_000);
+  const faults: string[] = [];
+  page.on('pageerror', (error) => faults.push(error.message));
+
+  const folder = join(tempFolder(), 'Overseer sfall test');
+  mkdirSync(join(folder, 'data', 'scripts'), { recursive: true });
+  for (const script of ['gl_overseer.int', 'hs_gamemodechange.int']) {
+    writeFileSync(join(folder, 'data', 'scripts', script), readFileSync(new URL(`../sfall/${script}`, import.meta.url)));
+  }
+  mkdirSync(join(folder, 'data', 'sound', 'sfx'), { recursive: true });
+  writeFileSync(join(folder, 'data', 'sound', 'sfx', 'overseer.mp3'), readFileSync(new URL('../sfall/overseer.mp3', import.meta.url)));
+
+  await openConsole(page, 'fo2', { skipIntro: true });
+  await pickFolder(page, fallout2!);
+  await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 300_000 });
+  await page.goto('#/mods/load');
+  await pickFolder(page, folder);
+  await expect(page.getByRole('heading', { name: 'Overseer sfall test' })).toBeVisible({ timeout: 300_000 });
+  await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 300_000 });
+
+  // A new game with the first ready-made character.
+  await launch(page, 'Begin simulation', '1');
+  await waitForPicture(page, 8000);
+  const mainMenu = await fingerprint(page);
+  await page.keyboard.press('n');
+  await pause(page, 6000);
+  await page.keyboard.press('t');
+  await pause(page, 10000);
+  await page.keyboard.press(' ');
+  await pause(page, 5000);
+  await page.keyboard.press(' ');
+  await expect.poll(() => inProgress(page), { timeout: 120_000, intervals: [1000] }).toBe(true);
+  await pause(page, 5000);
+  expect(distance(await fingerprint(page), mainMenu)).toBeGreaterThan(12);
+  // The character screen, opened and closed: two changes of game mode for the hook script.
+  await page.keyboard.press('c');
+  await pause(page, 3000);
+  await page.keyboard.press('Escape');
+  await pause(page, 3000);
+
+  await page.keyboard.press('F6');
+  await expect(page.locator('#toast')).toHaveText('QUICK SAVED IN SLOT 07', { timeout: 30_000 });
+
+  // sfallfs.sav: the number of files, then each one's length, name (128 bytes), position and bytes.
+  const data = Buffer.from((await engineFile(page, 'data/savegame/slot07/sfallfs.sav')) ?? []);
+  const files = new Map<string, Buffer>();
+  for (let at = 4, index = 0; index < data.readUInt32LE(0); index++) {
+    const length = data.readUInt32LE(at);
+    const name = data.subarray(at + 4, at + 132);
+    files.set(name.subarray(0, name.indexOf(0)).toString('latin1'), data.subarray(at + 136, at + 136 + length));
+    at += 136 + length;
+  }
+  console.log(`sfall test: kept ${[...files].map(([name, bytes]) => `${name} [${[...bytes].join(' ')}]`).join(', ')}`);
+  // Read back high byte first; copied from a virtual file; two traits; the world map's view; the knockback and
+  // heave-ho calls; an MP3 played; and the end of the script.
+  expect([...files.get('overseer/result')!]).toEqual([1, 1, 1, 5, 7, 1, 1, 66]);
+  // Started with the game, and run at each change of game mode since.
+  expect(files.get('overseer/hooks')!.readInt32BE(0)).toBeGreaterThanOrEqual(3);
+  // Only the files the scripts asked to keep.
+  expect([...files.keys()].sort()).toEqual(['overseer/hooks', 'overseer/result']);
+  expect(faults).toEqual([]);
+});
+
+/**
+ * Fallout Fixt's sfall settings (its ddraw.ini), which the engine of Fallout
+ * follows (engines/fallout1/patches): holding left Shift lights up what lies
+ * on the ground, here the bodies by the vault's door in grey, and letting go
+ * puts it out.
+ */
+test("Fallout Fixt: its sfall settings' key lights up what lies on the ground", async ({ page }, testInfo) => {
+  const fallout = GAMES[0].dir;
+  const source = process.env.FIXT;
+  test.skip(!fallout || !source, 'set FO1_DIR and FIXT to run this');
+  test.setTimeout(1_800_000);
+  const faults: string[] = [];
+  page.on('pageerror', (error) => faults.push(error.message));
+
+  await openConsole(page, 'fo1', { skipIntro: true });
+  await pickFolder(page, fallout!);
+  await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 300_000 });
+  await page.goto('#/mods/load');
+  await pickFolder(page, source!);
+  await expect(page.getByRole('heading', { name: 'Fallout Fixt' })).toBeVisible({ timeout: 1_800_000 });
+  await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 1_800_000 });
+
+  // A new game with its first ready-made character, outside the vault.
+  await launch(page, 'Begin simulation', '1');
+  await waitForPicture(page, 8000);
+  await page.keyboard.press('n');
+  await pause(page, 6000);
+  await page.keyboard.press('t');
+  await pause(page, 10000);
+  await page.keyboard.press(' ');
+  await pause(page, 5000);
+  await page.keyboard.press(' ');
+  await expect.poll(() => inProgress(page), { timeout: 120_000, intervals: [1000] }).toBe(true);
+  await pause(page, 8000);
+
+  const plain = await fingerprint(page);
+  await page.keyboard.down('ShiftLeft');
+  await pause(page, 1500);
+  const lit = await fingerprint(page);
+  const path = testInfo.outputPath('fixt-lit.png');
+  await page.locator('#canvas').screenshot({ path });
+  await testInfo.attach('Fallout Fixt: left Shift held', { path, contentType: 'image/png' });
+  await page.keyboard.up('ShiftLeft');
+  await pause(page, 1500);
+  console.log(`Fallout Fixt: Shift held ${distance(plain, lit).toFixed(2)} from the plain picture`);
+  expect(distance(plain, lit)).toBeGreaterThan(0.2);
+  expect(distance(plain, await fingerprint(page))).toBeLessThan(0.1);
+  expect(faults).toEqual([]);
+});

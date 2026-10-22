@@ -1,0 +1,483 @@
+Give the scripts sfall's traits, viewport, knockback and heave-ho calls
+
+What the known mods call that CE lacked: Fallout Et Tu remove_trait (and
+add_trait, its counterpart), the Megamod set_viewport_x/y and the knockback
+mods (in its hs_tohit), Olympus apply_heaveho_fix.
+
+- remove_trait and the add_trait metarule change the player's two traits as
+  sfall does.
+- get/set_viewport_x/y read and move the part of the world map in view.
+- set/remove_weapon/target/attacker_knockback set the knockback of a weapon or
+  critter, to a value or multiplied by it, where the engine works out a hit's
+  knockback (and that of damage without an attacker); kept until the game is
+  reset, by the object's unique id, as in sfall.
+- apply_heaveho_fix: Heave Ho! adds 6 hexes per rank to a throw's range, after
+  Strength caps it, and asks for any Strength.
+---
+diff --git a/src/actions.cc b/src/actions.cc
+index f8692c5..75f5858 100644
+--- a/src/actions.cc
++++ b/src/actions.cc
+@@ -35,6 +35,7 @@
+ #include "scripts.h"
+ #include "settings.h"
+ #include "sfall_script_hooks.h"
++#include "sfall_stat_mods.h"
+ #include "skill.h"
+ #include "stat.h"
+ #include "text_object.h"
+@@ -2052,7 +2053,8 @@ int _compute_dmg_damage(int min, int max, Object* obj, int* knockbackDistancePtr
+ 
+     if (knockbackDistancePtr != nullptr) {
+         if ((obj->flags & OBJECT_MULTIHEX) == OBJECT_NONE && damageType != DAMAGE_TYPE_ELECTRICAL) {
+-            *knockbackDistancePtr = damage / 10;
++            // SFALL: changed by the target's knockback mods.
++            *knockbackDistancePtr = sfallKnockbackDistance(damage, 10, nullptr, nullptr, obj);
+         }
+     }
+ 
+diff --git a/src/combat.cc b/src/combat.cc
+index afe00d0..17d111f 100644
+--- a/src/combat.cc
++++ b/src/combat.cc
+@@ -4932,7 +4932,8 @@ static void attackComputeDamage(Attack* attack, int numRounds, int baseDamageMul
+         if (shouldKnockback) {
+             int knockbackDistanceDivisor = weaponGetPerk(attack->weapon) == PERK_WEAPON_KNOCKBACK ? 5 : 10;
+ 
+-            *knockbackDistancePtr = *damagePtr / knockbackDistanceDivisor;
++            // SFALL: changed by the knockback mods of the weapon, the attacker and the target.
++            *knockbackDistancePtr = sfallKnockbackDistance(*damagePtr, knockbackDistanceDivisor, attack->weapon, attack->attacker, critter);
+ 
+             if (hasStonewall) {
+                 *knockbackDistancePtr /= 2;
+diff --git a/src/item.cc b/src/item.cc
+index 2aa53e6..2709b0f 100644
+--- a/src/item.cc
++++ b/src/item.cc
+@@ -33,6 +33,7 @@
+ #include "scripts.h"
+ #include "sfall_config.h"
+ #include "sfall_script_hooks.h"
++#include "sfall_stat_mods.h"
+ #include "skill.h"
+ #include "stat.h"
+ #include "string_utils.h"
+@@ -1698,7 +1699,10 @@ int weaponGetRange(Object* critter, HitMode hitMode)
+             range = proto->item.data.weapon.maxRange2;
+         }
+ 
+-        if (weaponGetAttackTypeForHitMode(weapon, hitMode) == ATTACK_TYPE_THROW) {
++        if (weaponGetAttackTypeForHitMode(weapon, hitMode) == ATTACK_TYPE_THROW && sfallHeaveHoFixApplied()) {
++            // SFALL: apply_heaveho_fix: Strength caps the throw, Heave Ho! adds to it.
++            range = std::min(range, 3 * critterGetStat(critter, STAT_STRENGTH)) + 6 * perkGetRank(critter, PERK_HEAVE_HO);
++        } else if (weaponGetAttackTypeForHitMode(weapon, hitMode) == ATTACK_TYPE_THROW) {
+             effectiveStrength = critterGetStat(critter, STAT_STRENGTH);
+             if (critter == gDude || objectIsPartyMember(critter)) {
+                 // SFALL: Fix for Heave Ho! increasing effective strength above
+diff --git a/src/sfall_metarules.cc b/src/sfall_metarules.cc
+index d7ebe74..a4b2c77 100644
+--- a/src/sfall_metarules.cc
++++ b/src/sfall_metarules.cc
+@@ -46,6 +46,7 @@
+ #include "stat.h"
+ #include "text_font.h"
+ #include "tile.h"
++#include "trait.h"
+ #include "window.h"
+ #include "window_manager.h"
+ #include "worldmap.h"
+@@ -837,6 +838,7 @@ static void mf_set_terrain_name(OpcodeContext& ctx);
+ static void mf_set_town_title(OpcodeContext& ctx);
+ static void mf_set_window_flag(OpcodeContext& ctx);
+ static void mf_set_unique_id(OpcodeContext& ctx);
++static void mf_add_trait(OpcodeContext& ctx);
+ static void mf_show_window(OpcodeContext& ctx);
+ static void mf_signal_close_game(OpcodeContext& ctx);
+ static void mf_spatial_radius(OpcodeContext& ctx);
+@@ -857,7 +859,7 @@ const MetaruleInfo kMetarules[] = {
+     { "add_extra_msg_file", mf_add_extra_msg_file, 1, 2, -1, { ARG_STRING, ARG_INT } },
+     { "add_g_timer_event", mf_add_g_timer_event, 2, 2, -1, { ARG_INT, ARG_INT } },
+     { "add_iface_tag", mf_add_iface_tag, 0, 0 },
+-    // {"add_trait",                 mf_add_trait,                 1, 1, -1, {ARG_INT}},
++    { "add_trait", mf_add_trait, 1, 1, -1, { ARG_INT } },
+     { "art_cache_clear", mf_art_cache_flush, 0, 0 },
+     { "art_frame_data", mf_art_frame_data, 1, 3, 0, { ARG_INTSTR, ARG_INT, ARG_INT } },
+     { "attack_is_aimed", mf_attack_is_aimed, 0, 0 },
+@@ -2029,6 +2031,28 @@ void mf_set_window_flag(OpcodeContext& ctx)
+     applyWindowFlag(windowId, bitFlag, enabled);
+ }
+ 
++// add_trait: a trait for the player, in a free one of its two places. (CE has
++// no set_dude_obj, so the dude is always the player.)
++void mf_add_trait(OpcodeContext& ctx)
++{
++    int trait = ctx.arg(0).asInt();
++    if (!traitIsValid(trait)) {
++        ctx.printError("%s() - invalid trait ID.", ctx.name());
++        return;
++    }
++
++    Trait trait1;
++    Trait trait2;
++    traitsGetSelected(&trait1, &trait2);
++    if (trait1 == TRAIT_INVALID) {
++        traitsSetSelected(static_cast<Trait>(trait), trait2);
++    } else if (trait1 != trait && trait2 == TRAIT_INVALID) {
++        traitsSetSelected(trait1, static_cast<Trait>(trait));
++    } else {
++        ctx.printError("%s() - cannot add the trait ID: %d", ctx.name(), trait);
++    }
++}
++
+ void mf_set_unique_id(OpcodeContext& ctx)
+ {
+     Object* object = ctx.arg(0).asObject();
+diff --git a/src/sfall_opcodes.cc b/src/sfall_opcodes.cc
+index 41fa4f2..3230d4a 100644
+--- a/src/sfall_opcodes.cc
++++ b/src/sfall_opcodes.cc
+@@ -56,6 +56,7 @@
+ #include "stat.h"
+ #include "svga.h"
+ #include "tile.h"
++#include "trait.h"
+ #include "window_manager.h"
+ #include "worldmap.h"
+ 
+@@ -2594,6 +2595,93 @@ static void op_set_hero_race(Program* program)
+     programPrintError("set_hero_race: not implemented!");
+ }
+ 
++// set_weapon_knockback, set_target_knockback, set_attacker_knockback
++template <KnockbackModKind kind>
++static void op_set_knockback(Program* program)
++{
++    ProgramValue value = programStackPopValue(program);
++    int modType = programStackPopInteger(program);
++    Object* object = static_cast<Object*>(programStackPopPointer(program));
++    if (object == nullptr) {
++        return;
++    }
++
++    const ProtoId protoId = object;
++    ObjectType type = protoId.objectType();
++    if (kind == KnockbackModKind::Weapon ? type != OBJ_TYPE_ITEM : type != OBJ_TYPE_CRITTER) {
++        programPrintError("set_*_knockback: the object is not %s", kind == KnockbackModKind::Weapon ? "an item" : "a critter");
++        return;
++    }
++
++    sfallSetKnockbackMod(object, kind, modType, value.isFloat() ? value.floatValue : static_cast<float>(value.integerValue));
++}
++
++// remove_weapon_knockback, remove_target_knockback, remove_attacker_knockback
++template <KnockbackModKind kind>
++static void op_remove_knockback(Program* program)
++{
++    Object* object = static_cast<Object*>(programStackPopPointer(program));
++    sfallRemoveKnockbackMod(object, kind);
++}
++
++// get_viewport_x, get_viewport_y: the part of the world map in view.
++static void op_get_viewport_x(Program* program)
++{
++    int x;
++    int y;
++    wmGetWorldOffset(&x, &y);
++    programStackPushInteger(program, x);
++}
++
++static void op_get_viewport_y(Program* program)
++{
++    int x;
++    int y;
++    wmGetWorldOffset(&x, &y);
++    programStackPushInteger(program, y);
++}
++
++static void op_set_viewport_x(Program* program)
++{
++    int value = programStackPopInteger(program);
++    int x;
++    int y;
++    wmGetWorldOffset(&x, &y);
++    wmSetWorldOffset(value, y);
++}
++
++static void op_set_viewport_y(Program* program)
++{
++    int value = programStackPopInteger(program);
++    int x;
++    int y;
++    wmGetWorldOffset(&x, &y);
++    wmSetWorldOffset(x, value);
++}
++
++// remove_trait: the player's second trait, if any, takes the place of the first.
++static void op_remove_trait(Program* program)
++{
++    int trait = programStackPopInteger(program);
++    if (trait < 0) {
++        return;
++    }
++
++    Trait trait1;
++    Trait trait2;
++    traitsGetSelected(&trait1, &trait2);
++    if (trait == trait1) {
++        traitsSetSelected(trait2, TRAIT_INVALID);
++    } else if (trait == trait2) {
++        traitsSetSelected(trait1, TRAIT_INVALID);
++    }
++}
++
++static void op_apply_heaveho_fix(Program* program)
++{
++    sfallApplyHeaveHoFix();
++}
++
+ // Note: opcodes should pop arguments off the stack in reverse order
+ void sfallOpcodesInit()
+ {
+@@ -2813,11 +2901,17 @@ void sfallOpcodesInit()
+     interpreterRegisterOpcode(0x8194, op_toggle_active_hand);
+ 
+     // 0x8195 - void set_weapon_knockback(object weapon, int type, int/float value)
++    interpreterRegisterOpcode(0x8195, op_set_knockback<KnockbackModKind::Weapon>);
+     // 0x8196 - void set_target_knockback(object critter, int type, int/float value)
++    interpreterRegisterOpcode(0x8196, op_set_knockback<KnockbackModKind::Target>);
+     // 0x8197 - void set_attacker_knockback(object critter, int type, int/float value)
++    interpreterRegisterOpcode(0x8197, op_set_knockback<KnockbackModKind::Attacker>);
+     // 0x8198 - void remove_weapon_knockback(object weapon)
++    interpreterRegisterOpcode(0x8198, op_remove_knockback<KnockbackModKind::Weapon>);
+     // 0x8199 - void remove_target_knockback(object critter)
++    interpreterRegisterOpcode(0x8199, op_remove_knockback<KnockbackModKind::Target>);
+     // 0x819a - void remove_attacker_knockback(object critter)
++    interpreterRegisterOpcode(0x819a, op_remove_knockback<KnockbackModKind::Attacker>);
+ 
+     // 0x819d - void  set_sfall_global(string/int varname, int/float value)
+     interpreterRegisterOpcode(0x819D, op_set_sfall_global);
+@@ -2880,9 +2974,13 @@ void sfallOpcodesInit()
+     interpreterRegisterOpcode(0x8241, op_get_npc_level);
+ 
+     // 0x81a6 - int get_viewport_x()
++    interpreterRegisterOpcode(0x81a6, op_get_viewport_x);
+     // 0x81a7 - int get_viewport_y()
++    interpreterRegisterOpcode(0x81a7, op_get_viewport_y);
+     // 0x81a8 - void set_viewport_x(int view_x)
++    interpreterRegisterOpcode(0x81a8, op_set_viewport_x);
+     // 0x81a9 - void set_viewport_y(int view_y)
++    interpreterRegisterOpcode(0x81a9, op_set_viewport_y);
+ 
+     // 0x81ac - int   get_ini_setting(string setting)
+     interpreterRegisterOpcode(0x81AC, op_get_ini_setting);
+@@ -2919,9 +3017,11 @@ void sfallOpcodesInit()
+     // 0x81c4 - void clear_selectable_perks()
+     interpreterRegisterOpcode(0x81C4, op_clear_selectable_perks);
+     // 0x8225 - void remove_trait(Trait trait)
++    interpreterRegisterOpcode(0x8225, op_remove_trait);
+ 
+     // 0x81cb - void set_pyromaniac_mod(int bonus)
+     // 0x81cc - void apply_heaveho_fix()
++    interpreterRegisterOpcode(0x81cc, op_apply_heaveho_fix);
+     // 0x81cd - void set_swiftlearner_mod(int bonus)
+     // 0x81ce - void set_hp_per_level_mod(int mod)
+     interpreterRegisterOpcode(0x81CE, op_set_hp_per_level_mod);
+diff --git a/src/sfall_stat_mods.cc b/src/sfall_stat_mods.cc
+index 224c592..757875d 100644
+--- a/src/sfall_stat_mods.cc
++++ b/src/sfall_stat_mods.cc
+@@ -1,9 +1,12 @@
+ #include "sfall_stat_mods.h"
+ 
+ #include <algorithm>
++#include <cmath>
+ #include <vector>
+ 
+ #include "object.h"
++#include "perk.h"
++#include "scripts.h"
+ 
+ namespace fallout {
+ 
+@@ -15,6 +18,12 @@ struct HitChanceMod {
+     int mod;
+ };
+ 
++struct KnockbackMod {
++    int objectId;
++    int type;
++    double value;
++};
++
+ constexpr int kDefaultHitChanceMaximum = 95;
+ constexpr int kDefaultHpPerLevel = 2;
+ 
+@@ -24,6 +33,8 @@ static int gXpModPercent = 100;
+ static int gHpPerLevel = kDefaultHpPerLevel;
+ static HitChanceMod gBaseHitChanceMod = { -1, kDefaultHitChanceMaximum, 0 };
+ static std::vector<HitChanceMod> gCritterHitChanceMods;
++static std::vector<KnockbackMod> gKnockbackMods[3];
++static bool gHeaveHoFixApplied = false;
+ 
+ void sfallStatModsReset()
+ {
+@@ -31,6 +42,80 @@ void sfallStatModsReset()
+     gHpPerLevel = kDefaultHpPerLevel;
+     gBaseHitChanceMod = { -1, kDefaultHitChanceMaximum, 0 };
+     gCritterHitChanceMods.clear();
++    for (auto& mods : gKnockbackMods) {
++        mods.clear();
++    }
++}
++
++void sfallSetKnockbackMod(Object* object, KnockbackModKind kind, int type, float value)
++{
++    if (object == nullptr) {
++        return;
++    }
++
++    // As in sfall: by an id that stays the object's.
++    KnockbackMod mod = { scriptsSetUniqueObjectId(object), type, value };
++    auto& mods = gKnockbackMods[static_cast<int>(kind)];
++    for (KnockbackMod& entry : mods) {
++        if (entry.objectId == mod.objectId) {
++            entry = mod;
++            return;
++        }
++    }
++    mods.push_back(mod);
++}
++
++void sfallRemoveKnockbackMod(Object* object, KnockbackModKind kind)
++{
++    if (object == nullptr) {
++        return;
++    }
++
++    auto& mods = gKnockbackMods[static_cast<int>(kind)];
++    mods.erase(std::remove_if(mods.begin(), mods.end(), [object](const KnockbackMod& entry) {
++        return entry.objectId == object->id;
++    }),
++        mods.end());
++}
++
++static double applyKnockbackMods(KnockbackModKind kind, Object* object, double value)
++{
++    if (object == nullptr) {
++        return value;
++    }
++
++    for (const KnockbackMod& entry : gKnockbackMods[static_cast<int>(kind)]) {
++        if (entry.objectId == object->id) {
++            if (entry.type == 0) {
++                return entry.value;
++            }
++            if (entry.type == 1) {
++                return value * entry.value;
++            }
++            return value;
++        }
++    }
++    return value;
++}
++
++int sfallKnockbackDistance(int damage, int divisor, Object* weapon, Object* attacker, Object* target)
++{
++    double distance = static_cast<double>(damage) / divisor;
++    distance = applyKnockbackMods(KnockbackModKind::Weapon, weapon, distance);
++    distance = applyKnockbackMods(KnockbackModKind::Attacker, attacker, distance);
++    distance = applyKnockbackMods(KnockbackModKind::Target, target, distance);
++    return static_cast<int>(std::floor(distance));
++}
++
++void sfallApplyHeaveHoFix()
++{
++    gHeaveHoFixApplied = true;
++    perkSetProperty(PERK_HEAVE_HO, PerkProperty::Strength, 0);
++}
++
++bool sfallHeaveHoFixApplied()
++{
++    return gHeaveHoFixApplied;
+ }
+ 
+ void sfallSetXpMod(int percent)
+diff --git a/src/sfall_stat_mods.h b/src/sfall_stat_mods.h
+index f25848c..6d22a95 100644
+--- a/src/sfall_stat_mods.h
++++ b/src/sfall_stat_mods.h
+@@ -5,8 +5,9 @@
+ 
+ namespace fallout {
+ 
+-// What sfall's set_xp_mod, set_hp_per_level_mod and the hit chance mods
+-// change of the game's rules, until the game is reset.
++// What sfall's set_xp_mod, set_hp_per_level_mod, the hit chance mods and the
++// knockback mods change of the game's rules, until the game is reset; and
++// apply_heaveho_fix, until the game is closed.
+ 
+ void sfallStatModsReset();
+ 
+@@ -23,6 +24,25 @@ int sfallHpPerLevel();
+ void sfallSetHitChanceMod(Object* critter, int maximum, int mod);
+ int sfallApplyHitChanceMod(Object* attacker, int toHit);
+ 
++// Knockback, set for a weapon, for a critter knocked back or for one that
++// knocks back: to a value (type 0) or multiplied by it (type 1).
++enum class KnockbackModKind {
++    Weapon,
++    Target,
++    Attacker,
++};
++
++void sfallSetKnockbackMod(Object* object, KnockbackModKind kind, int type, float value);
++void sfallRemoveKnockbackMod(Object* object, KnockbackModKind kind);
++// How far a hit of `damage` knocks `target` back: damage / divisor, as
++// changed by the mods of the weapon, the attacker and the target, if any.
++int sfallKnockbackDistance(int damage, int divisor, Object* weapon, Object* attacker, Object* target);
++
++// sfall's apply_heaveho_fix: Heave Ho! adds 6 hexes per rank to the range of
++// a throw (capped by Strength as before) and asks for any Strength.
++void sfallApplyHeaveHoFix();
++bool sfallHeaveHoFixApplied();
++
+ } // namespace fallout
+ 
+ #endif /* FALLOUT_SFALL_STAT_MODS_H_ */
+diff --git a/src/worldmap.cc b/src/worldmap.cc
+index c515ce6..65b3a31 100644
+--- a/src/worldmap.cc
++++ b/src/worldmap.cc
+@@ -1664,6 +1664,19 @@ static void wmGenDataClampWorldPosToBounds()
+     wmGenData.worldPosY = std::clamp(wmGenData.worldPosY, 0, worldMaxY - 1);
+ }
+ 
++// SFALL: get_viewport_x/y and set_viewport_x/y: the part of the world map in view.
++void wmGetWorldOffset(int* xPtr, int* yPtr)
++{
++    *xPtr = wmWorldOffsetX;
++    *yPtr = wmWorldOffsetY;
++}
++
++void wmSetWorldOffset(int x, int y)
++{
++    wmWorldOffsetX = std::clamp(x, 0, std::max(wmGenData.viewportMaxX, 0));
++    wmWorldOffsetY = std::clamp(y, 0, std::max(wmGenData.viewportMaxY, 0));
++}
++
+ static void wmSetStartWorldView()
+ {
+     wmWorldOffsetX = 0;
+diff --git a/src/worldmap.h b/src/worldmap.h
+index cf2a979..fbf086b 100644
+--- a/src/worldmap.h
++++ b/src/worldmap.h
+@@ -406,6 +406,8 @@ bool wmStartWorldPosIsConfigured();
+ void wmSetPartyCurArea(City areaIdx);
+ void wmClearPartyWalking();
+ void wmSetPartyWorldPos(int x, int y);
++void wmGetWorldOffset(int* xPtr, int* yPtr);
++void wmSetWorldOffset(int x, int y);
+ void wmCarSetCurrentArea(City area);
+ void wmForceEncounter(Map map, EncounterFlag flags);
+ void wmSetScriptWorldMapMulti(float value);

@@ -1,0 +1,19 @@
+/*
+ * A hook script, found by its file name: counts the times it is run (once when
+ * the game starts, then at each change of game mode) in a virtual file kept in
+ * the save. See gl_overseer.ssl.
+ */
+procedure start;
+
+procedure start begin
+   variable id, count;
+   id := fs_find("overseer/hooks");
+   if (id == -1) then begin
+      id := fs_create("overseer/hooks", 4);
+      fs_resize(id, -1);
+   end
+   fs_seek(id, 0);
+   count := fs_read_int(id);
+   fs_seek(id, 0);
+   fs_write_int(id, count + 1);
+end

@@ -1,0 +1,213 @@
+Load sfall's hook scripts by their file name
+
+sfall runs scripts\hs_<hook>.int for its hook (hs_tohit.int for ToHit, and
+so on): Megamod, Olympus and Resurrection ship such scripts. CE only had
+hooks registered by global scripts, so these never ran.
+
+They are loaded and started before the global scripts, run as global scripts
+do, and run the start procedure for their hook; each is the first hook of its
+type, so it runs after those registered by global scripts, as in sfall.
+---
+diff --git a/src/sfall_global_scripts.cc b/src/sfall_global_scripts.cc
+index 2d7359c..354e023 100644
+--- a/src/sfall_global_scripts.cc
++++ b/src/sfall_global_scripts.cc
+@@ -12,6 +12,7 @@
+ #include "platform_compat.h"
+ #include "scripts.h"
+ #include "sfall_config.h"
++#include "sfall_script_hooks.h"
+ 
+ namespace fallout {
+ 
+@@ -114,8 +115,34 @@ void sfall_gl_scr_exit()
+     }
+ }
+ 
++// A hook script (hs_*.int) runs as a global script does, and also for its hook.
++static Program* sfall_gl_scr_load_hook_script(const char* path)
++{
++    Program* program = programCreateByPath(path);
++    if (program != nullptr) {
++        scriptDetachedContextRegister(program, DetachedScriptOwnerKind::GlobalScript);
++
++        GlobalScript scr;
++        scr.program = program;
++
++        for (ScriptProc action = SCRIPT_PROC_FIRST; action < SCRIPT_PROC_COUNT; action++) {
++            scr.procs[action] = programFindProcedure(program, gScriptProcNames[action]);
++        }
++
++        state->globalScripts.push_back(std::move(scr));
++    }
++    return program;
++}
++
+ void sfall_gl_scr_exec_start_proc()
+ {
++    // As in sfall: hook scripts are loaded and started before global scripts.
++    size_t firstHookScript = state->globalScripts.size();
++    scriptHooksLoadHookScripts(sfall_gl_scr_load_hook_script);
++    for (size_t index = firstHookScript; index < state->globalScripts.size(); index++) {
++        programInterpret(state->globalScripts[index].program, -1);
++    }
++
+     for (auto& path : state->paths) {
+         Program* program = programCreateByPath(path.c_str());
+         if (program != nullptr) {
+diff --git a/src/sfall_script_hooks.cc b/src/sfall_script_hooks.cc
+index 318eacc..7111f38 100644
+--- a/src/sfall_script_hooks.cc
++++ b/src/sfall_script_hooks.cc
+@@ -2,6 +2,7 @@
+ 
+ #include <algorithm>
+ #include <climits>
++#include <cstdio>
+ #include <cstring>
+ #include <memory>
+ #include <string>
+@@ -13,6 +14,7 @@
+ #include "game.h"
+ #include "interface.h"
+ #include "interpreter_extra.h"
++#include "platform_compat.h"
+ #include "queue.h"
+ #include "random.h"
+ #include "scripts.h"
+@@ -39,6 +41,57 @@ struct ScriptHook {
+ 
+ static std::vector<ScriptHook> scriptHooks[HOOK_COUNT];
+ 
++// Whether a hook has a hook script (hs_*.int). It is the first of its hooks
++// and so runs last, as in sfall.
++static bool hasHookScript[HOOK_COUNT];
++
++// The hook scripts sfall loads, by the hook each is for. One script may serve
++// more than one hook.
++static const struct {
++    HookType hookType;
++    const char* name;
++} kHookScripts[] = {
++    { HOOK_TOHIT, "hs_tohit" },
++    { HOOK_AFTERHITROLL, "hs_afterhitroll" },
++    { HOOK_CALCAPCOST, "hs_calcapcost" },
++    { HOOK_DEATHANIM2, "hs_deathanim2" },
++    { HOOK_COMBATDAMAGE, "hs_combatdamage" },
++    { HOOK_ONDEATH, "hs_ondeath" },
++    { HOOK_USEOBJON, "hs_useobjon" },
++    { HOOK_REMOVEINVENOBJ, "hs_removeinvenobj" },
++    { HOOK_BARTERPRICE, "hs_barterprice" },
++    { HOOK_MOVECOST, "hs_movecost" },
++    { HOOK_ITEMDAMAGE, "hs_itemdamage" },
++    { HOOK_AMMOCOST, "hs_ammocost" },
++    { HOOK_USEOBJ, "hs_useobj" },
++    { HOOK_KEYPRESS, "hs_keypress" },
++    { HOOK_MOUSECLICK, "hs_mouseclick" },
++    { HOOK_USESKILL, "hs_useskill" },
++    { HOOK_STEAL, "hs_steal" },
++    { HOOK_WITHINPERCEPTION, "hs_withinperception" },
++    { HOOK_INVENTORYMOVE, "hs_inventorymove" },
++    { HOOK_INVENWIELD, "hs_invenwield" },
++    { HOOK_ADJUSTFID, "hs_adjustfid" },
++    { HOOK_COMBATTURN, "hs_combatturn" },
++    { HOOK_CARTRAVEL, "hs_cartravel" },
++    { HOOK_SETGLOBALVAR, "hs_setglobalvar" },
++    { HOOK_RESTTIMER, "hs_resttimer" },
++    { HOOK_GAMEMODECHANGE, "hs_gamemodechange" },
++    { HOOK_USEANIMOBJ, "hs_useanimobj" },
++    { HOOK_EXPLOSIVETIMER, "hs_explosivetimer" },
++    { HOOK_DESCRIPTIONOBJ, "hs_descriptionobj" },
++    { HOOK_USESKILLON, "hs_useskillon" },
++    { HOOK_SNEAK, "hs_sneak" },
++    { HOOK_STDPROCEDURE, "hs_stdprocedure" },
++    { HOOK_STDPROCEDURE_END, "hs_stdprocedure" },
++    { HOOK_ENCOUNTER, "hs_encounter" },
++    { HOOK_ADJUSTRADS, "hs_adjustrads" },
++    { HOOK_ROLLCHECK, "hs_rollcheck" },
++    { HOOK_BESTWEAPON, "hs_bestweapon" },
++    { HOOK_CANUSEWEAPON, "hs_canuseweapon" },
++    { HOOK_BUILDSFXWEAPON, "hs_buildsfxweapon" },
++};
++
+ constexpr size_t MAX_HOOK_CALL_DEPTH = 8;
+ 
+ std::vector<ScriptHookCall*> ScriptHookCall::_callStack;
+@@ -207,11 +260,51 @@ bool scriptHooksRegister(Program* program, const HookType hookType, const int pr
+         return false; // unregister fail
+     }
+ 
+-    // Put new hooks to beginning, because we want to iterate them in reverse.
+-    hooksByType.emplace(hooksByType.begin(), ScriptHook { program, procedureIndex });
++    // Put new hooks to beginning, because we want to iterate them in reverse;
++    // after the hook script, which runs last.
++    hooksByType.emplace(hooksByType.begin() + (hasHookScript[hookType] ? 1 : 0), ScriptHook { program, procedureIndex });
+     return true; // register success
+ }
+ 
++void scriptHooksLoadHookScripts(Program* (*load)(const char* path))
++{
++    Program* loaded[HOOK_COUNT] = { nullptr };
++    for (size_t index = 0; index < sizeof(kHookScripts) / sizeof(kHookScripts[0]); index++) {
++        const HookType hookType = kHookScripts[index].hookType;
++
++        char path[COMPAT_MAX_PATH];
++        snprintf(path, sizeof(path), "scripts\\%s.int", kHookScripts[index].name);
++
++        // The program of a script that serves an earlier hook too.
++        Program* program = nullptr;
++        for (size_t earlier = 0; earlier < index; earlier++) {
++            if (strcmp(kHookScripts[earlier].name, kHookScripts[index].name) == 0) {
++                program = loaded[kHookScripts[earlier].hookType];
++                break;
++            }
++        }
++
++        int size;
++        if (program == nullptr && dbGetFileSize(path, &size) == 0) {
++            program = load(path);
++        }
++
++        if (program == nullptr) {
++            continue;
++        }
++
++        int start = programFindProcedure(program, "start");
++        if (start == -1) {
++            continue;
++        }
++
++        loaded[hookType] = program;
++        scriptHooks[hookType].emplace(scriptHooks[hookType].begin(), ScriptHook { program, start });
++        hasHookScript[hookType] = true;
++        debugPrint("Loaded hook script %s\n", path);
++    }
++}
++
+ /*
+ Runs before/after Fallout executes a standard procedure (handler) in any script
+ of any object. This hook will not be executed for `start`, `critter_p_proc`,
+@@ -251,6 +344,10 @@ static void scriptHooksClear()
+     for (auto& hooks : scriptHooks) {
+         hooks.clear();
+     }
++
++    for (auto& has : hasHookScript) {
++        has = false;
++    }
+ }
+ 
+ bool scriptHooksInit()
+diff --git a/src/sfall_script_hooks.h b/src/sfall_script_hooks.h
+index 74cc1fb..83a2403 100644
+--- a/src/sfall_script_hooks.h
++++ b/src/sfall_script_hooks.h
+@@ -345,6 +345,8 @@ enum class EncounterHookResult {
+ };
+ 
+ bool scriptHooksRegister(Program* program, HookType hookType, int procedureIndex);
++// Loads the hook scripts (scripts\hs_*.int) that there are, each with `load`, and makes each the first hook of its type.
++void scriptHooksLoadHookScripts(Program* (*load)(const char* path));
+ bool scriptHooks_StdProcedure(ScriptProc procedureNumber, Object* self, Object* source, Object* target, int fixedParam, bool after);
+ void scriptHooks_ItemDamage(Object* weapon, Object* critter, HitMode hitMode, bool isMeleeWeaponAttack, int* minDamagePtr, int* maxDamagePtr);
+ int scriptHooks_AmmoCost(Object* weapon, int rounds, int ammoCost, AmmoCostHookType hookType);

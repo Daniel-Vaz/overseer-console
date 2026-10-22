@@ -40,6 +40,11 @@ own **Operations manual** (entry 6 of the main directory) explains each of these
   engine.
 - **sfall's made-up traits and perks.** The Fallout 2 engine plays a mod's own traits and perks: on the character
   screen, offered in the perk box, and kept in saved games. Fallout Yesterday's hundred and more are made that way.
+- **sfall's hook scripts and virtual files.** Fallout 2's engine runs a mod's `hs_*.int` hook scripts and lets its
+  scripts make and change files the game then reads, kept in saved games where a script asks. It plays MP3 music
+  and sounds too, as Fallout Yesterday has some.
+- **sfall settings for Fallout.** Fallout's engine follows what a mod's `ddraw.ini` sets of sfall: Fallout Fixt's
+  fixes, its faster game, the middle mouse button, and Shift or HILITE lighting up what lies on the ground.
 - **A mod in its deck.** Put a mod in its game's deck and the deck plays it; switch back with one key.
 - **Components.** The parts a mod's load order switches on, as its installer would offer them, switched on and off
   any time.

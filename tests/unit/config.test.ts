@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { CLASSIC_SCREEN, buildConfigFiles, chooseScreen, highScreen, musicPath, wantsEngineData, wideScreen } from '../../src/lib/engine/config';
+import { CLASSIC_SCREEN, buildConfigFiles, chooseScreen, highScreen, musicPath, sfallLightsAtKey, wantsEngineData, wideScreen } from '../../src/lib/engine/config';
 import { registerMod, type GameId } from '../../src/lib/games';
 import { Ini } from '../../src/lib/ini';
 import type { Manifest } from '../../src/lib/storage/manifest';
@@ -52,6 +52,21 @@ describe('chooseScreen', () => {
     expect(chooseScreen('classic', window)).toEqual(CLASSIC_SCREEN);
     expect(chooseScreen('wide', window)).toEqual({ width: 854, height: 480 });
     expect(chooseScreen('high', window)).toEqual({ width: 1280, height: 720 });
+  });
+});
+
+describe('sfallLightsAtKey', () => {
+  it("is on where a mod's sfall settings light things up at the console's key", () => {
+    // As Fallout Fixt's ddraw.ini has it, comments and line ends included.
+    expect(sfallLightsAtKey('[Input]\r\n;A key (LShift) to press\r\nToggleItemHighlightsKey=42\r\n')).toBe(true);
+    expect(sfallLightsAtKey('[Input]\nToggleItemHighlightsKey=0x2A\n')).toBe(true);
+  });
+
+  it('is off for another key, none, or no settings', () => {
+    expect(sfallLightsAtKey('[Input]\nToggleItemHighlightsKey=54\n')).toBe(false);
+    expect(sfallLightsAtKey('[Input]\nToggleItemHighlightsKey=0\n')).toBe(false);
+    expect(sfallLightsAtKey('[Misc]\nDialogueFix=1\n')).toBe(false);
+    expect(sfallLightsAtKey(undefined)).toBe(false);
   });
 });
 

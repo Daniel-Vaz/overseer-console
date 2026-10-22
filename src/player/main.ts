@@ -817,6 +817,11 @@ async function main(): Promise<void> {
   }
 
   if (phase !== 'boot') return;
+  // A mod of Fallout may light things up of its own, through its sfall settings (Fallout Fixt).
+  if (engine.lightsOfItsOwn && !lights) {
+    lights = true;
+    touch.offer('lights', true);
+  }
   // For diagnostics from the browser console: overseerEngine.module.overseer.stats(), overseerEngine.reads(), overseerAudio(), overseerAutosave()
   Object.assign(window, { overseerEngine: engine, overseerAudio: audioBridgeStats, overseerAutosave: () => autosaver?.now() });
   phase = 'gate';

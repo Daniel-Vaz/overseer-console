@@ -217,7 +217,7 @@ export const KNOWN_MODS: Record<KnownModId, KnownMod> = {
     download: 'https://www.nexusmods.com/fallout2/mods/91',
     handOver: 'The folder its 7z unpacks to, as it is (the console opens zips only), or the folder it was installed in. The archives it takes from Fallout 2 are those of your Fallout 2 in deck B.',
     status: 'tested',
-    caveat: "Made for sfall 4 on the original engine: Hero Appearance (the look picked for your character), its few MP3 sounds, and what its scripts change in the original program itself (its footstep sounds among them) are not there.",
+    caveat: "Made for sfall 4 on the original engine: Hero Appearance (the look picked for your character) and what its scripts change in the original program itself (its footstep sounds among them) are not there.",
     picture: 'wide',
     names: /yesterday|fallouty|van ?buren/i,
     files: ['fallouty.cfg', 'foyesterday.ico'],
@@ -234,7 +234,7 @@ export const KNOWN_MODS: Record<KnownModId, KnownMod> = {
     download: 'https://www.moddb.com/mods/fallout-fixt/downloads',
     handOver: 'A Fallout folder Fixt was installed in, as a folder or a zip: its installer runs on a desktop only.',
     status: 'tested',
-    caveat: "What Fixt changes in the game's program itself does not come along: its files do.",
+    caveat: "What Fixt changes in the game's program itself does not come along: its files and its sfall settings do.",
     picture: 'classic',
     names: /fixt/i,
     // Its installer puts it in a folder of its own inside the Fallout folder, and writes a log there.

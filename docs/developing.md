@@ -114,6 +114,26 @@ binary, for profiling in the browser's developer tools. For a crash, add `-sASSE
 read or write then stops the engine with a stack trace (on the page's console) where the browser would crash the tab.
 (`SAFE_HEAP=1` also stops on unaligned reads, which the film player makes and WebAssembly allows.)
 
+### What a mod needs of sfall
+
+```sh
+npm run sfall-scan -- ~/games/mods/rpu ~/games/mods/nevada/FalloutNevadaEng   # folders or zips, as many as wanted
+```
+
+reads every compiled script of a mod (loose, in its archives, in zips) and its ddraw.ini, and lists what the engine it
+is played on lacks: opcodes and metarules, those it takes and does nothing with (memory access), hooks it never calls,
+hook scripts (`hs_*.int`), global scripts it will not find, and ddraw.ini settings it does not read. What each engine
+has is read from its patched source (the tree `patches.sh import` makes, else the one `build.sh` made), so the list
+follows the patches. Run it on the real mods after an engine change that adds any of these.
+
+`tests/sfall` holds the scripts game.spec.ts plays over the real Fallout 2 to check what the engine was given of
+sfall, compiled. After changing one, compile it again with [sslc](https://github.com/sfall-team/sslc), sfall's script
+compiler, which builds for Node in the Emscripten container (`emcmake cmake` and `cmake --build` in its folder):
+
+```sh
+cd tests/sfall && node /path/to/sslc/build/bin/compiler.mjs -q -l -O2 gl_overseer.ssl -o gl_overseer.int
+```
+
 ## Moving a mod to a newer release
 
 The mods the console installs itself, and the release of each, are listed in

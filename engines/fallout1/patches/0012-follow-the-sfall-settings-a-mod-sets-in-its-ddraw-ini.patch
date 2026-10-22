@@ -1,0 +1,750 @@
+Follow the sfall settings a mod sets in its ddraw.ini
+
+Mods made for the original engine with Crafty's sfall1 set its fixes and
+tweaks in ddraw.ini; Fallout Fixt turns on a dozen. This engine has no sfall
+of its own: what a mod's ddraw.ini sets is now read (a game without one
+plays as before; with one, what it leaves out is as sfall1 has it), and these
+are followed, as sfall1 does them:
+
+- DialogueFix: 0 does not leave a conversation.
+- RemoveCriticalTimelimits: critical successes and failures from the first day.
+- BonusHtHDamageFix: Bonus HtH Damage raises the least damage too, in the
+  inventory's figures as well.
+- PlayIdleAnimOnReload: the player stands at ease while reloading.
+- DodgyDoorsFix: only critters dodge a miss.
+- StackEmptyWeapons: empty weapons of a kind stack, whatever ammo they held.
+- FreeWeight: the weight the player can still carry, once the trader's table is
+  taken, above the player's table in barter (the loot screen shows weights
+  already).
+- DrugExploitFix: reading a book, picking a level's perk and spending skill
+  points go by primary stats without what drugs, withdrawal, radiation and the
+  perks of worn armour and held weapons add for now.
+- RemoveFriendlyFoe: the perk is not offered, and what it does is always on.
+---
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 30ff960..74388ea 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -153,6 +153,8 @@ target_sources(${EXECUTABLE_NAME} PUBLIC
+     "src/game/select.h"
+     "src/game/selfrun.cc"
+     "src/game/selfrun.h"
++    "src/game/sfall_config.cc"
++    "src/game/sfall_config.h"
+     "src/game/sfxcache.cc"
+     "src/game/sfxcache.h"
+     "src/game/sfxlist.cc"
+diff --git a/src/game/actions.cc b/src/game/actions.cc
+index 5804b17..322abfe 100644
+--- a/src/game/actions.cc
++++ b/src/game/actions.cc
+@@ -22,6 +22,7 @@
+ #include "game/proto.h"
+ #include "game/roll.h"
+ #include "game/scripts.h"
++#include "game/sfall_config.h"
+ #include "game/skill.h"
+ #include "game/stat.h"
+ #include "game/textobj.h"
+@@ -618,7 +619,10 @@ static int action_melee(Attack* attack, int anim)
+         register_object_play_sfx(attack->attacker, sfx_name_temp, v17);
+         show_damage(attack, anim, 0);
+     } else {
+-        if (attack->defender->data.critter.combat.results & 0x03) {
++        // SFALL: DodgyDoorsFix: only critters dodge, not the doors and
++        // things a miss is aimed at.
++        if ((attack->defender->data.critter.combat.results & 0x03)
++            || (sfall_settings.dodgyDoorsFix && FID_TYPE(attack->defender->fid) != OBJ_TYPE_CRITTER)) {
+             register_object_play_sfx(attack->attacker, sfx_name_temp, -1);
+             register_object_animate(attack->attacker, anim, 0);
+         } else {
+@@ -837,7 +841,8 @@ static int action_ranged(Attack* attack, int anim)
+             } else {
+                 if ((attack->attackerFlags & DAM_HIT) == 0) {
+                     Object* defender = attack->defender;
+-                    if ((defender->data.critter.combat.results & (DAM_KNOCKED_OUT | DAM_KNOCKED_DOWN)) == 0) {
++                    if ((defender->data.critter.combat.results & (DAM_KNOCKED_OUT | DAM_KNOCKED_DOWN)) == 0
++                        && (!sfall_settings.dodgyDoorsFix || FID_TYPE(defender->fid) == OBJ_TYPE_CRITTER)) {
+                         register_object_animate(defender, ANIM_DODGE_ANIM, actionFrame);
+                         l56 = true;
+                     }
+diff --git a/src/game/combat.cc b/src/game/combat.cc
+index fd6c2bf..4a1fd2b 100644
+--- a/src/game/combat.cc
++++ b/src/game/combat.cc
+@@ -26,6 +26,7 @@
+ #include "game/queue.h"
+ #include "game/roll.h"
+ #include "game/scripts.h"
++#include "game/sfall_config.h"
+ #include "game/skill.h"
+ #include "game/stat.h"
+ #include "game/tile.h"
+@@ -1802,7 +1803,8 @@ static void combat_begin_extra(Object* a1)
+ 
+     for (index = 0; index < list_total; index++) {
+         outline_type = OUTLINE_TYPE_HOSTILE;
+-        if (perk_level(PERK_FRIENDLY_FOE)) {
++        // SFALL: RemoveFriendlyFoe: what the perk does, without it.
++        if (sfall_settings.removeFriendlyFoe || perk_level(PERK_FRIENDLY_FOE)) {
+             if (combat_list[index]->data.critter.combat.team == obj_dude->data.critter.combat.team) {
+                 outline_type = OUTLINE_TYPE_FRIENDLY;
+             }
+@@ -4624,7 +4626,8 @@ void combat_outline_on()
+         for (index = 0; index < critters_length; index++) {
+             if (critters[index] != obj_dude && (critters[index]->data.critter.combat.results & DAM_DEAD) == 0) {
+                 outline_type = OUTLINE_TYPE_HOSTILE;
+-                if (perk_level(PERK_FRIENDLY_FOE)) {
++                // SFALL: RemoveFriendlyFoe: what the perk does, without it.
++                if (sfall_settings.removeFriendlyFoe || perk_level(PERK_FRIENDLY_FOE)) {
+                     if (critters[index]->data.critter.combat.team == obj_dude->data.critter.combat.team) {
+                         outline_type = OUTLINE_TYPE_FRIENDLY;
+                     }
+diff --git a/src/game/combatai.cc b/src/game/combatai.cc
+index 0428024..c6b2d9b 100644
+--- a/src/game/combatai.cc
++++ b/src/game/combatai.cc
+@@ -23,6 +23,7 @@
+ #include "game/proto.h"
+ #include "game/roll.h"
+ #include "game/scripts.h"
++#include "game/sfall_config.h"
+ #include "game/skill.h"
+ #include "game/stat.h"
+ #include "game/textobj.h"
+@@ -1356,7 +1357,8 @@ int combatai_switch_team(Object* critter, int team)
+         obj_remove_outline(critter, NULL);
+ 
+         outline_type = OUTLINE_TYPE_HOSTILE;
+-        if (perk_level(PERK_FRIENDLY_FOE)) {
++        // SFALL: RemoveFriendlyFoe: what the perk does, without it.
++        if (sfall_settings.removeFriendlyFoe || perk_level(PERK_FRIENDLY_FOE)) {
+             if (critter->data.critter.combat.team == obj_dude->data.critter.combat.team) {
+                 outline_type = OUTLINE_TYPE_FRIENDLY;
+             }
+diff --git a/src/game/editor.cc b/src/game/editor.cc
+index 82c8230..fd42949 100644
+--- a/src/game/editor.cc
++++ b/src/game/editor.cc
+@@ -4405,7 +4405,10 @@ static void SavePlayer()
+ 
+     if (!glblmode) {
+         for (int skill = 0; skill < SKILL_COUNT; skill++) {
++            // SFALL: DrugExploitFix (see stat_lasting_begin).
++            stat_lasting_begin();
+             skillsav[skill] = skill_level(obj_dude, skill);
++            stat_lasting_end();
+         }
+     }
+ }
+@@ -4805,7 +4808,11 @@ static void SliderBtn(int keyCode)
+             rc = 1;
+             if (keyCode == 521) {
+                 if (stat_pc_get(PC_STAT_UNSPENT_SKILL_POINTS) > 0) {
+-                    if (skill_inc_point(obj_dude, skill_cursor) == -3) {
++                    // SFALL: DrugExploitFix (see stat_lasting_begin).
++                    stat_lasting_begin();
++                    int incremented = skill_inc_point(obj_dude, skill_cursor);
++                    stat_lasting_end();
++                    if (incremented == -3) {
+                         gsound_play_sfx_file("iisxxxx1");
+ 
+                         snprintf(title, sizeof(title), "%s:", skill_name(skill_cursor));
+@@ -4825,6 +4832,8 @@ static void SliderBtn(int keyCode)
+                     rc = -1;
+                 }
+             } else if (keyCode == 523) {
++                // SFALL: DrugExploitFix (see stat_lasting_begin).
++                stat_lasting_begin();
+                 if (skill_level(obj_dude, skill_cursor) <= skillsav[skill_cursor]) {
+                     rc = 0;
+                 } else {
+@@ -4832,6 +4841,7 @@ static void SliderBtn(int keyCode)
+                         rc = 0;
+                     }
+                 }
++                stat_lasting_end();
+ 
+                 if (rc == 0) {
+                     gsound_play_sfx_file("iisxxxx1");
+@@ -5228,7 +5238,10 @@ static int UpdateLevel()
+         DrawFolder();
+         win_draw(edit_win);
+ 
++        // SFALL: DrugExploitFix (see stat_lasting_begin).
++        stat_lasting_begin();
+         int rc = perks_dialog();
++        stat_lasting_end();
+         if (rc == -1) {
+             debug_printf("\n *** Error running perks dialog! ***\n");
+             return -1;
+diff --git a/src/game/game.cc b/src/game/game.cc
+index c01b514..14b6c12 100644
+--- a/src/game/game.cc
++++ b/src/game/game.cc
+@@ -38,6 +38,7 @@
+ #include "game/roll.h"
+ #include "game/scripts.h"
+ #include "game/select.h"
++#include "game/sfall_config.h"
+ #include "game/skill.h"
+ #include "game/skilldex.h"
+ #include "game/stat.h"
+@@ -134,6 +135,9 @@ int game_init(const char* windowTitle, bool isMapper, int font, int flags, int a
+ 
+     gconfig_init(isMapper, argc, argv);
+ 
++    // SFALL: what a mod tells sfall in its ddraw.ini.
++    sfall_config_init();
++
+     game_in_mapper = isMapper;
+ 
+     if (game_init_databases() == -1) {
+diff --git a/src/game/gdialog.cc b/src/game/gdialog.cc
+index 4d5419b..e7ec404 100644
+--- a/src/game/gdialog.cc
++++ b/src/game/gdialog.cc
+@@ -23,6 +23,7 @@
+ #include "game/reaction.h"
+ #include "game/roll.h"
+ #include "game/scripts.h"
++#include "game/sfall_config.h"
+ #include "game/skill.h"
+ #include "game/stat.h"
+ #include "game/textobj.h"
+@@ -1372,6 +1373,12 @@ static int gDialogProcess()
+             } else if (keyCode >= 1300 && keyCode <= 1330) {
+                 gDialogProcessUnHighlight(keyCode - 1300);
+             } else if (keyCode >= 48 && keyCode <= 57) {
++                // SFALL: DialogueFix: 0 does not leave the conversation (it
++                // stood for an option past the last).
++                if (keyCode == 48 && sfall_settings.dialogueFix) {
++                    continue;
++                }
++
+                 int option = keyCode - 49;
+                 if (option < gdNumOptions) {
+                     pageCount = 0;
+diff --git a/src/game/intface.cc b/src/game/intface.cc
+index 9a726db..22ee5ce 100644
+--- a/src/game/intface.cc
++++ b/src/game/intface.cc
+@@ -22,6 +22,7 @@
+ #include "game/protinst.h"
+ #include "game/proto.h"
+ #include "game/proto_types.h"
++#include "game/sfall_config.h"
+ #include "game/skill.h"
+ #include "game/stat.h"
+ #include "game/tile.h"
+@@ -2184,6 +2185,15 @@ static int intface_item_reload()
+         return -1;
+     }
+ 
++    // SFALL: PlayIdleAnimOnReload: the player stands at ease as the weapon is
++    // reloaded.
++    if (sfall_settings.playIdleAnimOnReload) {
++        register_clear(obj_dude);
++        register_begin(ANIMATION_REQUEST_UNRESERVED);
++        register_object_animate(obj_dude, ANIM_STAND, -1);
++        register_end();
++    }
++
+     const char* sfx = gsnd_build_weapon_sfx_name(WEAPON_SOUND_EFFECT_READY, itemButtonItems[itemCurrentItem].item, HIT_MODE_RIGHT_WEAPON_PRIMARY, NULL);
+     gsound_play_sfx_file(sfx);
+ 
+diff --git a/src/game/inventry.cc b/src/game/inventry.cc
+index d5a116e..e7cf4a0 100644
+--- a/src/game/inventry.cc
++++ b/src/game/inventry.cc
+@@ -31,6 +31,7 @@
+ #include "game/reaction.h"
+ #include "game/roll.h"
+ #include "game/scripts.h"
++#include "game/sfall_config.h"
+ #include "game/skill.h"
+ #include "game/stat.h"
+ #include "game/tile.h"
+@@ -2671,7 +2672,12 @@ void display_stats()
+                 // TODO: Figure out why it uses STAT_MELEE_DAMAGE instead of
+                 // STAT_UNARMED_DAMAGE.
+                 int damage = stat_level(stack[0], STAT_MELEE_DAMAGE) + 2;
+-                snprintf(formattedText, sizeof(formattedText), "%s 1-%d", messageListItem.text, damage);
++                // SFALL: BonusHtHDamageFix, as the damage is worked out.
++                int leastDamage = 1;
++                if (sfall_settings.bonusHthDamageFix && stack[0] == obj_dude) {
++                    leastDamage += 2 * perk_level(PERK_BONUS_HTH_DAMAGE);
++                }
++                snprintf(formattedText, sizeof(formattedText), "%s %d-%d", messageListItem.text, leastDamage, damage);
+             }
+ 
+             text_to_buf(windowBuffer + offset, formattedText, 120, INVENTORY_WINDOW_WIDTH, colorTable[992]);
+@@ -2712,6 +2718,11 @@ void display_stats()
+         int meleeDamage;
+         if (attackType == ATTACK_TYPE_MELEE || attackType == ATTACK_TYPE_UNARMED) {
+             meleeDamage = stat_level(stack[0], STAT_MELEE_DAMAGE);
++
++            // SFALL: BonusHtHDamageFix, as the damage is worked out.
++            if (sfall_settings.bonusHthDamageFix && stack[0] == obj_dude) {
++                damageMin += 2 * perk_level(PERK_BONUS_HTH_DAMAGE);
++            }
+         } else {
+             meleeDamage = 0;
+         }
+@@ -4586,6 +4597,42 @@ static void display_table_inventories(int win, Object* a2, Object* a3, int a4)
+         win_draw_rect(i_wid, &rect);
+     }
+ 
++    // SFALL: FreeWeight: above the player's table, what more the player can
++    // carry once the trader's table is taken (red past that).
++    if (sfall_settings.freeWeight) {
++        const int top = 4;
++        const int bottom = INVENTORY_TRADE_INNER_LEFT_SCROLLER_Y;
++        const int left = INVENTORY_TRADE_INNER_LEFT_SCROLLER_X;
++
++        unsigned char* src = win_get_buf(win);
++        buf_to_buf(src + INVENTORY_TRADE_BACKGROUND_WINDOW_WIDTH * top + left + INVENTORY_TRADE_WINDOW_OFFSET,
++            INVENTORY_SLOT_WIDTH,
++            bottom - top,
++            INVENTORY_TRADE_BACKGROUND_WINDOW_WIDTH,
++            windowBuffer + INVENTORY_TRADE_WINDOW_WIDTH * top + left,
++            INVENTORY_TRADE_WINDOW_WIDTH);
++
++        Object* dude = stack[curr_stack];
++        int freeWeight = stat_level(dude, STAT_CARRY_WEIGHT) - item_total_weight(dude) - (btable != NULL ? item_total_weight(btable) : 0);
++        snprintf(formattedText, sizeof(formattedText), "%d", freeWeight);
++
++        int width = text_width(formattedText);
++        int x = left + 4 + INVENTORY_SLOT_WIDTH / 2 - width / 2;
++        int y = top + (bottom - top - text_height()) / 2;
++        text_to_buf(windowBuffer + INVENTORY_TRADE_WINDOW_WIDTH * y + x,
++            formattedText,
++            width,
++            INVENTORY_TRADE_WINDOW_WIDTH,
++            freeWeight < 0 ? colorTable[31744] : colorTable[992]);
++
++        Rect rect;
++        rect.ulx = left;
++        rect.uly = top;
++        rect.lrx = left + INVENTORY_SLOT_WIDTH;
++        rect.lry = bottom;
++        win_draw_rect(i_wid, &rect);
++    }
++
+     text_font(oldFont);
+ }
+ 
+diff --git a/src/game/item.cc b/src/game/item.cc
+index e4def91..d9b8297 100644
+--- a/src/game/item.cc
++++ b/src/game/item.cc
+@@ -20,6 +20,7 @@
+ #include "game/proto.h"
+ #include "game/queue.h"
+ #include "game/roll.h"
++#include "game/sfall_config.h"
+ #include "game/skill.h"
+ #include "game/stat.h"
+ #include "game/tile.h"
+@@ -534,6 +535,16 @@ static bool item_identical(Object* a1, Object* a2)
+         return false;
+     }
+ 
++    // SFALL: StackEmptyWeapons: empty weapons of a kind stack, whatever ammo
++    // they were last loaded with.
++    if (sfall_settings.stackEmptyWeapons
++        && proto->item.type == ITEM_TYPE_WEAPON
++        && a1->data.flags == a2->data.flags
++        && a1->data.item.weapon.ammoQuantity < 1
++        && a2->data.item.weapon.ammoQuantity < 1) {
++        return true;
++    }
++
+     int v1;
+     if (proto->item.type == ITEM_TYPE_AMMO || a1->pid == PROTO_ID_MONEY) {
+         v1 = a2->data.item.ammo.quantity;
+@@ -1070,10 +1081,20 @@ int item_w_damage(Object* critter, int hit_mode)
+         subtype = item_w_subtype(weapon, hit_mode);
+         if (subtype == ATTACK_TYPE_MELEE || subtype == ATTACK_TYPE_UNARMED) {
+             bonus_damage = stat_level(critter, STAT_MELEE_DAMAGE);
++
++            // SFALL: BonusHtHDamageFix: the perk's +2 per rank raises the
++            // least damage too, not only the most (through Melee Damage).
++            if (sfall_settings.bonusHthDamageFix && critter == obj_dude) {
++                min_damage += 2 * perk_level(PERK_BONUS_HTH_DAMAGE);
++            }
+         }
+     } else {
+         min_damage = 1;
+         max_damage = stat_level(critter, STAT_MELEE_DAMAGE) + 2;
++
++        if (sfall_settings.bonusHthDamageFix && critter == obj_dude) {
++            min_damage += 2 * perk_level(PERK_BONUS_HTH_DAMAGE);
++        }
+     }
+ 
+     return roll_random(min_damage, bonus_damage + max_damage);
+diff --git a/src/game/perk.cc b/src/game/perk.cc
+index 4bcab4d..739a1c7 100644
+--- a/src/game/perk.cc
++++ b/src/game/perk.cc
+@@ -7,6 +7,7 @@
+ #include "game/message.h"
+ #include "game/object.h"
+ #include "game/party.h"
++#include "game/sfall_config.h"
+ #include "game/skill.h"
+ #include "game/stat.h"
+ #include "platform_compat.h"
+@@ -193,6 +194,11 @@ static bool perk_can_add(int perk)
+         return false;
+     }
+ 
++    // SFALL: RemoveFriendlyFoe: never offered, since everyone has what it does.
++    if (perk == PERK_FRIENDLY_FOE && sfall_settings.removeFriendlyFoe) {
++        return false;
++    }
++
+     perkDescription = &(perk_data[perk]);
+ 
+     if (perkDescription->max_rank == -1) {
+@@ -331,6 +337,27 @@ void perk_add_effect(Object* critter, int perk)
+     }
+ }
+ 
++// What `perk_add_effect` adds to a stat.
++int perk_stat_modifier(int perk, int stat)
++{
++    if (perk < 0 || perk >= PERK_COUNT) {
++        return 0;
++    }
++
++    PerkDescription* perkDescription = &(perk_data[perk]);
++
++    int modifier = 0;
++    if (perkDescription->stat == stat) {
++        modifier += perkDescription->stat_modifier;
++    }
++
++    if (perkDescription->max_rank == -1 && stat >= 0 && stat < PRIMARY_STAT_COUNT) {
++        modifier += perkDescription->required_stat_levels[stat];
++    }
++
++    return modifier;
++}
++
+ // 0x4960x486914CE0
+ void perk_remove_effect(Object* critter, int perk)
+ {
+diff --git a/src/game/perk.h b/src/game/perk.h
+index 73f122c..de3f355 100644
+--- a/src/game/perk.h
++++ b/src/game/perk.h
+@@ -16,6 +16,7 @@ int perk_add(int perk);
+ int perk_sub(int perk);
+ int perk_make_list(int* perks);
+ int perk_level(int perk);
++int perk_stat_modifier(int perk, int stat);
+ char* perk_name(int perk);
+ char* perk_description(int perk);
+ void perk_add_effect(Object* critter, int perk);
+diff --git a/src/game/protinst.cc b/src/game/protinst.cc
+index 6737e4b..e2265e9 100644
+--- a/src/game/protinst.cc
++++ b/src/game/protinst.cc
+@@ -846,7 +846,10 @@ int protinst_use_item(Object* critter, Object* item)
+         break;
+     case ITEM_TYPE_WEAPON:
+     case ITEM_TYPE_MISC:
++        // SFALL: DrugExploitFix (see stat_lasting_begin).
++        stat_lasting_begin();
+         rc = obj_use_book(item);
++        stat_lasting_end();
+         if (rc != -1) {
+             break;
+         }
+diff --git a/src/game/queue.cc b/src/game/queue.cc
+index 88403a2..eadfc05 100644
+--- a/src/game/queue.cc
++++ b/src/game/queue.cc
+@@ -493,4 +493,14 @@ void queue_leaving_map()
+     }
+ }
+ 
++// Calls `fn` with the type and data of every event queued for `owner`.
++void queue_for_each(Object* owner, void (*fn)(int eventType, void* data, void* context), void* context)
++{
++    for (QueueListNode* node = queue; node != NULL; node = node->next) {
++        if (node->owner == owner) {
++            fn(node->type, node->data, context);
++        }
++    }
++}
++
+ } // namespace fallout
+diff --git a/src/game/queue.h b/src/game/queue.h
+index 702b2c3..6545ba5 100644
+--- a/src/game/queue.h
++++ b/src/game/queue.h
+@@ -79,6 +79,7 @@ void queue_clear();
+ void queue_clear_type(int eventType, QueueEventHandler* fn);
+ int queue_next_time();
+ void queue_leaving_map();
++void queue_for_each(Object* owner, void (*fn)(int eventType, void* data, void* context), void* context);
+ 
+ } // namespace fallout
+ 
+diff --git a/src/game/roll.cc b/src/game/roll.cc
+index 4fc4048..8e9d088 100644
+--- a/src/game/roll.cc
++++ b/src/game/roll.cc
+@@ -6,6 +6,7 @@
+ #include <random>
+ 
+ #include "game/scripts.h"
++#include "game/sfall_config.h"
+ #include "platform_compat.h"
+ #include "plib/gnw/debug.h"
+ 
+@@ -87,7 +88,8 @@ int roll_check_critical(int delta, int criticalSuccessModifier)
+     if (delta < 0) {
+         roll = ROLL_FAILURE;
+ 
+-        if ((gameTime / GAME_TIME_TICKS_PER_DAY) >= 1) {
++        // SFALL: RemoveCriticalTimelimits: from the first day on.
++        if (sfall_settings.removeCriticalTimeLimits || (gameTime / GAME_TIME_TICKS_PER_DAY) >= 1) {
+             // 10% to become critical failure.
+             if (roll_random(1, 100) <= -delta / 10) {
+                 roll = ROLL_CRITICAL_FAILURE;
+@@ -96,7 +98,7 @@ int roll_check_critical(int delta, int criticalSuccessModifier)
+     } else {
+         roll = ROLL_SUCCESS;
+ 
+-        if ((gameTime / GAME_TIME_TICKS_PER_DAY) >= 1) {
++        if (sfall_settings.removeCriticalTimeLimits || (gameTime / GAME_TIME_TICKS_PER_DAY) >= 1) {
+             // 10% + modifier to become critical success.
+             if (roll_random(1, 100) <= delta / 10 + criticalSuccessModifier) {
+                 roll = ROLL_CRITICAL_SUCCESS;
+diff --git a/src/game/sfall_config.cc b/src/game/sfall_config.cc
+new file mode 100644
+index 0000000..bfe8420
+--- /dev/null
++++ b/src/game/sfall_config.cc
+@@ -0,0 +1,55 @@
++#include "game/sfall_config.h"
++
++#include <stdio.h>
++#include <stdlib.h>
++
++#include "game/config.h"
++#include "platform_compat.h"
++
++namespace fallout {
++
++SfallSettings sfall_settings;
++
++// A number as sfall reads one: decimal, or hexadecimal after 0x.
++static int sfall_config_int(Config* config, const char* section, const char* key, int defaultValue)
++{
++    char* string;
++    if (!config_get_string(config, section, key, &string)) {
++        return defaultValue;
++    }
++    return static_cast<int>(strtol(string, NULL, 0));
++}
++
++void sfall_config_init()
++{
++    sfall_settings = SfallSettings();
++
++    // (config_load says it read a file that is not there.)
++    FILE* stream = compat_fopen("ddraw.ini", "rt");
++    if (stream == NULL) {
++        return;
++    }
++    fclose(stream);
++
++    Config config;
++    if (!config_init(&config)) {
++        return;
++    }
++
++    if (config_load(&config, "ddraw.ini", false)) {
++        // As sfall1 has them when they are left out.
++        sfall_settings.dialogueFix = sfall_config_int(&config, "Misc", "DialogueFix", 1) != 0;
++        sfall_settings.removeCriticalTimeLimits = sfall_config_int(&config, "Misc", "RemoveCriticalTimelimits", 0) != 0;
++        sfall_settings.bonusHthDamageFix = sfall_config_int(&config, "Misc", "BonusHtHDamageFix", 1) != 0;
++        sfall_settings.playIdleAnimOnReload = sfall_config_int(&config, "Misc", "PlayIdleAnimOnReload", 0) != 0;
++        sfall_settings.dodgyDoorsFix = sfall_config_int(&config, "Misc", "DodgyDoorsFix", 0) != 0;
++        sfall_settings.stackEmptyWeapons = sfall_config_int(&config, "Misc", "StackEmptyWeapons", 0) != 0;
++        sfall_settings.freeWeight = sfall_config_int(&config, "Misc", "FreeWeight", 0) != 0;
++        sfall_settings.drugExploitFix = sfall_config_int(&config, "Misc", "DrugExploitFix", 0) != 0;
++        sfall_settings.removeFriendlyFoe = sfall_config_int(&config, "Misc", "RemoveFriendlyFoe", 0) != 0;
++    }
++
++    config_exit(&config);
++}
++
++} // namespace fallout
+diff --git a/src/game/sfall_config.h b/src/game/sfall_config.h
+new file mode 100644
+index 0000000..4bc4762
+--- /dev/null
++++ b/src/game/sfall_config.h
+@@ -0,0 +1,30 @@
++#ifndef FALLOUT_GAME_SFALL_CONFIG_H_
++#define FALLOUT_GAME_SFALL_CONFIG_H_
++
++namespace fallout {
++
++// What sfall, the extension of the original engine (Crafty's sfall1 for
++// Fallout), is told in a mod's ddraw.ini, as far as this engine follows it:
++// Fallout Fixt sets these. A game without a ddraw.ini plays as it always has;
++// with one, what it leaves out is as sfall1 has it.
++typedef struct SfallSettings {
++    // [Misc]
++    bool dialogueFix;
++    bool removeCriticalTimeLimits;
++    bool bonusHthDamageFix;
++    bool playIdleAnimOnReload;
++    bool dodgyDoorsFix;
++    bool stackEmptyWeapons;
++    bool freeWeight;
++    bool drugExploitFix;
++    bool removeFriendlyFoe;
++} SfallSettings;
++
++extern SfallSettings sfall_settings;
++
++// Reads ddraw.ini beside the game, if there is one.
++void sfall_config_init();
++
++} // namespace fallout
++
++#endif /* FALLOUT_GAME_SFALL_CONFIG_H_ */
+diff --git a/src/game/stat.cc b/src/game/stat.cc
+index 0e6e083..2ab007f 100644
+--- a/src/game/stat.cc
++++ b/src/game/stat.cc
+@@ -11,13 +11,16 @@
+ #include "game/game.h"
+ #include "game/gsound.h"
+ #include "game/intface.h"
++#include "game/inventry.h"
+ #include "game/item.h"
+ #include "game/message.h"
+ #include "game/object.h"
+ #include "game/perk.h"
+ #include "game/proto.h"
++#include "game/queue.h"
+ #include "game/roll.h"
+ #include "game/scripts.h"
++#include "game/sfall_config.h"
+ #include "game/skill.h"
+ #include "game/tile.h"
+ #include "game/trait.h"
+@@ -183,12 +186,90 @@ int stat_save(DB_FILE* stream)
+ }
+ 
+ // 0x49C4C8
++// SFALL: DrugExploitFix: how many of the places that ask for lasting stats
++// (see stat_lasting_begin) are under way.
++static int stat_lasting = 0;
++
++// SFALL: DrugExploitFix: while a skill book is read, a level's perk is picked
++// or skill points are spent, primary stats leave out what drugs, withdrawal,
++// radiation and the perks of worn armour and held weapons add only for now.
++void stat_lasting_begin()
++{
++    stat_lasting++;
++}
++
++void stat_lasting_end()
++{
++    stat_lasting--;
++}
++
++typedef struct LastingBonus {
++    int stat;
++    int bonus;
++} LastingBonus;
++
++static void stat_lasting_leave_out_event(int eventType, void* data, void* context)
++{
++    LastingBonus* lasting = (LastingBonus*)context;
++    switch (eventType) {
++    case EVENT_TYPE_DRUG: {
++        // What is still to come of a drug undoes what it does now. A stat
++        // chosen at random (-2) is passed over, as sfall does.
++        DrugEffectEvent* drug = (DrugEffectEvent*)data;
++        for (int index = drug->stats[0] == -2 ? 2 : 0; index < 3; index++) {
++            if (drug->stats[index] == lasting->stat) {
++                lasting->bonus += drug->modifiers[index];
++            }
++        }
++        break;
++    }
++    case EVENT_TYPE_WITHDRAWAL: {
++        WithdrawalEvent* withdrawal = (WithdrawalEvent*)data;
++        if (withdrawal->field_0 != 1) {
++            lasting->bonus -= perk_stat_modifier(withdrawal->perk, lasting->stat);
++        }
++        break;
++    }
++    case EVENT_TYPE_RADIATION: {
++        RadiationEvent* radiation = (RadiationEvent*)data;
++        if (lasting->stat != STAT_LUCK && radiation->radiationLevel >= 1 && radiation->radiationLevel <= RADIATION_LEVEL_COUNT) {
++            lasting->bonus -= rad_bonus[radiation->radiationLevel - 1][lasting->stat];
++        }
++        break;
++    }
++    }
++}
++
++static int stat_get_lasting_bonus(Object* critter, int stat)
++{
++    LastingBonus lasting = { stat, stat_get_bonus(critter, stat) };
++
++    Object* armor = inven_worn(critter);
++    if (armor != NULL) {
++        lasting.bonus -= perk_stat_modifier(item_ar_perk(armor), stat);
++    }
++
++    Object* hands[2] = { inven_right_hand(critter), inven_left_hand(critter) };
++    for (Object* item : hands) {
++        if (item != NULL && item_get_type(item) == ITEM_TYPE_WEAPON) {
++            lasting.bonus -= perk_stat_modifier(item_w_perk(item), stat);
++        }
++    }
++
++    queue_for_each(critter, stat_lasting_leave_out_event, &lasting);
++    return lasting.bonus;
++}
++
+ int stat_level(Object* critter, int stat)
+ {
+     int value;
+     if (stat >= 0 && stat < SAVEABLE_STAT_COUNT) {
+         value = stat_get_base(critter, stat);
+-        value += stat_get_bonus(critter, stat);
++        if (stat_lasting > 0 && sfall_settings.drugExploitFix && stat <= STAT_LUCK) {
++            value += stat_get_lasting_bonus(critter, stat);
++        } else {
++            value += stat_get_bonus(critter, stat);
++        }
+ 
+         switch (stat) {
+         case STAT_PERCEPTION:
+diff --git a/src/game/stat.h b/src/game/stat.h
+index 36c4f19..440c267 100644
+--- a/src/game/stat.h
++++ b/src/game/stat.h
+@@ -19,6 +19,8 @@ int stat_level(Object* critter, int stat);
+ int stat_get_base(Object* critter, int stat);
+ int stat_get_base_direct(Object* critter, int stat);
+ int stat_get_bonus(Object* critter, int stat);
++void stat_lasting_begin();
++void stat_lasting_end();
+ int stat_set_base(Object* critter, int stat, int value);
+ int inc_stat(Object* critter, int stat);
+ int dec_stat(Object* critter, int stat);

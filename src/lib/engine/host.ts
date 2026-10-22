@@ -16,7 +16,7 @@ import { StorageUnavailableError, loadInstall, openBlob, openInstalled, type Ins
 export { StorageUnavailableError };
 import { commitWithHistory } from '../storage/history';
 import { listOverlay, type OverlayEntry } from '../storage/overlay';
-import { HIGHLIGHT_KEY, HIGHLIGHTING_FILE, buildConfigFiles, chooseScreen, settingsFileOf, wantsEngineData, type ScreenSize } from './config';
+import { HIGHLIGHT_KEY, HIGHLIGHTING_FILE, buildConfigFiles, chooseScreen, settingsFileOf, sfallLightsAtKey, wantsEngineData, type ScreenSize } from './config';
 import type { EngineFactory, EngineInfo, EngineModule, PersistBatch, QuickKind, QuickOutcome, ScreenRect } from './types';
 
 const GAME_ROOT = '/game';
@@ -97,6 +97,8 @@ export interface Engine {
   requestSave(slot: number): Promise<boolean>;
   /** Lights up what lies on the ground, as holding the key for it does, until switched off. */
   setLights(on: boolean): void;
+  /** Whether the game's own settings have the engine light up what lies on the ground (a mod of Fallout's, see `sfallLightsAtKey`). */
+  lightsOfItsOwn: boolean;
   audioContext(): AudioContext | undefined;
   /** The large files the engine has read from so far, by the path it reads them at. */
   reads(): Record<string, FileReads>;
@@ -313,7 +315,8 @@ export async function bootEngine(
   const overlay = await listOverlay(game);
   // The settings file the engine will read, which a mod's sfall settings may name otherwise than the game does.
   const ddraw = await openMounted(installed, mounted, 'ddraw.ini');
-  const configFile = settingsFileOf(game, ddraw ? await ddraw.text() : undefined);
+  const ddrawText = ddraw ? await ddraw.text() : undefined;
+  const configFile = settingsFileOf(game, ddrawText);
   const savedConfig = overlay.find((entry) => entry.key === pathKey(configFile) && !entry.deleted && entry.data);
   // What the game brought for the engine's own scripts: its key for lighting
   // things up is replaced with the console's, the rest of it stands.
@@ -356,6 +359,7 @@ export async function bootEngine(
     scrollListAt: (x, y) => ov.scrollListAt(x, y),
     requestSave: (slot) => ov.requestSave(slot),
     setLights: (on) => ov.holdScriptKey(HIGHLIGHT_KEY, on),
+    lightsOfItsOwn: def.engine.id === 'fo1' && sfallLightsAtKey(ddrawText),
     audioContext: () => module.SDL2?.audioContext,
     reads: () => Object.fromEntries([...reads].map(([path, read]) => [path, { ...read }])),
   };

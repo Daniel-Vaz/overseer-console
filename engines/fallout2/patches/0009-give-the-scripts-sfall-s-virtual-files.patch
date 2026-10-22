@@ -1,0 +1,990 @@
+Give the scripts sfall's virtual files
+
+CE had fs_copy, fs_find and fs_delete only, as path aliases: a script could
+not change what it copied. The Restoration Project copies critters' art and
+rewrites its frame rate (gl_k_walking_speed, gl_k_goris_derobing) with
+fs_seek, fs_read_short and fs_write_short.
+
+The files now hold their bytes, as in sfall: fs_create, fs_copy, the reads and
+writes of bytes, shorts, ints, floats and strings (high byte first), fs_size,
+fs_pos, fs_seek and fs_resize. The engine reads a virtual file wherever it
+opens the game file of its name (sound effects aside, as before), through a
+read-only stream of a copy of its bytes. Files a script asks to keep
+(fs_resize(id, -1)) go in sfallfs.sav, in sfall's layout; a slot saved with
+none has none.
+---
+diff --git a/src/db.cc b/src/db.cc
+index 478dd3d..d9b4865 100644
+--- a/src/db.cc
++++ b/src/db.cc
+@@ -38,7 +38,7 @@ static int gFileReadProgressChunkSize;
+ // 0x673044 db_file_lists
+ static FileList* gFileListHead;
+ 
+-static File* fileOpenImpl(const char* filename, const char* mode, bool useAliases);
++static File* fileOpenImpl(const char* filename, const char* mode, bool useVirtualFiles);
+ 
+ // Opens file database.
+ //
+@@ -147,7 +147,7 @@ File* fileOpen(const char* filename, const char* mode)
+     return fileOpenImpl(filename, mode, true);
+ }
+ 
+-static File* fileOpenImpl(const char* filename, const char* mode, bool useAliases)
++static File* fileOpenImpl(const char* filename, const char* mode, bool useVirtualFiles)
+ {
+     bool readOnly = mode != nullptr
+         && strchr(mode, 'r') != nullptr
+@@ -155,13 +155,11 @@ static File* fileOpenImpl(const char* filename, const char* mode, bool useAliase
+         && strchr(mode, 'a') == nullptr
+         && strchr(mode, '+') == nullptr;
+ 
+-    if (useAliases && readOnly) {
+-        char resolvedPath[COMPAT_MAX_PATH];
+-        if (sfallFileSystemResolveAlias(filename, resolvedPath, sizeof(resolvedPath))) {
+-            File* stream = fileOpenImpl(resolvedPath, mode, false);
+-            if (stream != nullptr) {
+-                return stream;
+-            }
++    // SFALL: a script's virtual file stands in for the game file of its name.
++    if (useVirtualFiles && readOnly) {
++        File* stream = sfallFileSystemOpen(filename);
++        if (stream != nullptr) {
++            return stream;
+         }
+     }
+ 
+diff --git a/src/loadsave.cc b/src/loadsave.cc
+index 5be2d0a..d53b050 100644
+--- a/src/loadsave.cc
++++ b/src/loadsave.cc
+@@ -52,6 +52,7 @@
+ #include "settings.h"
+ #include "sfall_callbacks.h"
+ #include "sfall_ext.h"
++#include "sfall_filesystem.h"
+ #include "sfall_global_scripts.h"
+ #include "sfall_global_vars.h"
+ #include "skill.h"
+@@ -2119,6 +2120,24 @@ static int lsgPerformSaveGame()
+         }
+     }
+ 
++    // SFALL: Save sfallfs.sav, the virtual files scripts asked to keep; none
++    // left from an earlier save in this slot when there are none.
++    snprintf(_gmpath, sizeof(_gmpath), "%s\\%s%.2d\\%s", "SAVEGAME", "SLOT", _slot_cursor + 1, "sfallfs.sav");
++    if (sfallFileSystemHasSaved()) {
++        _flptr = fileOpen(_gmpath, "wb");
++        if (_flptr != nullptr) {
++            bool saved = sfallFileSystemSave(_flptr);
++            fileClose(_flptr);
++            if (!saved) {
++                return -1;
++            }
++        }
++    } else {
++        char fsSavePath[COMPAT_MAX_PATH];
++        snprintf(fsSavePath, sizeof(fsSavePath), "%s\\%s", _patches, _gmpath);
++        compat_remove(fsSavePath);
++    }
++
+     char ceSavePath[COMPAT_MAX_PATH];
+     snprintf(ceSavePath, sizeof(ceSavePath), "%s\\SAVEGAME\\SLOT%.2d\\ce.sav", _patches, _slot_cursor + 1);
+     if (!ceSaveGameData(ceSavePath)) {
+@@ -2237,6 +2256,17 @@ static int lsgLoadGameInSlot(int slot)
+         }
+     }
+ 
++    // SFALL: Load sfallfs.sav.
++    snprintf(_gmpath, sizeof(_gmpath), "%s\\%s%.2d\\%s", "SAVEGAME", "SLOT", _slot_cursor + 1, "sfallfs.sav");
++    _flptr = fileOpen(_gmpath, "rb");
++    if (_flptr != nullptr) {
++        bool loaded = sfallFileSystemLoad(_flptr);
++        fileClose(_flptr);
++        if (!loaded) {
++            return -1;
++        }
++    }
++
+     char ceSavePath[COMPAT_MAX_PATH];
+     snprintf(ceSavePath, sizeof(ceSavePath), "%s\\SAVEGAME\\SLOT%.2d\\ce.sav", _patches, _slot_cursor + 1);
+     ceLoadGameData(ceSavePath);
+diff --git a/src/sfall_filesystem.cc b/src/sfall_filesystem.cc
+index d1c349f..edbf165 100644
+--- a/src/sfall_filesystem.cc
++++ b/src/sfall_filesystem.cc
+@@ -8,18 +8,29 @@
+ 
+ #include "art.h"
+ #include "db.h"
++#include "debug.h"
+ #include "platform_compat.h"
+ 
+ namespace fallout {
+ 
+-typedef struct SfallFileSystemAlias {
+-    bool active;
+-    std::string path;
+-    std::string source;
+-    std::string normalizedPath;
+-} SfallFileSystemAlias;
++// sfall's limit on a virtual file.
++static constexpr int kMaxFileSize = 0xA00000;
+ 
+-static std::vector<SfallFileSystemAlias> aliases;
++// The length of a name in sfallfs.sav.
++static constexpr int kSavedNameLength = 128;
++
++typedef struct SfallFile {
++    bool active = false;
++    std::string name;
++    std::string normalizedName;
++    std::vector<unsigned char> data;
++    // Where fs_read_* and fs_write_* read and write next.
++    int pos = 0;
++    // Kept in the save (fs_resize(id, -1)).
++    bool saved = false;
++} SfallFile;
++
++static std::vector<SfallFile> files;
+ 
+ static std::string normalizePath(const char* path)
+ {
+@@ -34,20 +45,46 @@ static std::string normalizePath(const char* path)
+     return normalized;
+ }
+ 
+-static bool isSoundEffectsPath(const std::string& normalizedPath)
++static SfallFile* fileOf(int id)
++{
++    if (id < 0 || id >= static_cast<int>(files.size()) || !files[id].active) {
++        return nullptr;
++    }
++    return &files[id];
++}
++
++// A file made of `data`, in the first free place. Returns its id.
++static int addFile(const char* path, std::vector<unsigned char>&& data)
+ {
+-    return normalizedPath.rfind("sound\\sfx\\", 0) == 0;
++    SfallFile file;
++    file.active = true;
++    file.name = path;
++    file.normalizedName = normalizePath(path);
++    file.data = std::move(data);
++
++    // The engine may already hold art read from the file this one stands for.
++    artCacheFlush();
++
++    for (size_t index = 0; index < files.size(); index++) {
++        if (!files[index].active) {
++            files[index] = std::move(file);
++            return static_cast<int>(index);
++        }
++    }
++
++    files.push_back(std::move(file));
++    return static_cast<int>(files.size() - 1);
+ }
+ 
+-static int findAliasIndex(const char* path)
++int sfallFileSystemFind(const char* path)
+ {
+     if (path == nullptr || path[0] == '\0') {
+         return -1;
+     }
+ 
+     std::string normalized = normalizePath(path);
+-    for (size_t index = 0; index < aliases.size(); index++) {
+-        if (aliases[index].active && aliases[index].normalizedPath == normalized) {
++    for (size_t index = 0; index < files.size(); index++) {
++        if (files[index].active && files[index].normalizedName == normalized) {
+             return static_cast<int>(index);
+         }
+     }
+@@ -55,87 +92,300 @@ static int findAliasIndex(const char* path)
+     return -1;
+ }
+ 
++int sfallFileSystemCreate(const char* path, int size)
++{
++    if (path == nullptr || path[0] == '\0' || size < 0 || size > kMaxFileSize) {
++        return -1;
++    }
++
++    return addFile(path, std::vector<unsigned char>(size));
++}
++
+ int sfallFileSystemCopy(const char* path, const char* source)
+ {
+     if (path == nullptr || path[0] == '\0' || source == nullptr || source[0] == '\0') {
+         return -1;
+     }
+ 
+-    int existingIndex = findAliasIndex(path);
+-    if (existingIndex != -1) {
+-        return existingIndex;
++    int existing = sfallFileSystemFind(path);
++    if (existing != -1) {
++        return existing;
+     }
+ 
+-    int fileSize = 0;
+-    if (dbGetFileSize(source, &fileSize) != 0) {
++    // The source as the engine sees it: another virtual file, if there is one.
++    File* stream = fileOpen(source, "rb");
++    if (stream == nullptr) {
+         return -1;
+     }
+ 
+-    SfallFileSystemAlias alias;
+-    alias.active = true;
+-    alias.path = path;
+-    alias.source = normalizePath(source);
+-    alias.normalizedPath = normalizePath(path);
++    long size = fileGetSize(stream);
++    std::vector<unsigned char> data(size > 0 ? size : 0);
++    size_t read = data.empty() ? 0 : fileRead(data.data(), 1, data.size(), stream);
++    fileClose(stream);
++    if (read != data.size()) {
++        return -1;
++    }
+ 
+-    for (size_t index = 0; index < aliases.size(); index++) {
+-        if (!aliases[index].active) {
+-            aliases[index] = alias;
+-            artCacheFlush();
+-            return static_cast<int>(index);
+-        }
++    return addFile(path, std::move(data));
++}
++
++void sfallFileSystemDelete(int id)
++{
++    SfallFile* file = fileOf(id);
++    if (file == nullptr) {
++        return;
+     }
+ 
+-    aliases.push_back(alias);
++    *file = SfallFile();
+     artCacheFlush();
+-    return static_cast<int>(aliases.size() - 1);
+ }
+ 
+-int sfallFileSystemFind(const char* path)
++int sfallFileSystemSize(int id)
+ {
+-    return findAliasIndex(path);
++    SfallFile* file = fileOf(id);
++    return file != nullptr ? static_cast<int>(file->data.size()) : 0;
+ }
+ 
+-void sfallFileSystemDelete(int id)
++int sfallFileSystemPos(int id)
++{
++    SfallFile* file = fileOf(id);
++    return file != nullptr ? file->pos : 0;
++}
++
++void sfallFileSystemSeek(int id, int pos)
+ {
+-    if (id < 0 || id >= static_cast<int>(aliases.size()) || !aliases[id].active) {
++    SfallFile* file = fileOf(id);
++    if (file == nullptr || pos < 0 || pos > static_cast<int>(file->data.size())) {
+         return;
+     }
+ 
+-    aliases[id].active = false;
+-    aliases[id].path.clear();
+-    aliases[id].source.clear();
+-    aliases[id].normalizedPath.clear();
+-    artCacheFlush();
++    file->pos = pos;
++}
++
++void sfallFileSystemResize(int id, int size)
++{
++    SfallFile* file = fileOf(id);
++    if (file == nullptr) {
++        return;
++    }
++
++    // -1 asks for the file to be kept in the save.
++    if (size == -1) {
++        file->saved = true;
++        return;
++    }
++
++    if (size < 0 || size > kMaxFileSize) {
++        return;
++    }
++
++    file->data.resize(size);
++    file->pos = 0;
++}
++
++// sfall writes and reads numbers high byte first.
++static void writeBytes(int id, unsigned int value, int length)
++{
++    SfallFile* file = fileOf(id);
++    if (file == nullptr || file->pos + length > static_cast<int>(file->data.size())) {
++        return;
++    }
++
++    for (int index = length - 1; index >= 0; index--) {
++        file->data[file->pos++] = static_cast<unsigned char>(value >> (index * 8));
++    }
++}
++
++static bool readBytes(int id, int length, unsigned int* valuePtr)
++{
++    SfallFile* file = fileOf(id);
++    if (file == nullptr || file->pos + length > static_cast<int>(file->data.size())) {
++        return false;
++    }
++
++    unsigned int value = 0;
++    for (int index = 0; index < length; index++) {
++        value = (value << 8) | file->data[file->pos++];
++    }
++    *valuePtr = value;
++    return true;
++}
++
++void sfallFileSystemWriteByte(int id, int value)
++{
++    writeBytes(id, static_cast<unsigned int>(value), 1);
++}
++
++void sfallFileSystemWriteShort(int id, int value)
++{
++    writeBytes(id, static_cast<unsigned int>(value), 2);
++}
++
++void sfallFileSystemWriteInt(int id, int value)
++{
++    writeBytes(id, static_cast<unsigned int>(value), 4);
++}
++
++void sfallFileSystemWriteString(int id, const char* string, bool terminated)
++{
++    SfallFile* file = fileOf(id);
++    if (file == nullptr || string == nullptr) {
++        return;
++    }
++
++    size_t length = strlen(string) + (terminated ? 1 : 0);
++    if (file->pos + length > file->data.size()) {
++        return;
++    }
++
++    memcpy(file->data.data() + file->pos, string, length);
++    file->pos += static_cast<int>(length);
++}
++
++int sfallFileSystemReadByte(int id)
++{
++    unsigned int value;
++    return readBytes(id, 1, &value) ? static_cast<int>(value) : 0;
++}
++
++int sfallFileSystemReadShort(int id)
++{
++    unsigned int value;
++    return readBytes(id, 2, &value) ? static_cast<short>(value) : 0;
++}
++
++int sfallFileSystemReadInt(int id)
++{
++    unsigned int value;
++    return readBytes(id, 4, &value) ? static_cast<int>(value) : 0;
+ }
+ 
+ void sfallFileSystemReset()
+ {
+-    if (aliases.empty()) {
++    if (files.empty()) {
+         return;
+     }
+ 
+-    aliases.clear();
++    files.clear();
+     artCacheFlush();
+ }
+ 
+-bool sfallFileSystemResolveAlias(const char* path, char* resolvedPath, size_t resolvedPathSize)
++File* sfallFileSystemOpen(const char* path)
+ {
+-    if (path == nullptr || path[0] == '\0' || resolvedPath == nullptr || resolvedPathSize == 0) {
+-        return false;
++    int id = sfallFileSystemFind(path);
++    if (id == -1) {
++        return nullptr;
+     }
+ 
+-    std::string normalized = normalizePath(path);
+-    if (isSoundEffectsPath(normalized)) {
++    // The engine reads what it knows of sound effects before scripts run.
++    if (files[id].normalizedName.rfind("sound\\sfx\\", 0) == 0) {
++        return nullptr;
++    }
++
++    return xfileOpenMemory(files[id].data.data(), files[id].data.size());
++}
++
++// sfallfs.sav, as sfall writes it: the number of files, then each one's
++// length, name (128 bytes) and position, and its bytes; numbers low byte first.
++
++static bool writeUInt32(File* stream, unsigned int value)
++{
++    unsigned char bytes[4] = {
++        static_cast<unsigned char>(value),
++        static_cast<unsigned char>(value >> 8),
++        static_cast<unsigned char>(value >> 16),
++        static_cast<unsigned char>(value >> 24),
++    };
++    return fileWrite(bytes, 1, 4, stream) == 4;
++}
++
++static bool readUInt32(File* stream, unsigned int* valuePtr)
++{
++    unsigned char bytes[4];
++    if (fileRead(bytes, 1, 4, stream) != 4) {
+         return false;
+     }
++    *valuePtr = bytes[0] | (bytes[1] << 8) | (bytes[2] << 16) | (static_cast<unsigned int>(bytes[3]) << 24);
++    return true;
++}
++
++bool sfallFileSystemHasSaved()
++{
++    for (auto& file : files) {
++        if (file.active && file.saved) {
++            return true;
++        }
++    }
++    return false;
++}
++
++bool sfallFileSystemSave(File* stream)
++{
++    unsigned int count = 0;
++    for (auto& file : files) {
++        if (file.active && file.saved) {
++            count++;
++        }
++    }
+ 
+-    int aliasIndex = findAliasIndex(path);
+-    if (aliasIndex == -1 || aliases[aliasIndex].source == path) {
++    if (!writeUInt32(stream, count)) {
+         return false;
+     }
+ 
+-    int written = snprintf(resolvedPath, resolvedPathSize, "%s", aliases[aliasIndex].source.c_str());
+-    return written >= 0 && static_cast<size_t>(written) < resolvedPathSize;
++    for (auto& file : files) {
++        if (!file.active || !file.saved) {
++            continue;
++        }
++
++        char name[kSavedNameLength] = { 0 };
++        snprintf(name, sizeof(name), "%s", file.name.c_str());
++
++        if (!writeUInt32(stream, static_cast<unsigned int>(file.data.size()))
++            || fileWrite(name, 1, sizeof(name), stream) != sizeof(name)
++            || !writeUInt32(stream, static_cast<unsigned int>(file.pos))) {
++            return false;
++        }
++
++        if (!file.data.empty() && fileWrite(file.data.data(), 1, file.data.size(), stream) != file.data.size()) {
++            return false;
++        }
++    }
++
++    return true;
++}
++
++bool sfallFileSystemLoad(File* stream)
++{
++    unsigned int count;
++    if (!readUInt32(stream, &count)) {
++        // An empty file: nothing kept.
++        return true;
++    }
++
++    for (unsigned int index = 0; index < count; index++) {
++        unsigned int length;
++        char name[kSavedNameLength + 1] = { 0 };
++        unsigned int pos;
++        if (!readUInt32(stream, &length)
++            || length > kMaxFileSize
++            || fileRead(name, 1, kSavedNameLength, stream) != kSavedNameLength
++            || !readUInt32(stream, &pos)) {
++            debugPrint("sfallfs.sav: file %u is damaged\n", index);
++            return false;
++        }
++
++        std::vector<unsigned char> data(length);
++        if (length != 0 && fileRead(data.data(), 1, length, stream) != length) {
++            debugPrint("sfallfs.sav: file %u is damaged\n", index);
++            return false;
++        }
++
++        int id = addFile(name, std::move(data));
++        files[id].pos = pos <= length ? static_cast<int>(pos) : 0;
++        files[id].saved = true;
++    }
++
++    return true;
+ }
+ 
+ } // namespace fallout
+diff --git a/src/sfall_filesystem.h b/src/sfall_filesystem.h
+index 2316673..19f389f 100644
+--- a/src/sfall_filesystem.h
++++ b/src/sfall_filesystem.h
+@@ -3,13 +3,38 @@
+ 
+ #include <stddef.h>
+ 
++#include "db.h"
++
+ namespace fallout {
+ 
++// sfall's virtual files: made by scripts (fs_create, or fs_copy of a game
++// file), changed by them byte by byte, and read by the engine in place of the
++// game file of the same name.
++
++int sfallFileSystemCreate(const char* path, int size);
+ int sfallFileSystemCopy(const char* path, const char* source);
+ int sfallFileSystemFind(const char* path);
+ void sfallFileSystemDelete(int id);
++int sfallFileSystemSize(int id);
++int sfallFileSystemPos(int id);
++void sfallFileSystemSeek(int id, int pos);
++void sfallFileSystemResize(int id, int size);
++void sfallFileSystemWriteByte(int id, int value);
++void sfallFileSystemWriteShort(int id, int value);
++void sfallFileSystemWriteInt(int id, int value);
++void sfallFileSystemWriteString(int id, const char* string, bool terminated);
++int sfallFileSystemReadByte(int id);
++int sfallFileSystemReadShort(int id);
++int sfallFileSystemReadInt(int id);
+ void sfallFileSystemReset();
+-bool sfallFileSystemResolveAlias(const char* path, char* resolvedPath, size_t resolvedPathSize);
++
++// The virtual file of that name opened for reading, or null.
++File* sfallFileSystemOpen(const char* path);
++
++// The files a script asked to keep (fs_resize(id, -1)), in sfallfs.sav.
++bool sfallFileSystemHasSaved();
++bool sfallFileSystemSave(File* stream);
++bool sfallFileSystemLoad(File* stream);
+ 
+ } // namespace fallout
+ 
+diff --git a/src/sfall_opcodes.cc b/src/sfall_opcodes.cc
+index a4bfae5..41fa4f2 100644
+--- a/src/sfall_opcodes.cc
++++ b/src/sfall_opcodes.cc
+@@ -2479,8 +2479,7 @@ static void op_fs_create(Program* program)
+ {
+     int size = programStackPopInteger(program);
+     char* path = programStackPopString(program);
+-    programPrintError("fs_create: not implemented!");
+-    programStackPushInteger(program, -1);
++    programStackPushInteger(program, sfallFileSystemCreate(path, size));
+ }
+ 
+ static void op_fs_delete(Program* program)
+@@ -2489,6 +2488,100 @@ static void op_fs_delete(Program* program)
+     sfallFileSystemDelete(id);
+ }
+ 
++static void op_fs_write_byte(Program* program)
++{
++    int value = programStackPopInteger(program);
++    int id = programStackPopInteger(program);
++    sfallFileSystemWriteByte(id, value);
++}
++
++static void op_fs_write_short(Program* program)
++{
++    int value = programStackPopInteger(program);
++    int id = programStackPopInteger(program);
++    sfallFileSystemWriteShort(id, value);
++}
++
++// fs_write_int, and fs_write_float, which sfall writes as the bits of the
++// value it is given.
++static void op_fs_write_int(Program* program)
++{
++    ProgramValue value = programStackPopValue(program);
++    int id = programStackPopInteger(program);
++    int bits = value.integerValue;
++    if (value.isFloat()) {
++        memcpy(&bits, &value.floatValue, sizeof(bits));
++    }
++    sfallFileSystemWriteInt(id, bits);
++}
++
++static void op_fs_write_string(Program* program)
++{
++    char* string = programStackPopString(program);
++    int id = programStackPopInteger(program);
++    sfallFileSystemWriteString(id, string, true);
++}
++
++static void op_fs_write_bstring(Program* program)
++{
++    char* string = programStackPopString(program);
++    int id = programStackPopInteger(program);
++    sfallFileSystemWriteString(id, string, false);
++}
++
++static void op_fs_read_byte(Program* program)
++{
++    int id = programStackPopInteger(program);
++    programStackPushInteger(program, sfallFileSystemReadByte(id));
++}
++
++static void op_fs_read_short(Program* program)
++{
++    int id = programStackPopInteger(program);
++    programStackPushInteger(program, sfallFileSystemReadShort(id));
++}
++
++static void op_fs_read_int(Program* program)
++{
++    int id = programStackPopInteger(program);
++    programStackPushInteger(program, sfallFileSystemReadInt(id));
++}
++
++static void op_fs_read_float(Program* program)
++{
++    int id = programStackPopInteger(program);
++    int bits = sfallFileSystemReadInt(id);
++    float value;
++    memcpy(&value, &bits, sizeof(value));
++    programStackPushFloat(program, value);
++}
++
++static void op_fs_size(Program* program)
++{
++    int id = programStackPopInteger(program);
++    programStackPushInteger(program, sfallFileSystemSize(id));
++}
++
++static void op_fs_pos(Program* program)
++{
++    int id = programStackPopInteger(program);
++    programStackPushInteger(program, sfallFileSystemPos(id));
++}
++
++static void op_fs_seek(Program* program)
++{
++    int pos = programStackPopInteger(program);
++    int id = programStackPopInteger(program);
++    sfallFileSystemSeek(id, pos);
++}
++
++static void op_fs_resize(Program* program)
++{
++    int size = programStackPopInteger(program);
++    int id = programStackPopInteger(program);
++    sfallFileSystemResize(id, size);
++}
++
+ static void op_set_hero_style(Program* program)
+ {
+     int style = programStackPopInteger(program);
+@@ -2919,21 +3012,35 @@ void sfallOpcodesInit()
+     // 0x81f9 - int   fs_find(string path)
+     interpreterRegisterOpcode(0x81f9, op_fs_find);
+     // 0x81fa - void  fs_write_byte(int id, int data)
++    interpreterRegisterOpcode(0x81fa, op_fs_write_byte);
+     // 0x81fb - void  fs_write_short(int id, int data)
++    interpreterRegisterOpcode(0x81fb, op_fs_write_short);
+     // 0x81fc - void  fs_write_int(int id, int data)
++    interpreterRegisterOpcode(0x81fc, op_fs_write_int);
+     // 0x81fd - void  fs_write_float(int id, int data)
++    interpreterRegisterOpcode(0x81fd, op_fs_write_int);
+     // 0x81fe - void  fs_write_string(int id, string data)
++    interpreterRegisterOpcode(0x81fe, op_fs_write_string);
+     // 0x8208 - void  fs_write_bstring(int id, string data)
++    interpreterRegisterOpcode(0x8208, op_fs_write_bstring);
+     // 0x8209 - int   fs_read_byte(int id)
++    interpreterRegisterOpcode(0x8209, op_fs_read_byte);
+     // 0x820a - int   fs_read_short(int id)
++    interpreterRegisterOpcode(0x820a, op_fs_read_short);
+     // 0x820b - int   fs_read_int(int id)
++    interpreterRegisterOpcode(0x820b, op_fs_read_int);
+     // 0x820c - float fs_read_float(int id)
++    interpreterRegisterOpcode(0x820c, op_fs_read_float);
+     // 0x81ff - void  fs_delete(int id)
+     interpreterRegisterOpcode(0x81ff, op_fs_delete);
+     // 0x8200 - int   fs_size(int id)
++    interpreterRegisterOpcode(0x8200, op_fs_size);
+     // 0x8201 - int   fs_pos(int id)
++    interpreterRegisterOpcode(0x8201, op_fs_pos);
+     // 0x8202 - void  fs_seek(int id, int pos)
++    interpreterRegisterOpcode(0x8202, op_fs_seek);
+     // 0x8203 - void  fs_resize(int id, int size)
++    interpreterRegisterOpcode(0x8203, op_fs_resize);
+ 
+     // 0x8204 - int  get_proto_data(int pid, int offset)
+     interpreterRegisterOpcode(0x8204, op_get_proto_data);
+diff --git a/src/xfile.cc b/src/xfile.cc
+index 1e6c712..546a02e 100644
+--- a/src/xfile.cc
++++ b/src/xfile.cc
+@@ -5,6 +5,8 @@
+ #include <stdlib.h>
+ #include <string.h>
+ 
++#include <algorithm>
++
+ #ifdef _WIN32
+ #include <direct.h>
+ #else
+@@ -58,6 +60,11 @@ int xfileClose(XFile* stream)
+     case XFILE_TYPE_GZFILE:
+         rc = gzclose(stream->gzfile);
+         break;
++    case XFILE_TYPE_MEMORY:
++        free(stream->memory->data);
++        free(stream->memory);
++        rc = 0;
++        break;
+     default:
+         rc = fclose(stream->file);
+         break;
+@@ -161,6 +168,38 @@ XFile* xfileOpen(const char* filePath, const char* mode)
+     return stream;
+ }
+ 
++// Opens a copy of `data` as a read-only stream.
++XFile* xfileOpenMemory(const void* data, size_t size)
++{
++    XFile* stream = (XFile*)malloc(sizeof(*stream));
++    if (stream == nullptr) {
++        return nullptr;
++    }
++
++    memset(stream, 0, sizeof(*stream));
++
++    XMemoryFile* memory = (XMemoryFile*)malloc(sizeof(*memory));
++    unsigned char* copy = (unsigned char*)malloc(size != 0 ? size : 1);
++    if (memory == nullptr || copy == nullptr) {
++        free(memory);
++        free(copy);
++        free(stream);
++        return nullptr;
++    }
++
++    if (size != 0) {
++        memcpy(copy, data, size);
++    }
++
++    memory->data = copy;
++    memory->size = static_cast<long>(size);
++    memory->pos = 0;
++
++    stream->type = XFILE_TYPE_MEMORY;
++    stream->memory = memory;
++    return stream;
++}
++
+ // 0x4DF11C xfprintf
+ int xfilePrintFormatted(XFile* stream, const char* format, ...)
+ {
+@@ -193,6 +232,9 @@ int xfilePrintFormattedArgs(XFile* stream, const char* format, va_list args)
+     case XFILE_TYPE_GZFILE:
+         rc = gzvprintf(stream->gzfile, format, args);
+         break;
++    case XFILE_TYPE_MEMORY:
++        rc = -1;
++        break;
+     default:
+         rc = vfprintf(stream->file, format, args);
+         break;
+@@ -215,6 +257,9 @@ int xfileReadChar(XFile* stream)
+     case XFILE_TYPE_GZFILE:
+         ch = gzgetc(stream->gzfile);
+         break;
++    case XFILE_TYPE_MEMORY:
++        ch = stream->memory->pos < stream->memory->size ? stream->memory->data[stream->memory->pos++] : -1;
++        break;
+     default:
+         ch = fgetc(stream->file);
+         break;
+@@ -239,6 +284,26 @@ char* xfileReadString(char* string, int size, XFile* stream)
+     case XFILE_TYPE_GZFILE:
+         result = compat_gzgets(stream->gzfile, string, size);
+         break;
++    case XFILE_TYPE_MEMORY: {
++        // As fgets: up to a newline, which is kept.
++        XMemoryFile* memory = stream->memory;
++        if (memory->pos >= memory->size) {
++            result = nullptr;
++            break;
++        }
++
++        int length = 0;
++        while (length < size - 1 && memory->pos < memory->size) {
++            char ch = static_cast<char>(memory->data[memory->pos++]);
++            string[length++] = ch;
++            if (ch == '\n') {
++                break;
++            }
++        }
++        string[length] = '\0';
++        result = string;
++        break;
++    }
+     default:
+         result = compat_fgets(string, size, stream->file);
+         break;
+@@ -261,6 +326,9 @@ int xfileWriteChar(int ch, XFile* stream)
+     case XFILE_TYPE_GZFILE:
+         rc = gzputc(stream->gzfile, ch);
+         break;
++    case XFILE_TYPE_MEMORY:
++        rc = -1;
++        break;
+     default:
+         rc = fputc(ch, stream->file);
+         break;
+@@ -284,6 +352,9 @@ int xfileWriteString(const char* string, XFile* stream)
+     case XFILE_TYPE_GZFILE:
+         rc = gzputs(stream->gzfile, string);
+         break;
++    case XFILE_TYPE_MEMORY:
++        rc = -1;
++        break;
+     default:
+         rc = fputs(string, stream->file);
+         break;
+@@ -318,6 +389,15 @@ size_t xfileRead(void* ptr, size_t size, size_t count, XFile* stream)
+             elementsRead = bytesRead > 0 ? static_cast<size_t>(bytesRead) / size : 0;
+         }
+         break;
++    case XFILE_TYPE_MEMORY: {
++        // Whole elements only, as fread.
++        XMemoryFile* memory = stream->memory;
++        size_t available = memory->pos < memory->size ? static_cast<size_t>(memory->size - memory->pos) : 0;
++        elementsRead = size != 0 ? std::min(count, available / size) : 0;
++        memcpy(ptr, memory->data + memory->pos, elementsRead * size);
++        memory->pos += static_cast<long>(elementsRead * size);
++        break;
++    }
+     default:
+         elementsRead = fread(ptr, size, count, stream->file);
+         break;
+@@ -346,6 +426,9 @@ size_t xfileWrite(const void* ptr, size_t size, size_t count, XFile* stream)
+         // parameters this function can return wrong result.
+         elementsWritten = gzwrite(stream->gzfile, ptr, size * count);
+         break;
++    case XFILE_TYPE_MEMORY:
++        elementsWritten = 0;
++        break;
+     default:
+         elementsWritten = fwrite(ptr, size, count, stream->file);
+         break;
+@@ -368,6 +451,17 @@ int xfileSeek(XFile* stream, long offset, int origin)
+     case XFILE_TYPE_GZFILE:
+         result = gzseek(stream->gzfile, offset, origin);
+         break;
++    case XFILE_TYPE_MEMORY: {
++        XMemoryFile* memory = stream->memory;
++        long base = origin == SEEK_SET ? 0 : origin == SEEK_CUR ? memory->pos : memory->size;
++        if (base + offset < 0) {
++            result = -1;
++            break;
++        }
++        memory->pos = base + offset;
++        result = 0;
++        break;
++    }
+     default:
+         result = fseek(stream->file, offset, origin);
+         break;
+@@ -390,6 +484,9 @@ long xfileTell(XFile* stream)
+     case XFILE_TYPE_GZFILE:
+         pos = gztell(stream->gzfile);
+         break;
++    case XFILE_TYPE_MEMORY:
++        pos = stream->memory->pos;
++        break;
+     default:
+         pos = ftell(stream->file);
+         break;
+@@ -410,6 +507,9 @@ void xfileRewind(XFile* stream)
+     case XFILE_TYPE_GZFILE:
+         gzrewind(stream->gzfile);
+         break;
++    case XFILE_TYPE_MEMORY:
++        stream->memory->pos = 0;
++        break;
+     default:
+         rewind(stream->file);
+         break;
+@@ -430,6 +530,9 @@ int xfileEof(XFile* stream)
+     case XFILE_TYPE_GZFILE:
+         rc = gzeof(stream->gzfile);
+         break;
++    case XFILE_TYPE_MEMORY:
++        rc = stream->memory->pos >= stream->memory->size;
++        break;
+     default:
+         rc = feof(stream->file);
+         break;
+@@ -452,6 +555,9 @@ long xfileGetSize(XFile* stream)
+     case XFILE_TYPE_GZFILE:
+         fileSize = 0;
+         break;
++    case XFILE_TYPE_MEMORY:
++        fileSize = stream->memory->size;
++        break;
+     default:
+         fileSize = getFileSize(stream->file);
+         break;
+diff --git a/src/xfile.h b/src/xfile.h
+index 03ffd5f..80e40b7 100644
+--- a/src/xfile.h
++++ b/src/xfile.h
+@@ -14,8 +14,16 @@ typedef enum XFileType {
+     XFILE_TYPE_FILE,
+     XFILE_TYPE_DFILE,
+     XFILE_TYPE_GZFILE,
++    // A copy of bytes held in memory (sfall's virtual files).
++    XFILE_TYPE_MEMORY,
+ } XFileType;
+ 
++typedef struct XMemoryFile {
++    unsigned char* data;
++    long size;
++    long pos;
++} XMemoryFile;
++
+ // A universal database of files.
+ typedef struct XBase {
+     // The path to directory or .DAT file that this xbase represents.
+@@ -40,6 +48,7 @@ typedef struct XFile {
+         FILE* file;
+         DFile* dfile;
+         gzFile gzfile;
++        XMemoryFile* memory;
+     };
+ } XFile;
+ 
+@@ -50,6 +59,7 @@ typedef struct XList {
+ 
+ int xfileClose(XFile* stream);
+ XFile* xfileOpen(const char* filename, const char* mode);
++XFile* xfileOpenMemory(const void* data, size_t size);
+ int xfilePrintFormatted(XFile* xfile, const char* format, ...);
+ int xfilePrintFormattedArgs(XFile* stream, const char* format, va_list args);
+ int xfileReadChar(XFile* stream);

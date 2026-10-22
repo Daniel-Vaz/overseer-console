@@ -1,0 +1,67 @@
+/*
+ * A global script that calls what the engine of Fallout 2 was given of sfall
+ * (engines/fallout2/patches 0008-0011) and writes what it saw into a virtual
+ * file kept in the save, sfallfs.sav, for game.spec.ts to read:
+ *   byte 0: a short written is read back, high byte first
+ *   byte 1: a virtual file copied from another, read as the engine reads files
+ *   byte 2: the player's traits, emptied with remove_trait and set with add_trait
+ *   bytes 3, 4: the world map's view, moved with set_viewport_x/y
+ *   byte 5: the knockback and heave-ho calls ran
+ *   byte 6: an MP3 of the mod's (overseer.mp3, a second of silence) plays
+ *   byte 7: 66, the script got to its end
+ * Compiled with sfall's sslc: see docs/developing.md.
+ */
+procedure start;
+
+procedure start begin
+   variable id, source, copy, trait, traits, sound;
+   if (not(game_loaded)) then return;
+
+   id := fs_create("overseer/result", 8);
+   fs_resize(id, -1);
+
+   fs_write_short(id, 0x1234);
+   fs_seek(id, 0);
+   if (fs_read_short(id) == 0x1234) then traits := 1; else traits := 0;
+   fs_seek(id, 0);
+   fs_write_byte(id, traits);
+
+   source := fs_create("overseer/source", 3);
+   fs_write_bstring(source, "abc");
+   copy := fs_copy("overseer/copy", "overseer/source");
+   if (fs_size(copy) == 3 and fs_read_byte(copy) == 97) then fs_write_byte(id, 1); else fs_write_byte(id, 0);
+
+   trait := 0;
+   while (trait < 16) do begin
+      remove_trait(trait);
+      trait += 1;
+   end
+   sfall_func1("add_trait", 8);
+   sfall_func1("add_trait", 10);
+   traits := 0;
+   trait := 0;
+   while (trait < 16) do begin
+      if (has_trait(2, dude_obj, trait)) then traits += 1;
+      trait += 1;
+   end
+   if (traits == 2 and has_trait(2, dude_obj, 8) and has_trait(2, dude_obj, 10)) then fs_write_byte(id, 1); else fs_write_byte(id, 0);
+
+   set_viewport_x(5);
+   set_viewport_y(7);
+   fs_write_byte(id, get_viewport_x);
+   fs_write_byte(id, get_viewport_y);
+
+   set_target_knockback(dude_obj, 0, 5);
+   remove_target_knockback(dude_obj);
+   set_attacker_knockback(dude_obj, 1, 2.0);
+   remove_attacker_knockback(dude_obj);
+   apply_heaveho_fix;
+   fs_write_byte(id, 1);
+
+   // Looping (1), so that a sound which plays has an id.
+   sound := play_sfall_sound("sound\\sfx\\overseer.mp3", 1);
+   if (sound != 0) then fs_write_byte(id, 1); else fs_write_byte(id, 0);
+   stop_sfall_sound(sound);
+
+   fs_write_byte(id, 66);
+end

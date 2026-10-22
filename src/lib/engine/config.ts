@@ -102,6 +102,17 @@ export const HIGHLIGHTING_FILE = 'mods/sfall-mods.ini';
 export const HIGHLIGHT_KEY = 42;
 
 /**
+ * Whether a mod's sfall settings (ddraw.ini) have Fallout's engine light up
+ * what lies on the ground at the console's key: Fallout Fixt's do. (Fallout
+ * 2's engine does it with a script of its own, at any game.)
+ */
+export function sfallLightsAtKey(ddraw: string | undefined): boolean {
+  const key = ddraw === undefined ? undefined : Ini.parse(ddraw).get('Input', 'ToggleItemHighlightsKey');
+  // A DirectInput scan code, decimal or hexadecimal, as sfall reads it.
+  return key !== undefined && Number(key) === HIGHLIGHT_KEY;
+}
+
+/**
  * What holding the key does: light up the items, containers and bodies lying
  * on the ground, wherever they are in the picture.
  *
