@@ -136,10 +136,13 @@ test('a window larger than the console shows the vault around it, and things com
 test('the vault holds still for those who have asked for less motion', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.setViewportSize(LARGE);
+  await fakeSeal(page, true);
   await openConsole(page);
   await expect(page.locator('canvas.vault')).toHaveClass(/showing/);
   await expect.poll(async () => (await picture(page)).colours).toBeGreaterThan(200);
-  // Painted once more when it hears whether the storage is sealed (the great door shut or open), which WebKit says late.
+  // Painted once more when it hears whether the storage is sealed (the great door shut), which WebKit can take seconds
+  // to say: the board says it at the same moment.
+  await expect(page.locator('.board dd').filter({ hasText: /^SEALED$/ })).toBeVisible();
   let before = (await picture(page)).sum;
   await expect
     .poll(
