@@ -121,8 +121,11 @@ npm run sfall-scan -- ~/games/mods/rpu ~/games/mods/nevada/FalloutNevadaEng   # 
 ```
 
 reads every compiled script of a mod (loose, in its archives, in zips) and its ddraw.ini, and lists what the engine it
-is played on lacks: opcodes and metarules, those it takes and does nothing with (memory access), hooks it never calls,
-hook scripts (`hs_*.int`), global scripts it will not find, and ddraw.ini settings it does not read. What each engine
+is played on lacks: opcodes and metarules, those it takes and does nothing with, the addresses of the original
+program's memory its scripts read, write and call that the engine does not answer for (those registered in its source
+with `SFALL_MEMORY`, see `sfall_memory.h`), hooks it never calls, hook scripts (`hs_*.int`), global scripts it will
+not find, and ddraw.ini settings it does not read. An address a script works out as it runs (from an object, say)
+cannot be told. What each engine
 has is read from its patched source (the tree `patches.sh import` makes, else the one `build.sh` made), so the list
 follows the patches. Run it on the real mods after an engine change that adds any of these.
 

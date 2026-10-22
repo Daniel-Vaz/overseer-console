@@ -2,10 +2,11 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { findInDat, readDatEntry } from '../../src/lib/dat';
 import { buildConfigFiles, settingsFileOf } from '../../src/lib/engine/config';
 import { registerMod, type GameId } from '../../src/lib/games';
+import { bytesSource } from '../../src/lib/blobs';
 import { Ini } from '../../src/lib/ini';
 import { ImportError, planImport, surveySources, type ImportContext, type ImportPlan } from '../../src/lib/storage/importer';
 import type { Manifest } from '../../src/lib/storage/manifest';
-import { findMod, MOD_DATA } from '../../src/lib/storage/mods';
+import { findMod, MOD_DATA, sfallVersionOf } from '../../src/lib/storage/mods';
 import { mountGame } from '../../src/lib/storage/mount';
 import { ascii } from '../archives';
 import {
@@ -21,6 +22,7 @@ import {
   resurrectionFiles,
   resurrectionInstalledFiles,
   rpuFiles,
+  sfallLibrary,
   sonoraFiles,
   sources,
   yesterdayFiles,
@@ -118,6 +120,8 @@ describe('the Restoration Project from its zip', () => {
     expect(plan.game).toBe('rpu');
     expect(plan.mod?.record).toEqual({ id: 'rpu', known: 'rpu', title: 'Restoration Project', version: '2.4.34', base: 'fo2' });
     expect(paths(plan)).toEqual([
+      // Its Hero Appearance art, which the engine draws the player with.
+      'appearance/hmr00s01.dat',
       'data/scripts/gl_ammomod.int',
       'data/sound/music/01hub.acm',
       'ddraw.ini',
@@ -137,7 +141,6 @@ describe('the Restoration Project from its zip', () => {
     expect(plan.mod?.hides).toEqual(['patch000.dat', 'f2_res.dat', 'data/']);
     expect(plan.mod?.keeps).toEqual(['data/savegame/', 'data/*.txt', 'data/*.gcd', 'data/sound/music/']);
     expect(plan.notes).toContain('4 files only a desktop needs (programs, installers) were left out.');
-    expect(plan.notes).toContain('Left out: its Hero Appearance art, a feature the engine does not have (1 file).');
   });
 
   it('is started over Fallout 2, as a desktop has it once its installer ran', () => {
@@ -187,7 +190,7 @@ describe('the Megamod from its zip', () => {
     // The data folder is packed into an archive the engine reads before master.dat: both protos are in it.
     expect(await inArchive(plan, MOD_DATA, 'proto/critters/00000660.pro')).not.toBeNull();
     expect(await inArchive(plan, MOD_DATA, 'proto/critters/00000062.pro')).not.toBeNull();
-    expect(paths(plan).some((path) => /^proto\//i.test(path) || /^appearance\//i.test(path))).toBe(false);
+    expect(paths(plan).some((path) => /^proto\//i.test(path))).toBe(false);
     expect(plan.mod?.hides).toContain('patch000.dat');
     const mounted = mountGame('megamod', manifestOf(plan), fallout2.manifest);
     expect(mounted.files.has('patch000.dat')).toBe(false);
@@ -294,7 +297,10 @@ describe('the whole games of their own', () => {
     expect(config.get('system', 'critter_patches')).toBe(MOD_DATA);
     expect(config.get('screen', 'resolution_y')).toBe('720');
     expect(config.get('preferences', 'text_base_delay')).toBe('6.000000');
-    expect(plan.warnings[0]).toMatch(/^Made for sfall 5: what of it the Community Edition engine does not have is not there\./);
+    // The sfall it came with, which its scripts are told they run on.
+    expect(manifestOf(plan).mod?.sfall).toBe('5.1.6');
+    expect(config.get('sfall', 'version')).toBe('5.1.6');
+    expect(plan.warnings[0]).toBe('It needs a picture at least 600 lines tall.');
     expect(plan.notes).toContain('2 of its sfall scripts were put where the engine looks for them.');
   });
 
@@ -407,6 +413,7 @@ describe('Fallout Yesterday, a game of its own on three of Fallout 2\'s archives
     expect(plan.game).toBe('yesterday');
     expect(plan.mod?.record).toMatchObject({ known: 'yesterday', title: 'Fallout Yesterday', base: 'fo2' });
     expect(paths(plan)).toEqual([
+      'appearance/hmr00s01/art/critters/hmjmpsaa.frm',
       'data/art/cuts/title.mve',
       'data/sound/music/45mesa.wav',
       'ddraw.ini',
@@ -423,7 +430,6 @@ describe('Fallout Yesterday, a game of its own on three of Fallout 2\'s archives
     ]);
     expect(plan.notes).toContain('Its patch001.dat folder is more than one archive holds: it is stored as patch001.dat to patch002.dat.');
     expect(plan.notes).toContain('The engine opens patch archives by number: its patch002.dat is patch003.dat here.');
-    expect(plan.notes).toContain('Left out: its Hero Appearance art, a feature the engine does not have (1 file).');
     // Each of its files in one of the two, under the archives' limit; its own patch002.dat after them.
     const sizes = plan.entries.filter((entry) => /^patch00[12]\.dat$/.test(entry.path)).map((entry) => entry.file.size);
     expect(sizes.every((size) => size <= 0x7fffffff)).toBe(true);
@@ -434,7 +440,7 @@ describe('Fallout Yesterday, a game of its own on three of Fallout 2\'s archives
     expect(await inArchive(plan, 'patch003.dat', 'text/english/game/misc.msg')).toBe('{100}{}{Fixed}');
     expect(await inArchive(plan, 'f2_res.dat', 'maps/artemple.edg')).not.toBeNull();
     expect(await listedIn(plan, MOD_DATA, 'scripts/gl_fy7.int')).toBe(true);
-    expect(plan.warnings[0]).toMatch(/^Made for sfall 4 on the original engine/);
+    expect(plan.warnings).toEqual([]);
   });
 
   it('is started over Fallout 2\'s master.dat, critter.dat and patch000.dat, and nothing else of the game', () => {
@@ -565,6 +571,23 @@ describe('a mod picked where a game is asked for', () => {
     );
     // A folder merely named like a mod is not taken for one.
     expect((await planImport(sources(fallout2Files(), 'Fallout 2 RP/'), 'fo2', decks)).warnings.join(' ')).not.toContain('installed in it');
+  });
+});
+
+describe('the sfall a mod came with', () => {
+  it('is read from its ddraw.dll: the version it says, else the numbers it has', async () => {
+    expect(await sfallVersionOf(bytesSource(sfallLibrary(['4.4.5.1', [4, 4, 5]])))).toBe('4.4.5');
+    // The Megamod's.
+    expect(await sfallVersionOf(bytesSource(sfallLibrary(['3.7b', [3, 7, 2]])))).toBe('3.7.2');
+    expect(await sfallVersionOf(bytesSource(ascii('not a library')))).toBeUndefined();
+    expect(await sfallVersionOf(undefined)).toBeUndefined();
+  });
+
+  it('is not said to the engine of a mod without one', async () => {
+    const plan = await load(rpuFiles(), '', 'rpu_v2.4.34.zip');
+    expect(manifestOf(plan).mod?.sfall).toBeUndefined();
+    const files = buildConfigFiles({ game: plan.game, manifest: manifestOf(plan), base: fallout2.manifest, screen: { width: 1152, height: 720 }, skipIntro: false });
+    expect(Ini.parse(files['fallout2.cfg']!).get('sfall', 'version')).toBeUndefined();
   });
 });
 

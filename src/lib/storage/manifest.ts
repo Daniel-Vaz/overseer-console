@@ -75,6 +75,8 @@ export interface ModInstall {
   reuses?: ReusedFile[];
   /** The archive standing in for the bulk of its data folder: the engine's second patch location. */
   patches?: string;
+  /** The version of sfall it came with (its ddraw.dll), "5.1.6": the engine says it is that sfall to its scripts. */
+  sfall?: string;
 }
 
 export interface CurrentPointer {

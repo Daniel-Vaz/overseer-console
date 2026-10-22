@@ -1,0 +1,73 @@
+Tell the scripts the version of sfall the game came with
+
+sfall_ver_major, sfall_ver_minor and sfall_ver_build give [sfall] version
+from the game's settings, which the console sets to the version of the
+ddraw.dll a mod came with; 4.3.4 without it. Mods do otherwise for another
+version of sfall.
+---
+diff --git a/src/sfall_opcodes.cc b/src/sfall_opcodes.cc
+index 00212e0..255e7c0 100644
+--- a/src/sfall_opcodes.cc
++++ b/src/sfall_opcodes.cc
+@@ -3,6 +3,7 @@
+ #include <algorithm>
+ #include <cstring>
+ #include <math.h>
++#include <stdio.h>
+ #include <string.h>
+ 
+ #include <string>
+@@ -19,6 +20,7 @@
+ #include "dbox.h"
+ #include "debug.h"
+ #include "game.h"
++#include "game_config.h"
+ #include "game_dialog.h"
+ #include "game_movie.h"
+ #include "input.h"
+@@ -80,6 +82,22 @@ typedef enum ExplosionMetarule {
+ static constexpr int kVersionMajor = 4;
+ static constexpr int kVersionMinor = 3;
+ static constexpr int kVersionPatch = 4;
++
++// The version of sfall the scripts are told: the one the game came with, as
++// the console has it in the settings ([sfall] version=5.1.6), else the one
++// whose calls the engine has. Scripts may do otherwise for another.
++static int sfallVersionPart(int index)
++{
++    int parts[3] = { kVersionMajor, kVersionMinor, kVersionPatch };
++    char* version;
++    if (gGameConfigInitialized && configGetString(&gGameConfig, "sfall", "version", &version)) {
++        int read[3] = { 0, 0, 0 };
++        if (sscanf(version, "%d.%d.%d", &read[0], &read[1], &read[2]) >= 2) {
++            std::copy(read, read + 3, parts);
++        }
++    }
++    return parts[index];
++}
+ static constexpr int kSfallPathBufferSize = 3200; // matches rotation path size in animation.cc
+ 
+ static void op_art_exists(Program* program)
+@@ -1083,19 +1101,19 @@ static void op_list_end(Program* program)
+ // sfall_ver_major
+ static void op_get_version_major(Program* program)
+ {
+-    programStackPushInteger(program, kVersionMajor);
++    programStackPushInteger(program, sfallVersionPart(0));
+ }
+ 
+ // sfall_ver_minor
+ static void op_get_version_minor(Program* program)
+ {
+-    programStackPushInteger(program, kVersionMinor);
++    programStackPushInteger(program, sfallVersionPart(1));
+ }
+ 
+ // sfall_ver_build
+ static void op_get_version_patch(Program* program)
+ {
+-    programStackPushInteger(program, kVersionPatch);
++    programStackPushInteger(program, sfallVersionPart(2));
+ }
+ 
+ // get_weapon_ammo_pid

@@ -1,0 +1,678 @@
+Give the scripts what sfall 5 adds that Olympus and Yesterday call
+
+sfall 5's array_key_exists, get_config_setting, set_config_setting,
+set_shader_type (which does nothing: the engine has no shaders) and
+get_perk_freq, and its hooks DRUGSEFFECT, DISPLAYDAMAGE, COMBATATTACK,
+ATTACKHITROLL and ADDINVENOBJ, with their hs_ scripts.
+---
+diff --git a/src/character_editor.cc b/src/character_editor.cc
+index 1bea449..616ca75 100644
+--- a/src/character_editor.cc
++++ b/src/character_editor.cc
+@@ -6008,6 +6008,12 @@ void characterEditorReset()
+     characterEditorOwedPerkLevelsInitialized = true;
+ }
+ 
++// SFALL: get_perk_freq (sfall 5): the levels between perks.
++int characterEditorGetPerkFrequency()
++{
++    return characterEditorGetLevelsPerPerk();
++}
++
+ static int characterEditorGetLevelsPerPerk()
+ {
+     if (perkFrequencyOverride > 0) {
+diff --git a/src/character_editor.h b/src/character_editor.h
+index 50783f1..828e924 100644
+--- a/src/character_editor.h
++++ b/src/character_editor.h
+@@ -31,6 +31,7 @@ void characterEditorDisplayStats();
+ int characterEditorGetPerkOwed();
+ void characterEditorSetPerkOwed(int value);
+ void characterEditorSetPerkFrequency(int value);
++int characterEditorGetPerkFrequency();
+ void characterEditorSetSkillPointsPerLevelModifier(int value);
+ void characterEditorHandleLevelUp(int level);
+ int characterEditorGetPerkSelectionLevel();
+diff --git a/src/combat.cc b/src/combat.cc
+index 17d111f..daf9f14 100644
+--- a/src/combat.cc
++++ b/src/combat.cc
+@@ -3739,6 +3739,10 @@ int _combat_attack(Object* attacker, Object* defender, HitMode hitMode, HitLocat
+         }
+     }
+ 
++    // SFALL: HOOK_COMBATATTACK (sfall 5), the attack starting: what is aimed
++    // at, and how, may be changed.
++    scriptHooks_CombatAttack(0, attacker, defender, critterGetWeaponForHitMode(attacker, hitMode), &hitLocation, &hitMode);
++
+     attackInit(&_main_ctd, attacker, defender, hitMode, hitLocation);
+     debugPrint("computing attack...\n");
+ 
+@@ -4113,10 +4117,14 @@ static int attackCompute(Attack* attack)
+         roll = randomRoll(accuracy, chance - hit_location_penalty[attack->defenderHitLocation], nullptr);
+     }
+ 
++    // SFALL: for HOOK_ATTACKHITROLL (sfall 5): the perk that made the result critical.
++    int criticalPerk = 0;
++
+     if (roll == ROLL_FAILURE) {
+         if (traitIsSelectedAndActive(TRAIT_JINXED) || perkHasRank(gDude, PERK_JINXED)) {
+             if (randomBetween(0, 1) == 1) {
+                 roll = ROLL_CRITICAL_FAILURE;
++                criticalPerk = PERK_JINXED;
+             }
+         }
+     }
+@@ -4125,6 +4133,7 @@ static int attackCompute(Attack* attack)
+         if ((attackType == ATTACK_TYPE_MELEE || attackType == ATTACK_TYPE_UNARMED) && attack->attacker == gDude) {
+             if (perkHasRank(attack->attacker, PERK_SLAYER)) {
+                 roll = ROLL_CRITICAL_SUCCESS;
++                criticalPerk = PERK_SLAYER;
+             }
+ 
+             if (perkHasRank(gDude, PERK_SILENT_DEATH)
+@@ -4132,6 +4141,7 @@ static int attackCompute(Attack* attack)
+                 && dudeHasState(DUDE_STATE_SNEAKING)
+                 && gDude != attack->defender->data.critter.combat.whoHitMe) {
+                 damageMultiplier = 4;
++                criticalPerk = PERK_SILENT_DEATH;
+             }
+ 
+             // SFALL
+@@ -4139,6 +4149,7 @@ static int attackCompute(Attack* attack)
+             if (bonusCriticalChance != 0) {
+                 if (randomBetween(1, 100) <= bonusCriticalChance) {
+                     roll = ROLL_CRITICAL_SUCCESS;
++                    criticalPerk = -1;
+                 }
+             }
+         }
+@@ -4156,6 +4167,9 @@ static int attackCompute(Attack* attack)
+ 
+     roll = scriptHooks_AfterHitRoll(attack->attacker, &(attack->defender), &(attack->defenderHitLocation), accuracy, roll);
+ 
++    // SFALL: HOOK_ATTACKHITROLL (sfall 5).
++    roll = scriptHooks_AttackHitRoll(attack->attacker, attack->defender, attack->weapon, roll, criticalPerk, attack->hitMode, attack->defenderHitLocation);
++
+     if (ammoGetCapacity(attack->weapon) > 0) {
+         int rounds = 1;
+         AmmoCostHookType hookType = AMMO_COST_HOOK_SINGLE_SHOT;
+@@ -5649,6 +5663,11 @@ void _combat_anim_finished()
+ 
+         _apply_damage(&_main_ctd, true);
+ 
++        // SFALL: HOOK_COMBATATTACK (sfall 5), the attack over.
++        HitLocation endedHitLocation = _main_ctd.defenderHitLocation;
++        HitMode endedHitMode = (HitMode)_main_ctd.hitMode;
++        scriptHooks_CombatAttack(1, _main_ctd.attacker, _main_ctd.defender, _main_ctd.weapon, &endedHitLocation, &endedHitMode);
++
+         Object* attacker = _main_ctd.attacker;
+         if (attacker == gDude && _combat_highlight == 2) {
+             _combat_outline_on();
+diff --git a/src/inventory.cc b/src/inventory.cc
+index d6a896e..66abc4d 100644
+--- a/src/inventory.cc
++++ b/src/inventory.cc
+@@ -3634,11 +3634,15 @@ static void inventoryRenderSummary()
+                 int maxDamage;
+                 int bonusDamage = unarmedGetDamage(hitMode, &minDamage, &maxDamage);
+                 int meleeDamage = critterGetStat(_stack[0], STAT_MELEE_DAMAGE);
++                int shownMinDamage = bonusDamage + minDamage;
++                int shownMaxDamage = bonusDamage + meleeDamage + maxDamage;
++                // SFALL: HOOK_DISPLAYDAMAGE (sfall 5).
++                scriptHooks_DisplayDamage(_stack[0], nullptr, hitMode, &shownMinDamage, &shownMaxDamage);
+                 // TODO: Localize unarmed attack names.
+                 snprintf(formattedText, sizeof(formattedText), "%s %d-%d",
+                     messageListItem.text,
+-                    bonusDamage + minDamage,
+-                    bonusDamage + meleeDamage + maxDamage);
++                    shownMinDamage,
++                    shownMaxDamage);
+             }
+ 
+             fontDrawText(windowBuffer + offset, formattedText, 120, pitch, COLOR_GREEN);
+@@ -3717,7 +3721,10 @@ static void inventoryRenderSummary()
+                         damageMin += 2 * perkGetRank(gDude, PERK_BONUS_HTH_DAMAGE);
+                     }
+                 }
+-                snprintf(formattedText, sizeof(formattedText), "%s %d-%d", messageListItem.text, damageMin, damageMax + meleeDamage);
++                int shownMaxDamage = damageMax + meleeDamage;
++                // SFALL: HOOK_DISPLAYDAMAGE (sfall 5).
++                scriptHooks_DisplayDamage(_stack[0], item, hitMode, &damageMin, &shownMaxDamage);
++                snprintf(formattedText, sizeof(formattedText), "%s %d-%d", messageListItem.text, damageMin, shownMaxDamage);
+             } else {
+                 MessageListItem rangeMessageListItem;
+                 rangeMessageListItem.num = 16; // Rng:
+@@ -3734,7 +3741,10 @@ static void inventoryRenderSummary()
+                         }
+                     }
+ 
+-                    snprintf(formattedText, sizeof(formattedText), "%s %d-%d   %s %d", messageListItem.text, damageMin, damageMax + meleeDamage, rangeMessageListItem.text, range);
++                    int shownMaxDamage = damageMax + meleeDamage;
++                    // SFALL: HOOK_DISPLAYDAMAGE (sfall 5).
++                    scriptHooks_DisplayDamage(_stack[0], item, hitMode, &damageMin, &shownMaxDamage);
++                    snprintf(formattedText, sizeof(formattedText), "%s %d-%d   %s %d", messageListItem.text, damageMin, shownMaxDamage, rangeMessageListItem.text, range);
+                 }
+             }
+ 
+diff --git a/src/item.cc b/src/item.cc
+index 2709b0f..f9e2307 100644
+--- a/src/item.cc
++++ b/src/item.cc
+@@ -55,7 +55,8 @@ static int _item_move_func(Object* source, Object* target, Object* item, int qua
+ static bool _item_identical(Object* item1, Object* item2);
+ static int stealthBoyTurnOn(Object* object);
+ static int stealthBoyTurnOff(Object* critter, Object* item);
+-static int _insert_drug_effect(Object* critter, Object* item, int duration, Stat* stats, int* mods);
++static int _insert_drug_effect_in(Object* critter, Object* item, int delay, Stat* stats, int* mods);
++static int itemAddWithoutHook(Object* owner, Object* itemToAdd, int quantity);
+ static void _perform_drug_effect(Object* critter, Stat* stats, int* mods, bool isImmediate);
+ static bool _drug_effect_allowed(Object* critter, const ProtoId& protoId);
+ static int _insert_withdrawal(Object* obj, int active, int duration, Perk perk, const ProtoId& protoId);
+@@ -332,6 +333,19 @@ int itemAttemptAdd(Object* owner, Object* itemToAdd, int quantity)
+ 
+ // 0x4772B8 item_add_force
+ int itemAdd(Object* owner, Object* itemToAdd, int quantity)
++{
++    int rc = itemAddWithoutHook(owner, itemToAdd, quantity);
++
++    // SFALL: HOOK_ADDINVENOBJ (sfall 5).
++    if (rc == 0) {
++        scriptHooks_AddInventoryObject(owner, itemToAdd, quantity);
++    }
++
++    return rc;
++}
++
++// The item added, no script told of it.
++static int itemAddWithoutHook(Object* owner, Object* itemToAdd, int quantity)
+ {
+     if (quantity < 1) {
+         return -1;
+@@ -2781,7 +2795,8 @@ int ammoGetDamageDivisor(Object* armor)
+ // [duration] is in minutes
+ //
+ // 0x479B44
+-static int _insert_drug_effect(Object* critter, Object* item, int duration, Stat* stats, int* mods)
++// A drug's effect in `delay` ticks (Chem Resistant counted).
++static int _insert_drug_effect_in(Object* critter, Object* item, int delay, Stat* stats, int* mods)
+ {
+     int index;
+     for (index = 0; index < 3; index++) {
+@@ -2806,13 +2821,6 @@ static int _insert_drug_effect(Object* critter, Object* item, int duration, Stat
+         drugEffectEvent->modifiers[index] = mods[index];
+     }
+ 
+-    int delay = 600 * duration;
+-    if (critter == gDude) {
+-        if (traitIsSelectedAndActive(TRAIT_CHEM_RESISTANT)) {
+-            delay /= 2;
+-        }
+-    }
+-
+     if (queueAddEvent(delay, critter, drugEffectEvent, EVENT_TYPE_DRUG) == -1) {
+         internal_free(drugEffectEvent);
+         return -1;
+@@ -3011,11 +3019,40 @@ UseItemResultCode drugItemTakeDrug(Object* critter, Object* item)
+ 
+     queueClearByEventType(EVENT_TYPE_WITHDRAWAL, _item_wd_clear_all);
+ 
++    // SFALL: HOOK_DRUGSEFFECT (sfall 5): each of the drug's effects, and the
++    // addiction, as a script would have them.
++    int addictionChanceBase = proto->item.data.drug.addictionChance;
++    int addictionOnset = proto->item.data.drug.withdrawalOnset;
++
+     if (_drug_effect_allowed(critter, item)) {
+-        _perform_drug_effect(critter, proto->item.data.drug.stat, proto->item.data.drug.amount, true);
+-        _insert_drug_effect(critter, item, proto->item.data.drug.duration1, proto->item.data.drug.stat, proto->item.data.drug.amount1);
+-        _insert_drug_effect(critter, item, proto->item.data.drug.duration2, proto->item.data.drug.stat, proto->item.data.drug.amount2);
++        Stat stats[3];
++        int amounts[3];
++        int delay = 0;
++        std::copy(proto->item.data.drug.stat, proto->item.data.drug.stat + 3, stats);
++        std::copy(proto->item.data.drug.amount, proto->item.data.drug.amount + 3, amounts);
++        scriptHooks_DrugsEffect(critter, item->pid, &delay, stats, amounts, proto->item.data.drug.withdrawalEffect, &addictionChanceBase, &addictionOnset);
++        _perform_drug_effect(critter, stats, amounts, true);
++
++        const int durations[2] = { proto->item.data.drug.duration1, proto->item.data.drug.duration2 };
++        int* const delayedAmounts[2] = { proto->item.data.drug.amount1, proto->item.data.drug.amount2 };
++        for (int index = 0; index < 2; index++) {
++            std::copy(proto->item.data.drug.stat, proto->item.data.drug.stat + 3, stats);
++            std::copy(delayedAmounts[index], delayedAmounts[index] + 3, amounts);
++            int delayTicks = 600 * durations[index];
++            if (critter == gDude && traitIsSelectedAndActive(TRAIT_CHEM_RESISTANT)) {
++                delayTicks /= 2;
++            }
++            scriptHooks_DrugsEffect(critter, item->pid, &delayTicks, stats, amounts, -1, nullptr, nullptr);
++            _insert_drug_effect_in(critter, item, delayTicks, stats, amounts);
++        }
+     } else {
++        int delay = -1;
++        Stat stats[3];
++        int amounts[3];
++        std::copy(proto->item.data.drug.stat, proto->item.data.drug.stat + 3, stats);
++        std::copy(proto->item.data.drug.amount, proto->item.data.drug.amount + 3, amounts);
++        scriptHooks_DrugsEffect(critter, item->pid, &delay, stats, amounts, proto->item.data.drug.withdrawalEffect, &addictionChanceBase, &addictionOnset);
++
+         if (critter == gDude) {
+             MessageListItem messageListItem;
+             // That didn't seem to do that much.
+@@ -3032,7 +3069,7 @@ UseItemResultCode drugItemTakeDrug(Object* critter, Object* item)
+     }
+ 
+     if (!isAddicted) {
+-        int addictionChance = proto->item.data.drug.addictionChance;
++        int addictionChance = addictionChanceBase;
+         if (critter == gDude) {
+             if (traitIsSelectedAndActive(TRAIT_CHEM_RELIANT)) {
+                 addictionChance *= 2;
+@@ -3048,7 +3085,7 @@ UseItemResultCode drugItemTakeDrug(Object* critter, Object* item)
+         }
+ 
+         if (randomBetween(1, 100) <= addictionChance) {
+-            _insert_withdrawal(critter, 1, proto->item.data.drug.withdrawalOnset, proto->item.data.drug.withdrawalEffect, item);
++            _insert_withdrawal(critter, 1, addictionOnset, proto->item.data.drug.withdrawalEffect, item);
+ 
+             if (critter == gDude) {
+                 // NOTE: Uninline.
+diff --git a/src/sfall_arrays.cc b/src/sfall_arrays.cc
+index 25c987f..e975b0f 100644
+--- a/src/sfall_arrays.cc
++++ b/src/sfall_arrays.cc
+@@ -312,6 +312,7 @@ public:
+     virtual ~SFallArray() = default;
+     virtual ProgramValue GetArrayKey(int index, Program* program) = 0;
+     virtual ProgramValue GetArray(const ProgramValue& key, Program* program) = 0;
++    virtual bool HasKey(const ProgramValue& key, Program* program) = 0;
+     virtual void SetArray(const ProgramValue& key, const ProgramValue& val, bool allowUnset, Program* program) = 0;
+     virtual void SetArray(const ProgramValue& key, ArrayElement&& val, bool allowUnset) = 0;
+     virtual void ResizeArray(int newLen) = 0;
+@@ -370,6 +371,11 @@ public:
+         return values[index].toValue(program);
+     }
+ 
++    bool HasKey(const ProgramValue& key, Program* program) override
++    {
++        return key.isInt() && key.asInt() >= 0 && key.asInt() < size();
++    }
++
+     void SetArray(const ProgramValue& key, const ProgramValue& val, bool allowUnset, Program* program) override
+     {
+         SetArray(key, ArrayElement { val, program }, allowUnset);
+@@ -469,6 +475,11 @@ public:
+         return pairs[it->second].value.toValue(program);
+     }
+ 
++    bool HasKey(const ProgramValue& key, Program* program) override
++    {
++        return keyIndex.find(ArrayElement { key, program }) != keyIndex.end();
++    }
++
+     void SetArray(const ProgramValue& key, const ProgramValue& val, bool allowUnset, Program* program) override
+     {
+         auto keyEl = ArrayElement { key, program };
+@@ -726,6 +737,13 @@ ProgramValue GetArray(ArrayId arrayId, const ProgramValue& key, Program* program
+     return arr->GetArray(key, program);
+ }
+ 
++// sfall 5's array_key_exists.
++bool ArrayKeyExists(ArrayId arrayId, const ProgramValue& key, Program* program)
++{
++    auto arr = get_array_by_id(arrayId);
++    return arr != nullptr && arr->HasKey(key, program);
++}
++
+ void SetArray(ArrayId arrayId, const ProgramValue& key, const ProgramValue& val, bool allowUnset, Program* program)
+ {
+     auto arr = get_array_by_id(arrayId);
+diff --git a/src/sfall_arrays.h b/src/sfall_arrays.h
+index a63de38..c8daf28 100644
+--- a/src/sfall_arrays.h
++++ b/src/sfall_arrays.h
+@@ -32,6 +32,7 @@ ProgramValue GetArrayKey(ArrayId arrayId, int index, Program* program);
+ int LenArray(ArrayId arrayId);
+ bool ArrayExists(ArrayId arrayId);
+ ProgramValue GetArray(ArrayId arrayId, const ProgramValue& key, Program* program);
++bool ArrayKeyExists(ArrayId arrayId, const ProgramValue& key, Program* program);
+ void SetArray(ArrayId arrayId, const ProgramValue& key, const ProgramValue& val, bool allowUnset, Program* program);
+ void FreeArray(ArrayId arrayId);
+ void FixArray(ArrayId id);
+diff --git a/src/sfall_opcodes.cc b/src/sfall_opcodes.cc
+index f475dee..510b0e3 100644
+--- a/src/sfall_opcodes.cc
++++ b/src/sfall_opcodes.cc
+@@ -42,6 +42,7 @@
+ #include "scripts.h"
+ #include "sfall_animation.h"
+ #include "sfall_arrays.h"
++#include "sfall_config.h"
+ #include "sfall_filesystem.h"
+ #include "sfall_global_scripts.h"
+ #include "sfall_global_vars.h"
+@@ -2683,6 +2684,68 @@ static void op_apply_heaveho_fix(Program* program)
+     sfallApplyHeaveHoFix();
+ }
+ 
++// sfall 5 (Olympus 2207 is made for it): array_key_exists.
++static void op_array_key_exists(Program* program)
++{
++    ProgramValue key = programStackPopValue(program);
++    ArrayId arrayId = programStackPopInteger(program);
++    programStackPushInteger(program, ArrayKeyExists(arrayId, key, program) ? 1 : 0);
++}
++
++// sfall 5: get_config_setting, a setting of sfall's own (ddraw.ini), of
++// the type of the default given; -1 for a section or key that is not a string.
++static void op_get_config_setting(Program* program)
++{
++    ProgramValue defaultValue = programStackPopValue(program);
++    ProgramValue keyValue = programStackPopValue(program);
++    ProgramValue sectionValue = programStackPopValue(program);
++    if (!sectionValue.isString() || !keyValue.isString()) {
++        programStackPushInteger(program, -1);
++        return;
++    }
++
++    char* value;
++    bool found = configGetString(&gSfallConfig, sectionValue.asString(program), keyValue.asString(program), &value);
++    if (defaultValue.isString()) {
++        programStackPushString(program, found ? value : defaultValue.asString(program));
++    } else {
++        programStackPushInteger(program, found ? static_cast<int>(strtol(value, nullptr, 0)) : defaultValue.asInt());
++    }
++}
++
++// sfall 5: set_config_setting, for the time the game runs.
++static void op_set_config_setting(Program* program)
++{
++    ProgramValue value = programStackPopValue(program);
++    ProgramValue keyValue = programStackPopValue(program);
++    ProgramValue sectionValue = programStackPopValue(program);
++    if (!sectionValue.isString() || !keyValue.isString()) {
++        programStackPushInteger(program, -1);
++        return;
++    }
++
++    char number[16];
++    const char* text = value.isString() ? value.asString(program) : number;
++    if (!value.isString()) {
++        snprintf(number, sizeof(number), "%d", value.asInt());
++    }
++    configSetString(&gSfallConfig, sectionValue.asString(program), keyValue.asString(program), text);
++    programStackPushInteger(program, 0);
++}
++
++// sfall 5: set_shader_type. The engine has no shaders.
++static void op_set_shader_type(Program* program)
++{
++    programStackPopInteger(program);
++    programStackPopInteger(program);
++}
++
++// sfall 5: get_perk_freq, the levels between perks.
++static void op_get_perk_freq(Program* program)
++{
++    programStackPushInteger(program, characterEditorGetPerkFrequency());
++}
++
+ // Note: opcodes should pop arguments off the stack in reverse order
+ void sfallOpcodesInit()
+ {
+@@ -2946,6 +3009,8 @@ void sfallOpcodesInit()
+     interpreterRegisterOpcode(0x8256, op_get_array_key);
+     // 0x8257 - int   arrayexpr(any key, any value)
+     interpreterRegisterOpcode(0x8257, op_arrayexpr);
++    // 0x8258 - bool  array_key_exists(int array, any key) (sfall 5)
++    interpreterRegisterOpcode(0x8258, op_array_key_exists);
+ 
+     // 0x81a0 - void set_pickpocket_max(int percentage)
+     // 0x81a1 - void set_hit_chance_max(int percentage)
+@@ -3322,6 +3387,16 @@ void sfallOpcodesInit()
+     interpreterRegisterOpcode(0x827d, op_register_hook_proc);
+     // 0x827e - void reg_anim_callback(procedure proc)
+     interpreterRegisterOpcode(0x827e, op_reg_anim_callback);
++
++    // sfall 5 (Olympus 2207 is made for it).
++    // 0x8282 - any  get_config_setting(string section, string key, any default)
++    interpreterRegisterOpcode(0x8282, op_get_config_setting);
++    // 0x8283 - int  set_config_setting(string section, string key, any value)
++    interpreterRegisterOpcode(0x8283, op_set_config_setting);
++    // 0x8284 - void set_shader_type(int id, int type)
++    interpreterRegisterOpcode(0x8284, op_set_shader_type);
++    // 0x8285 - int  get_perk_freq()
++    interpreterRegisterOpcode(0x8285, op_get_perk_freq);
+ }
+ 
+ void sfallOpcodesExit()
+diff --git a/src/sfall_script_hooks.cc b/src/sfall_script_hooks.cc
+index d2f5014..2eaecd7 100644
+--- a/src/sfall_script_hooks.cc
++++ b/src/sfall_script_hooks.cc
+@@ -92,7 +92,12 @@ static const struct {
+     { HOOK_ROLLCHECK, "hs_rollcheck" },
+     { HOOK_BESTWEAPON, "hs_bestweapon" },
+     { HOOK_CANUSEWEAPON, "hs_canuseweapon" },
++    { HOOK_DRUGSEFFECT, "hs_drugseffect" },
++    { HOOK_DISPLAYDAMAGE, "hs_displaydamage" },
++    { HOOK_COMBATATTACK, "hs_combatattack" },
++    { HOOK_ATTACKHITROLL, "hs_attackhitroll" },
+     { HOOK_BUILDSFXWEAPON, "hs_buildsfxweapon" },
++    { HOOK_ADDINVENOBJ, "hs_addinvenobj" },
+ };
+ 
+ constexpr size_t MAX_HOOK_CALL_DEPTH = 8;
+@@ -1265,6 +1270,169 @@ int scriptHooks_AdjustPoison(Object* critter, int amount, int* damagePtr)
+     return amount;
+ }
+ 
++/*
++sfall 5: Runs after an item is added to the inventory of an object, moved there from another or not.
++
++Object  arg0 - The object the item is added to
++Item    arg1 - The item added
++int     arg2 - The number of items added
++*/
++void scriptHooks_AddInventoryObject(Object* owner, Object* item, int quantity)
++{
++    ScriptHookCall(HOOK_ADDINVENOBJ, 0, { owner, item, quantity }).call();
++}
++
++/*
++sfall 5: Runs when the least and most damage of an attack are worked out to be shown (the inventory's figures).
++
++Critter arg0 - The critter whose damage it is (usually dude_obj)
++Item    arg1 - The weapon, or 0 for an unarmed attack
++int     arg2 - The attack type (ATKTYPE_*)
++int     arg3 - The least damage
++int     arg4 - The most damage
++
++int     ret0 - The new least damage
++int     ret1 - The new most damage
++*/
++void scriptHooks_DisplayDamage(Object* critter, Object* weapon, HitMode hitMode, int* minDamagePtr, int* maxDamagePtr)
++{
++    ScriptHookCall hook(HOOK_DISPLAYDAMAGE, 2, { critter, weapon, hitMode, *minDamagePtr, *maxDamagePtr });
++    hook.call();
++
++    if (hook.numReturnValues() > 0) {
++        *minDamagePtr = hook.getReturnValueAt(0).asInt();
++        if (hook.numReturnValues() > 1) {
++            *maxDamagePtr = hook.getReturnValueAt(1).asInt();
++        }
++    }
++}
++
++/*
++sfall 5: Runs at the start of every attack, and at its end (after all its actions and animations). Its values can
++be changed only at the start.
++
++int     arg0 - Event type: 0 - the start of the attack, 1 - its end
++Critter arg1 - The attacker
++Object  arg2 - The target (a critter or an object)
++Item    arg3 - The attacker's weapon
++int     arg4 - The body part aimed at (BODY_HIT_*), always 8 (BODY_UNCALLED) for a target that is not a critter
++int     arg5 - The attack type (ATKTYPE_*)
++
++int     ret0 - Overrides the body part aimed at, or -1 to leave it
++int     ret1 - Overrides the attack type
++*/
++void scriptHooks_CombatAttack(int type, Object* attacker, Object* target, Object* weapon, HitLocation* hitLocationPtr, HitMode* hitModePtr)
++{
++    ScriptHookCall hook(HOOK_COMBATATTACK, type == 0 ? 2 : 0, { type, attacker, target, weapon, *hitLocationPtr, *hitModePtr });
++    hook.call();
++
++    if (type == 0 && hook.numReturnValues() > 0) {
++        int hitLocation = hook.getReturnValueAt(0).asInt();
++        if (hitLocation >= 0 && hitLocation < HIT_LOCATION_COUNT) {
++            *hitLocationPtr = static_cast<HitLocation>(hitLocation);
++        }
++        if (hook.numReturnValues() > 1) {
++            int hitMode = hook.getReturnValueAt(1).asInt();
++            if (hitMode >= 0 && hitMode < HIT_MODE_COUNT) {
++                *hitModePtr = static_cast<HitMode>(hitMode);
++            }
++        }
++    }
++}
++
++/*
++sfall 5: Runs when the result of an attack worked out in HOOK_AFTERHITROLL is checked.
++
++Critter arg0 - The attacker
++Critter arg1 - The target
++Item    arg2 - The weapon used in the attack
++int     arg3 - The result of the attack (ROLL_*)
++int     arg4 - The perk that made the result a critical success or failure (PERK_slayer, PERK_silent_death,
++               PERK_jinxed / TRAIT_jinxed), -1 for an unarmed attack's critical success
++int     arg5 - The attack type (ATKTYPE_*)
++int     arg6 - The body part aimed at (BODY_HIT_*)
++
++int     ret0 - Overrides the result of the attack
++*/
++int scriptHooks_AttackHitRoll(Object* attacker, Object* target, Object* weapon, int roll, int perk, HitMode hitMode, HitLocation hitLocation)
++{
++    ScriptHookCall hook(HOOK_ATTACKHITROLL, 1, { attacker, target, weapon, roll, perk, hitMode, hitLocation });
++    hook.call();
++
++    if (hook.numReturnValues() > 0) {
++        roll = hook.getReturnValueAt(0).asInt();
++    }
++
++    return roll;
++}
++
++/*
++sfall 5: Runs when the effects of a drug are applied: its first, immediate, effect, and its second and third,
++delayed. Some of what they do can be changed.
++
++Critter arg0 - The critter the drug is taken by
++int     arg1 - The drug's PID
++int     arg2 - The delay in ticks before the effect (Chem Resistant counted; 600 is a minute of the game), 0 for the
++               immediate effect, -1 when the drug does nothing any more (its effects will not be applied)
++int     arg3 - stat0 of the effect (-1 for none)
++int     arg4 - amount0
++int     arg5 - stat1
++int     arg6 - amount1
++int     arg7 - stat2
++int     arg8 - amount2
++int     arg9 - The addiction perk (first effect only, else -1)
++int     arg10 - The chance of addiction in percent (without Chem Reliant, Chem Resistant, Flower Child)
++int     arg11 - The delay in minutes before the addiction takes effect (first effect only, else -1)
++
++int     ret0 - The new delay; for the immediate effect, of the addiction (-1 to leave it)
++int     ret1 - The new chance of addiction, -1 to leave it (first effect only)
++int     ret2 - The new stat0
++int     ret3 - The new amount0
++int     ret4 - The new stat1
++int     ret5 - The new amount1
++int     ret6 - The new stat2
++int     ret7 - The new amount2
++*/
++void scriptHooks_DrugsEffect(Object* critter, int drugPid, int* delayPtr, Stat* stats, int* amounts, int addictionPerk, int* addictionChancePtr, int* addictionDelayPtr)
++{
++    bool first = addictionChancePtr != nullptr;
++    ScriptHookCall hook(HOOK_DRUGSEFFECT, 8, {
++                                                 critter,
++                                                 drugPid,
++                                                 *delayPtr,
++                                                 stats[0],
++                                                 amounts[0],
++                                                 stats[1],
++                                                 amounts[1],
++                                                 stats[2],
++                                                 amounts[2],
++                                                 first ? addictionPerk : -1,
++                                                 first ? *addictionChancePtr : -1,
++                                                 first && addictionDelayPtr != nullptr ? *addictionDelayPtr : -1,
++                                             });
++    hook.call();
++
++    int count = hook.numReturnValues();
++    if (count > 0 && hook.getReturnValueAt(0).asInt() != -1) {
++        if (*delayPtr == 0 && addictionDelayPtr != nullptr) {
++            *addictionDelayPtr = hook.getReturnValueAt(0).asInt();
++        } else if (*delayPtr > 0) {
++            *delayPtr = hook.getReturnValueAt(0).asInt();
++        }
++    }
++    if (count > 1 && first && hook.getReturnValueAt(1).asInt() != -1) {
++        *addictionChancePtr = hook.getReturnValueAt(1).asInt();
++    }
++    for (int index = 0; index < 3; index++) {
++        if (count > 2 + index * 2) {
++            stats[index] = static_cast<Stat>(hook.getReturnValueAt(2 + index * 2).asInt());
++        }
++        if (count > 3 + index * 2) {
++            amounts[index] = hook.getReturnValueAt(3 + index * 2).asInt();
++        }
++    }
++}
++
+ /*
+ Runs when a critter's radiation level is changed.
+ 
+diff --git a/src/sfall_script_hooks.h b/src/sfall_script_hooks.h
+index c949c2b..fddbb3c 100644
+--- a/src/sfall_script_hooks.h
++++ b/src/sfall_script_hooks.h
+@@ -9,6 +9,7 @@
+ #include "queue.h"
+ #include "scripts.h"
+ #include "skill_defs.h"
++#include "stat_defs.h"
+ #include "worldmap.h"
+ #include <initializer_list>
+ #include <memory>
+@@ -156,11 +157,18 @@ typedef enum {
+     // Allows to prevent PC or NPC from using a weapon.
+     HOOK_CANUSEWEAPON = 48,
+ 
+-    // RESERVED 49..60
++    // RESERVED 49..60 in sfall; sfall 5 (Olympus 2207 is made for it) has
++    // these of them, and 72.
++    HOOK_DRUGSEFFECT = 49,
++    HOOK_DISPLAYDAMAGE = 54,
++    HOOK_COMBATATTACK = 55,
++    HOOK_ATTACKHITROLL = 56,
+ 
+     // Weapon SFX name is generated.
+     HOOK_BUILDSFXWEAPON = 61,
+ 
++    HOOK_ADDINVENOBJ = 72,
++
+     HOOK_COUNT,
+ } HookType;
+ 
+@@ -384,6 +392,11 @@ void scriptHooks_SetLighting(Object* object, int* intensityPtr, int* radiusPtr);
+ Object* scriptHooks_TargetObject(int type, bool valid, Object* object);
+ void scriptHooks_Sneak(Object* critter, bool* successPtr, int* timePtr);
+ int scriptHooks_AdjustPoison(Object* critter, int amount, int* damagePtr);
++void scriptHooks_AddInventoryObject(Object* owner, Object* item, int quantity);
++void scriptHooks_DisplayDamage(Object* critter, Object* weapon, HitMode hitMode, int* minDamagePtr, int* maxDamagePtr);
++void scriptHooks_CombatAttack(int type, Object* attacker, Object* target, Object* weapon, HitLocation* hitLocationPtr, HitMode* hitModePtr);
++int scriptHooks_AttackHitRoll(Object* attacker, Object* target, Object* weapon, int roll, int perk, HitMode hitMode, HitLocation hitLocation);
++void scriptHooks_DrugsEffect(Object* critter, int drugPid, int* delayPtr, Stat* stats, int* amounts, int addictionPerk, int* addictionChancePtr, int* addictionDelayPtr);
+ void scriptHooks_RemoveInventoryObject(Object* owner, Object* item, int quantity, RemoveInventoryObjectHookReason reason, Object* target);
+ void scriptHooks_ComputeDamage(Attack* attack, int numRounds, int baseDmgMult);
+ void scriptHooks_BarterPrice(BarterPriceContext* ctx);

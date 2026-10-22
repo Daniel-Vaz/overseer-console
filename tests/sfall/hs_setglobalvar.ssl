@@ -1,0 +1,12 @@
+/*
+ * A hook script for sfall's SetGlobalVar hook: global variable 0 set to 7 is
+ * set to 8 instead. See hs_gamemodechange.ssl.
+ */
+procedure start;
+
+procedure start begin
+   variable index, value;
+   index := get_sfall_arg;
+   value := get_sfall_arg;
+   if (index == 0 and value == 7) then set_sfall_return(8);
+end

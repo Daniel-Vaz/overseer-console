@@ -41,7 +41,6 @@ test('loads the Restoration Project from its zip, and starts it as its installer
   await loaded(page);
   const status = page.getByRole('status');
   await expect(status).toContainText('4 files only a desktop needs (programs, installers) were left out.');
-  await expect(status).toContainText('Left out: its Hero Appearance art');
   const readout = page.locator('.readout').first();
   await expect(readout).toContainText('FALLOUT 2, DECK B: LOADED');
   await expect(readout).toContainText('2.4.34');
@@ -82,7 +81,7 @@ test('loads the Restoration Project from its zip, and starts it as its installer
     'data/sound/music/01hub.acm': true,
     'sound/music/01hub.acm': true,
     'ddraw.dll': false,
-    appearance: false,
+    appearance: true,
   });
   expect(game.text['fallout2.cfg']).toContain('f2_res_dat=mods\\f2_res.dat');
   expect(game.text['fallout2.cfg']).toContain('music_path1=data\\sound\\music\\');

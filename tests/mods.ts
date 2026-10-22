@@ -16,6 +16,32 @@ import { ascii, dat2 } from './archives';
 /** Bytes that are the same however often they are made: a file of the game in the deck. */
 export const pattern = (size: number, seed: number): Uint8Array => Uint8Array.from({ length: size }, (_, i) => (i * 31 + seed * 7 + (i >>> 9)) & 0xff);
 
+/**
+ * sfall's ddraw.dll as far as its version goes: for each version information it has, the mark 0xFEEF04BD with the
+ * numbers after it and the FileVersion text.
+ */
+export function sfallLibrary(...versions: [text: string, numbers: [number, number, number]][]): Uint8Array {
+  const parts: Uint8Array[] = [pattern(64, 70)];
+  for (const [text, [major, minor, build]] of versions) {
+    const fixed = new DataView(new ArrayBuffer(52));
+    fixed.setUint32(0, 0xfeef04bd, true);
+    fixed.setUint32(4, 0x10000, true);
+    fixed.setUint32(8, (major << 16) | minor, true);
+    fixed.setUint32(12, build << 16, true);
+    const strings = Uint8Array.from(`StringFileInfo\0\0FileVersion\0\0${text}\0`, (char) => char.charCodeAt(0));
+    const wide = new Uint8Array(strings.length * 2);
+    strings.forEach((char, i) => (wide[i * 2] = char));
+    parts.push(new Uint8Array(fixed.buffer), wide, new Uint8Array(4 - (wide.length % 4 || 4)));
+  }
+  const bytes = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
+  let at = 0;
+  for (const part of parts) {
+    bytes.set(part, at);
+    at += part.length;
+  }
+  return bytes;
+}
+
 /** A file far larger than memory would hold, whose bytes are only made when they are read. */
 export const huge = (size: number, seed: number): SourceBlob =>
   sourceOf(size, 0, async (start, end) => Uint8Array.from({ length: end - start }, (_, i) => (start + i + seed) & 0xff));
@@ -187,6 +213,8 @@ export function olympusFiles(): Record<string, Data> {
     'f2_res.dat': pattern(90 << 10, 63),
     'olympus.cfg': '[system]\r\nmaster_dat=master.dat\r\ncritter_dat=critter.dat\r\nmaster_patches=data\r\nlanguage=english\r\n[preferences]\r\ntext_base_delay=6.000000\r\n',
     'OLYMPUS.EXE': 'not a program',
+    // sfall 5's, which keeps an older version's information after its own.
+    'ddraw.dll': sfallLibrary(['5.1.6.1', [5, 0, 7]], ['5.0.7.0', [5, 0, 7]]),
     'ddraw.ini': '[Scripts]\r\nGlobalScriptPaths=sfall\\scripts\\gl*.int\r\n',
     'mods/mods_order.ini': 'InventoryFilter.dat=1\r\nKeysHelp.dat=1\r\nNoRadiationDesert.dat=0\r\n',
     'mods/InventoryFilter.dat/scripts/gl_InvenFilter.int': pattern(3000, 64),

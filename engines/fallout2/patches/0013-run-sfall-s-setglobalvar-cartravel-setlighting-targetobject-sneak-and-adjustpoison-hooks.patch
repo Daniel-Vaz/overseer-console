@@ -1,0 +1,484 @@
+Run sfall's SetGlobalVar, CarTravel, SetLighting, TargetObject, Sneak and AdjustPoison hooks
+
+The hooks the known mods register that CE never ran: SetGlobalVar (six of
+them), CarTravel, SetLighting (Fallout Et Tu), TargetObject, Sneak and
+AdjustPoison (Olympus, Fallout Yesterday). Each runs where sfall runs it,
+with its arguments and return values; their hook scripts load too.
+---
+diff --git a/src/critter.cc b/src/critter.cc
+index 4abb65c..d53e8a4 100644
+--- a/src/critter.cc
++++ b/src/critter.cc
+@@ -53,6 +53,7 @@ namespace fallout {
+ static int _get_rad_damage_level(Object* obj, void* data);
+ static int critter_kill_count_clear();
+ static int _critterClearObjDrugs(Object* obj, void* data);
++static int critterAdjustPoisonWithoutHook(Object* critter, int amount);
+ 
+ // 0x50141C aCorpse
+ static char _aCorpse[] = "corpse";
+@@ -312,6 +313,13 @@ int critterGetPoison(Object* critter)
+ //
+ // 0x42D210 critter_adjust_poison
+ int critterAdjustPoison(Object* critter, int amount)
++{
++    // SFALL: HOOK_ADJUSTPOISON.
++    return critterAdjustPoisonWithoutHook(critter, scriptHooks_AdjustPoison(critter, amount, nullptr));
++}
++
++// The poison of a critter changed by an amount the hook has seen.
++static int critterAdjustPoisonWithoutHook(Object* critter, int amount)
+ {
+     MessageListItem messageListItem;
+ 
+@@ -368,8 +376,11 @@ int poisonEventProcess(Object* obj, void* data)
+         return 0;
+     }
+ 
+-    critterAdjustPoison(obj, -2);
+-    critterAdjustHitPoints(obj, -1);
++    // SFALL: HOOK_ADJUSTPOISON, with the damage the poison does.
++    int damage = -1;
++    int amount = scriptHooks_AdjustPoison(obj, -2, &damage);
++    critterAdjustPoisonWithoutHook(obj, amount);
++    critterAdjustHitPoints(obj, damage);
+ 
+     interfaceRenderHitPoints(false);
+ 
+@@ -1304,6 +1315,11 @@ int sneakEventProcess(Object* obj, void* data)
+         _sneak_working = true;
+     }
+ 
++    // SFALL: HOOK_SNEAK.
++    bool success = _sneak_working;
++    scriptHooks_Sneak(gDude, &success, &time);
++    _sneak_working = success;
++
+     queueAddEvent(time, gDude, nullptr, EVENT_TYPE_SNEAK);
+ 
+     return 0;
+diff --git a/src/game_mouse.cc b/src/game_mouse.cc
+index b0d8e32..d20feae 100644
+--- a/src/game_mouse.cc
++++ b/src/game_mouse.cc
+@@ -33,6 +33,7 @@
+ #include "proto.h"
+ #include "proto_instance.h"
+ #include "settings.h"
++#include "sfall_script_hooks.h"
+ #include "skill.h"
+ #include "skilldex.h"
+ #include "svga.h"
+@@ -801,13 +802,15 @@ void gameMouseRefresh()
+                 }
+             } else if (gGameMouseMode == GAME_MOUSE_MODE_CROSSHAIR) {
+                 Object* pointedObject = gameMouseGetObjectUnderCursor(OBJ_TYPE_CRITTER, false, gElevation);
++                bool valid = pointedObject != nullptr;
+                 if (pointedObject == nullptr) {
+                     pointedObject = gameMouseGetObjectUnderCursor(OBJ_TYPE_INVALID, false, gElevation);
+-                    if (!objectIsDoor(pointedObject)) {
+-                        pointedObject = nullptr;
+-                    }
++                    valid = objectIsDoor(pointedObject);
+                 }
+ 
++                // SFALL: HOOK_TARGETOBJECT, the target hovered over.
++                pointedObject = scriptHooks_TargetObject(0, valid, pointedObject);
++
+                 if (pointedObject != nullptr) {
+                     bool pointedObjectIsCritter = FrmId(pointedObject).objectType() == OBJ_TYPE_CRITTER;
+ 
+@@ -1086,13 +1089,15 @@ void _gmouse_handle_event(int mouseX, int mouseY, int mouseState)
+ 
+         if (gGameMouseMode == GAME_MOUSE_MODE_CROSSHAIR) {
+             Object* targetObj = gameMouseGetObjectUnderCursor(OBJ_TYPE_CRITTER, false, gElevation);
++            bool valid = targetObj != nullptr;
+             if (targetObj == nullptr) {
+                 targetObj = gameMouseGetObjectUnderCursor(OBJ_TYPE_INVALID, false, gElevation);
+-                if (!objectIsDoor(targetObj)) {
+-                    targetObj = nullptr;
+-                }
++                valid = objectIsDoor(targetObj);
+             }
+ 
++            // SFALL: HOOK_TARGETOBJECT, the target attacked.
++            targetObj = scriptHooks_TargetObject(1, valid, targetObj);
++
+             if (targetObj != nullptr) {
+                 _combat_attack_this(targetObj);
+                 _gmouse_3d_hover_test = true;
+diff --git a/src/interpreter_extra.cc b/src/interpreter_extra.cc
+index 1894183..edf0b80 100644
+--- a/src/interpreter_extra.cc
++++ b/src/interpreter_extra.cc
+@@ -1230,7 +1230,9 @@ static void opSetGlobalVar(Program* program)
+             gameSetGlobalVar(variable, 0);
+         } else {
+             gameSetGlobalPointer(variable, nullptr);
+-            gameSetGlobalVar(variable, value.integerValue);
++            // SFALL: HOOK_SETGLOBALVAR.
++            int newValue = gGameLoaded ? scriptHooks_SetGlobalVar(variable, value.integerValue) : value.integerValue;
++            gameSetGlobalVar(variable, newValue);
+         }
+     } else {
+         scriptError("\nScript Error: %s: op_set_global_var: no global vars found!", program->name);
+diff --git a/src/light.cc b/src/light.cc
+index a1ab087..37daf70 100644
+--- a/src/light.cc
++++ b/src/light.cc
+@@ -5,6 +5,7 @@
+ #include "map_defs.h"
+ #include "object.h"
+ #include "perk.h"
++#include "sfall_script_hooks.h"
+ #include "tile.h"
+ 
+ namespace fallout {
+@@ -45,6 +46,9 @@ int lightGetAmbientIntensity()
+ void lightSetAmbientIntensity(int intensity, bool shouldUpdateScreen)
+ {
+     int adjustedIntensity = intensity + perkGetRank(gDude, PERK_NIGHT_VISION) * ((LIGHT_INTENSITY_MAX * perkGetNightVisionBonus()) / 100);
++
++    // SFALL: HOOK_SETLIGHTING, for the map.
++    scriptHooks_SetLighting(nullptr, &adjustedIntensity, nullptr);
+     int normalizedIntensity = std::clamp(adjustedIntensity, LIGHT_INTENSITY_MIN, LIGHT_INTENSITY_MAX);
+ 
+     int oldAmbientIntensity = gAmbientIntensity;
+diff --git a/src/object.cc b/src/object.cc
+index 4ac9654..f740690 100644
+--- a/src/object.cc
++++ b/src/object.cc
+@@ -29,6 +29,7 @@
+ #include "scripts.h"
+ #include "settings.h"
+ #include "sfall_hero_appearance.h"
++#include "sfall_script_hooks.h"
+ #include "svga.h"
+ #include "text_object.h"
+ #include "tile.h"
+@@ -1781,6 +1782,9 @@ int objectSetLight(Object* obj, int lightDistance, int lightIntensity, Rect* rec
+         return -1;
+     }
+ 
++    // SFALL: HOOK_SETLIGHTING.
++    scriptHooks_SetLighting(obj, &lightIntensity, &lightDistance);
++
+     int rc = _obj_turn_off_light(obj, rect);
+     if (lightIntensity > 0) {
+         obj->lightDistance = std::min(lightDistance, 8);
+diff --git a/src/sfall_script_hooks.cc b/src/sfall_script_hooks.cc
+index 7111f38..d2f5014 100644
+--- a/src/sfall_script_hooks.cc
++++ b/src/sfall_script_hooks.cc
+@@ -81,10 +81,13 @@ static const struct {
+     { HOOK_EXPLOSIVETIMER, "hs_explosivetimer" },
+     { HOOK_DESCRIPTIONOBJ, "hs_descriptionobj" },
+     { HOOK_USESKILLON, "hs_useskillon" },
++    { HOOK_SETLIGHTING, "hs_setlighting" },
+     { HOOK_SNEAK, "hs_sneak" },
+     { HOOK_STDPROCEDURE, "hs_stdprocedure" },
+     { HOOK_STDPROCEDURE_END, "hs_stdprocedure" },
++    { HOOK_TARGETOBJECT, "hs_targetobject" },
+     { HOOK_ENCOUNTER, "hs_encounter" },
++    { HOOK_ADJUSTPOISON, "hs_adjustpoison" },
+     { HOOK_ADJUSTRADS, "hs_adjustrads" },
+     { HOOK_ROLLCHECK, "hs_rollcheck" },
+     { HOOK_BESTWEAPON, "hs_bestweapon" },
+@@ -1090,6 +1093,178 @@ AnimationType scriptHooks_UseAnimObj(Object* user, Object* target, AnimationType
+     return static_cast<AnimationType>(overrideAnim);
+ }
+ 
++/*
++Runs when setting the value of a global variable (by a script).
++
++int     arg0 - The index number of the global variable being set
++int     arg1 - The set value of the global variable
++
++int     ret0 - Overrides the value of the global variable
++*/
++int scriptHooks_SetGlobalVar(int index, int value)
++{
++    ScriptHookCall hook(HOOK_SETGLOBALVAR, 1, { index, value });
++    hook.call();
++
++    if (hook.numReturnValues() > 0) {
++        value = hook.getReturnValueAt(0).asInt();
++    }
++
++    return value;
++}
++
++/*
++Runs continuously during world map travel by car.
++
++int     arg0 - Vanilla car speed (between 3 and 8 "steps")
++int     arg1 - Vanilla fuel consumption (100 and below)
++
++int     ret0 - Car speed override (pass -1 if you just want to override fuel consumption)
++int     ret1 - Fuel consumption override
++*/
++void scriptHooks_CarTravel(int* speedPtr, int* consumptionPtr)
++{
++    ScriptHookCall hook(HOOK_CARTRAVEL, 2, { *speedPtr, *consumptionPtr });
++    hook.call();
++
++    if (hook.numReturnValues() > 0 && hook.getReturnValueAt(0).asInt() >= 0) {
++        *speedPtr = hook.getReturnValueAt(0).asInt();
++    }
++
++    if (hook.numReturnValues() > 1) {
++        *consumptionPtr = hook.getReturnValueAt(1).asInt();
++    }
++}
++
++/*
++Runs before setting the light level for an object or a map. You can override the result.
++
++Obj     arg0 - The object being set, or -1 when setting the light level for a map
++int     arg1 - The light intensity
++int     arg2 - The light radius, or -1 when setting the light level for a map
++
++int     ret0 - Overrides the light intensity. Intensity range is from 0 to 65536
++int     ret1 - Overrides the light radius. Radius range is from 0 to 8 (works only for the object)
++*/
++void scriptHooks_SetLighting(Object* object, int* intensityPtr, int* radiusPtr)
++{
++    ScriptHookCall hook(HOOK_SETLIGHTING, 2, { object != nullptr ? ProgramValue(object) : ProgramValue(-1), *intensityPtr, radiusPtr != nullptr ? *radiusPtr : -1 });
++    hook.call();
++
++    if (hook.numReturnValues() > 0) {
++        *intensityPtr = std::max(hook.getReturnValueAt(0).asInt(), 0);
++        if (hook.numReturnValues() > 1 && object != nullptr && radiusPtr != nullptr) {
++            *radiusPtr = std::max(hook.getReturnValueAt(1).asInt(), 0);
++        }
++    }
++}
++
++/*
++Runs when the targeting cursor hovers over an object, or when the player tries to attack the target object.
++You can override the target object or prevent the player from attacking the chosen target.
++
++int     arg0 - Event type: 0 - when the targeting cursor hovers over the object, 1 - when trying to attack the target object
++int     arg1 - 1 when the target object is valid to attack, 0 otherwise
++Obj     arg2 - The target object
++
++mixed   ret0 - Overrides the target object, or pass -1 to prevent the player from attacking the object
++
++Returns the object to target, or null for none. What a script said on hovering
++holds for the click that follows, as in sfall.
++*/
++Object* scriptHooks_TargetObject(int type, bool valid, Object* object)
++{
++    // What the last hover's script said: null for nothing, the object to target, or -1 for none.
++    static Object* overridden = nullptr;
++    static bool noTarget = false;
++    static bool hasOverride = false;
++
++    if (type == 1 && hasOverride && (noTarget || overridden != nullptr)) {
++        valid = !noTarget;
++        if (!noTarget && overridden != nullptr) {
++            object = overridden;
++        }
++    }
++
++    ScriptHookCall hook(HOOK_TARGETOBJECT, 1, { type, valid ? 1 : 0, object });
++    if (type == 0) {
++        hasOverride = false;
++        overridden = nullptr;
++        noTarget = false;
++    }
++    hook.call();
++
++    Object* target = valid ? object : nullptr;
++    if (hook.numReturnValues() > 0) {
++        const ScriptHookValue& value = hook.getReturnValueAt(0);
++        if (value.isInt() && value.asInt() == -1) {
++            noTarget = true;
++            target = nullptr;
++        } else if (value.isPointer() && value.asObject() != nullptr) {
++            overridden = value.asObject();
++            target = overridden;
++        } else {
++            overridden = valid ? object : nullptr;
++        }
++        hasOverride = true;
++    } else if (type == 1 && hasOverride) {
++        hasOverride = false;
++    }
++
++    return target;
++}
++
++/*
++Runs when the Sneak skill is activated, or when the game rolls another Sneak check after the duration for the current one is over.
++You can override the result of a random Sneak check or the duration time for the current result.
++
++int     arg0 - Sneak check result: 1 - success, 0 - failure
++int     arg1 - The duration in ticks for the current Sneak check (time depends on Sneak skill level)
++Critter arg2 - The critter (usually dude_obj)
++
++int     ret0 - Overrides the result of the Sneak check
++int     ret1 - Overrides the duration time for the current result
++*/
++void scriptHooks_Sneak(Object* critter, bool* successPtr, int* timePtr)
++{
++    ScriptHookCall hook(HOOK_SNEAK, 2, { *successPtr ? 1 : 0, *timePtr, critter });
++    hook.call();
++
++    if (hook.numReturnValues() > 0) {
++        *successPtr = hook.getReturnValueAt(0).asInt() != 0;
++        if (hook.numReturnValues() > 1) {
++            *timePtr = hook.getReturnValueAt(1).asInt();
++        }
++    }
++}
++
++/*
++Runs when a critter's poison level is changed, or when the player takes damage from the poison.
++
++Critter arg0 - The critter
++int     arg1 - The amount of poison being added/removed
++int     arg2 - The damage value at the time of applying the poison effect
++               (damage from the poison effect is implemented only for the player character; for other critters, this value will always be 0)
++
++int     ret0 - The new amount of poison being added/removed
++int     ret1 - The new damage value, only negative values are allowed (will only be valid at the time of taking damage from the poison)
++*/
++int scriptHooks_AdjustPoison(Object* critter, int amount, int* damagePtr)
++{
++    ScriptHookCall hook(HOOK_ADJUSTPOISON, 2, { critter, amount, damagePtr != nullptr ? *damagePtr : 0 });
++    hook.call();
++
++    if (hook.numReturnValues() > 0) {
++        amount = hook.getReturnValueAt(0).asInt();
++    }
++
++    if (hook.numReturnValues() > 1 && damagePtr != nullptr && hook.getReturnValueAt(1).asInt() < 0) {
++        *damagePtr = hook.getReturnValueAt(1).asInt();
++    }
++
++    return amount;
++}
++
+ /*
+ Runs when a critter's radiation level is changed.
+ 
+diff --git a/src/sfall_script_hooks.h b/src/sfall_script_hooks.h
+index 83a2403..c949c2b 100644
+--- a/src/sfall_script_hooks.h
++++ b/src/sfall_script_hooks.h
+@@ -128,7 +128,7 @@ typedef enum {
+ 
+     //    HOOK_ONEXPLOSION = 36,
+     //    HOOK_SUBCOMBATDAMAGE = 37,
+-    //    HOOK_SETLIGHTING = 38,
++    HOOK_SETLIGHTING = 38,
+ 
+     // A continuous sneak check.
+     HOOK_SNEAK = 39,
+@@ -138,12 +138,12 @@ typedef enum {
+     HOOK_STDPROCEDURE = 40,
+     HOOK_STDPROCEDURE_END = 41,
+ 
+-    //    HOOK_TARGETOBJECT = 42,
++    HOOK_TARGETOBJECT = 42,
+ 
+     // Random encounter occurs. Override map or cancel the encounter.
+     HOOK_ENCOUNTER = 43,
+ 
+-    //    HOOK_ADJUSTPOISON = 44,
++    HOOK_ADJUSTPOISON = 44,
+     // A critter's radiation level is changed.
+     HOOK_ADJUSTRADS = 45,
+ 
+@@ -378,6 +378,12 @@ int scriptHooks_UseItem(Object* user, Object* objUsed);
+ int scriptHooks_UseItemOn(Object* user, Object* target, Object* objUsed);
+ AnimationType scriptHooks_UseAnimObj(Object* user, Object* target, AnimationType anim);
+ int scriptHooks_AdjustRads(Object* critter, int amount);
++int scriptHooks_SetGlobalVar(int index, int value);
++void scriptHooks_CarTravel(int* speedPtr, int* consumptionPtr);
++void scriptHooks_SetLighting(Object* object, int* intensityPtr, int* radiusPtr);
++Object* scriptHooks_TargetObject(int type, bool valid, Object* object);
++void scriptHooks_Sneak(Object* critter, bool* successPtr, int* timePtr);
++int scriptHooks_AdjustPoison(Object* critter, int amount, int* damagePtr);
+ void scriptHooks_RemoveInventoryObject(Object* owner, Object* item, int quantity, RemoveInventoryObjectHookReason reason, Object* target);
+ void scriptHooks_ComputeDamage(Attack* attack, int numRounds, int baseDmgMult);
+ void scriptHooks_BarterPrice(BarterPriceContext* ctx);
+diff --git a/src/worldmap.cc b/src/worldmap.cc
+index 65b3a31..637d9e9 100644
+--- a/src/worldmap.cc
++++ b/src/worldmap.cc
+@@ -583,6 +583,7 @@ static bool wmWorldPosInvalid(int x, int y);
+ static void wmPartyInitWalking(int x, int y);
+ static bool wmTravelTickDue(unsigned int now);
+ static void wmPartyWalkingStep();
++static int wmCarGasFor(int amount);
+ static void wmInterfaceScrollTabsStart(int delta);
+ static void wmInterfaceScrollTabsStop();
+ static void wmInterfaceScrollTabsUpdate();
+@@ -3502,21 +3503,22 @@ static int wmWorldMapFunc(int a1)
+             wmPartyWalkingStep();
+ 
+             if (wmGenData.isInCar) {
+-                wmPartyWalkingStep();
+-                wmPartyWalkingStep();
+-                wmPartyWalkingStep();
+-
++                // SFALL: HOOK_CARTRAVEL: how far the car goes in a step, and
++                // the fuel it burns.
++                int carSpeed = 3;
+                 if (gameGetGlobalVar(GVAR_CAR_BLOWER)) {
+-                    wmPartyWalkingStep();
++                    carSpeed += 1;
+                 }
+-
+                 if (gameGetGlobalVar(GVAR_NEW_RENO_CAR_UPGRADE)) {
+-                    wmPartyWalkingStep();
++                    carSpeed += 1;
+                 }
+-
+                 if (gameGetGlobalVar(GVAR_NEW_RENO_SUPER_CAR)) {
+-                    wmPartyWalkingStep();
+-                    wmPartyWalkingStep();
++                    carSpeed += 3;
++                }
++                int carFuelUsed = wmCarGasFor(100);
++                scriptHooks_CarTravel(&carSpeed, &carFuelUsed);
++
++                for (int step = 0; step < carSpeed; step++) {
+                     wmPartyWalkingStep();
+                 }
+ 
+@@ -3525,7 +3527,7 @@ static int wmWorldMapFunc(int a1)
+                     wmGenData.carImageCurrentFrameIndex = 0;
+                 }
+ 
+-                wmCarUseGas(100);
++                wmGenData.carFuel = std::max(wmGenData.carFuel - carFuelUsed, 0);
+ 
+                 if (wmGenData.carFuel <= 0) {
+                     wmGenData.walkDestinationX = 0;
+@@ -6857,7 +6859,8 @@ static int wmTownMapExit()
+ }
+ 
+ // 0x4C4DA4 wmCarUseGas
+-int wmCarUseGas(int amount)
++// The fuel the car burns for `amount`, with its upgrades.
++static int wmCarGasFor(int amount)
+ {
+     if (gameGetGlobalVar(GVAR_NEW_RENO_SUPER_CAR) != 0) {
+         amount -= amount * 90 / 100;
+@@ -6871,7 +6874,12 @@ int wmCarUseGas(int amount)
+         amount /= 2;
+     }
+ 
+-    wmGenData.carFuel -= amount;
++    return amount;
++}
++
++int wmCarUseGas(int amount)
++{
++    wmGenData.carFuel -= wmCarGasFor(amount);
+ 
+     if (wmGenData.carFuel < 0) {
+         wmGenData.carFuel = 0;

@@ -56,8 +56,8 @@ interface Candidate {
 
 /** What only a desktop needs: programs, libraries, installers and their scripts. */
 const DESKTOP = /\.(exe|dll|bat|cmd|com|sh|command|msi|lnk|url|ico|so|dylib|pdb|zip|7z|rar|ipa|apk|dmg)$/i;
-/** Top-level folders of a game folder that a mod brings for the engine. */
-const GAME_FOLDERS = new Set(['data', 'sound', 'mods', 'config', 'sfall']);
+/** Top-level folders of a game folder that a mod brings for the engine: Hero Appearance's art among them. */
+const GAME_FOLDERS = new Set(['data', 'sound', 'mods', 'config', 'sfall', 'appearance']);
 /** Files at the top of a game folder that the engine reads: archives, and settings. */
 const GAME_FILES = /\.(dat|ini|cfg)$/i;
 /** The archive of sfall, the original engine's extension: the Community Edition engine has its own. */
@@ -217,7 +217,6 @@ const RECIPES: Partial<Record<KnownModId, Recipe>> = {
     moves: { 'mods_order.txt': 'mods/mods_order.txt', 'gl_ammomod.int': 'data/scripts/gl_ammomod.int' },
     hides: ['patch000.dat', 'f2_res.dat', 'data/'],
     keeps: ['data/savegame/', 'data/*.txt', 'data/*.gcd', 'data/sound/music/'],
-    skips: { pattern: /^appearance\//, why: 'its Hero Appearance art, a feature the engine does not have' },
   },
   // Unzipped over Fallout 2, with the game's patch archive removed; its protos in proto/ are put into
   // master.dat with dat2.exe. The data folder, packed into an archive read before master.dat, does as well.
@@ -252,7 +251,6 @@ const RECIPES: Partial<Record<KnownModId, Recipe>> = {
     // Every file of the game, at the top of its folder and in the folders below.
     hides: ['*', '*/'],
     keeps: ['master.dat', 'critter.dat', 'patch000.dat'],
-    skips: { pattern: /^appearance\//, why: 'its Hero Appearance art, a feature the engine does not have' },
   },
   // Its installer puts it in a folder of its own inside the game's, whose settings name the game's archives
   // and music but its own data folder: the game's loose data is not read, its music is.
@@ -330,6 +328,30 @@ async function settingsOf(items: Map<string, Item>, base: BaseGameId): Promise<s
     if (Ini.parse(text).get('system', 'master_dat') !== undefined) return text;
   }
   return undefined;
+}
+
+/**
+ * The version of sfall a mod came with, from its ddraw.dll, as "major.minor.build": what its version information
+ * says, the FileVersion text, or where that is not three numbers ("3.7b") the numbers before it (after the mark
+ * 0xFEEF04BD). sfall 5 brings an older version's information besides its own: the newest is taken. Undefined
+ * without any.
+ */
+export async function sfallVersionOf(dll: SourceBlob | undefined): Promise<string | undefined> {
+  if (!dll || dll.size > 16 << 20) return undefined;
+  const data = new Uint8Array(await dll.arrayBuffer());
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  let newest: number[] | undefined;
+  // The version information is among the program's resources.
+  for (let at = 0; at + 16 <= data.length; at += 4) {
+    if (view.getUint32(at, true) !== 0xfeef04bd) continue;
+    const text = new TextDecoder('utf-16le').decode(data.subarray(at, Math.min(data.length, at + 2048)));
+    const named = /FileVersion\0+v?(\d+)\.(\d+)\.(\d+)/.exec(text);
+    const high = view.getUint32(at + 8, true);
+    const low = view.getUint32(at + 12, true);
+    const version = named ? named.slice(1, 4).map(Number) : [high >>> 16, high & 0xffff, low >>> 16];
+    if (!newest || version.reduce((order, part, index) => order || part - newest![index]!, 0) > 0) newest = version;
+  }
+  return newest?.join('.');
 }
 
 /**
@@ -546,11 +568,13 @@ export async function planFoundMod(sources: SourceFile[], found: FoundMod, conte
   }
 
   const nested = !!recipe?.nested && !found.complete;
+  const sfall = await sfallVersionOf(items.get('ddraw.dll')?.file);
   const mod: ModInstall = {
     record,
     layout: nested ? 'nested' : 'over',
     ...(found.complete || nested ? { reuses } : { hides: [...hides], keeps }),
     ...(patches ? { patches } : {}),
+    ...(sfall ? { sfall } : {}),
   };
   const dirs = new Set<string>();
   for (const { path } of [...entries, ...saves]) for (let dir = dirname(path); dir; dir = dirname(dir)) dirs.add(dir);

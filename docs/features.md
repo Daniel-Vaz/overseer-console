@@ -43,6 +43,12 @@ own **Operations manual** (entry 6 of the main directory) explains each of these
 - **sfall's hook scripts and virtual files.** Fallout 2's engine runs a mod's `hs_*.int` hook scripts and lets its
   scripts make and change files the game then reads, kept in saved games where a script asks. It plays MP3 music
   and sounds too, as Fallout Yesterday has some.
+- **sfall's Hero Appearance.** The look picked for your character, its race and style, in the Restoration Project
+  and Fallout Yesterday: on the character screen as it is made, and in the game.
+- **What mods reach for in the original program.** Fallout 2's engine answers for what mods are known to read, write
+  and call in the original program's memory: Fallout Yesterday's traits, poison and stealing, Resurrection's skill
+  points, Et Tu's Pip-Boy rest and Nevada's inventory filter. A mod's scripts are told they run on the sfall it came
+  with.
 - **sfall settings for Fallout.** Fallout's engine follows what a mod's `ddraw.ini` sets of sfall: Fallout Fixt's
   fixes, its faster game, the middle mouse button, and Shift or HILITE lighting up what lies on the ground.
 - **A mod in its deck.** Put a mod in its game's deck and the deck plays it; switch back with one key.

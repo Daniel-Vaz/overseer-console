@@ -1,0 +1,1663 @@
+Draw the player with sfall's Hero Appearance art
+---
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index d40d86c..40ac57b 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -304,6 +304,8 @@ set(FALLOUT_PLATFORM_SOURCES
+     "src/sfall_filesystem.h"
+     "src/sfall_global_vars.cc"
+     "src/sfall_global_vars.h"
++    "src/sfall_hero_appearance.cc"
++    "src/sfall_hero_appearance.h"
+     "src/sfall_global_scripts.cc"
+     "src/sfall_global_scripts.h"
+     "src/sfall_ini.cc"
+diff --git a/src/art.cc b/src/art.cc
+index 017a14c..a472f80 100644
+--- a/src/art.cc
++++ b/src/art.cc
+@@ -18,6 +18,7 @@
+ #include "memory.h"
+ #include "proto.h"
+ #include "settings.h"
++#include "sfall_hero_appearance.h"
+ 
+ #include <algorithm>
+ #include <memory>
+@@ -197,6 +198,35 @@ int artInit()
+         }
+     }
+ 
++    // SFALL: Hero Appearance: the critter list twice over, the second half the
++    // player's art, named with a "_" in front (see sfall_hero_appearance.h).
++    heroAppearanceInit();
++    int critterCount = gArtListDescriptions[OBJ_TYPE_CRITTER].fileNamesLength;
++    heroAppearanceSetCritterCount(critterCount);
++    if (heroAppearanceEnabled()) {
++        if (critterCount * 2 > FrmId::kMaxFrameId + 1) {
++            debugPrint("Hero Appearance: too many critters (%d)\n", critterCount);
++            cacheFree(&gArtCache);
++            return -1;
++        }
++
++        char* names = (char*)internal_realloc(gArtListDescriptions[OBJ_TYPE_CRITTER].fileNames, ART_NAME_SIZE * critterCount * 2);
++        if (names == nullptr) {
++            cacheFree(&gArtCache);
++            return -1;
++        }
++
++        for (int critterIndex = 0; critterIndex < critterCount; critterIndex++) {
++            char* name = names + ART_NAME_SIZE * (critterCount + critterIndex);
++            name[0] = '_';
++            strncpy(name + 1, names + ART_NAME_SIZE * critterIndex, ART_NAME_SIZE - 2);
++            name[ART_NAME_SIZE - 1] = '\0';
++        }
++
++        gArtListDescriptions[OBJ_TYPE_CRITTER].fileNames = names;
++        gArtListDescriptions[OBJ_TYPE_CRITTER].fileNamesLength = critterCount * 2;
++    }
++
+     _anon_alias = (CritterFrameId*)internal_malloc(sizeof(*_anon_alias) * gArtListDescriptions[OBJ_TYPE_CRITTER].fileNamesLength);
+     if (_anon_alias == nullptr) {
+         gArtListDescriptions[OBJ_TYPE_CRITTER].fileNamesLength = 0;
+@@ -281,6 +311,12 @@ int artInit()
+ 
+     fileClose(stream);
+ 
++    // SFALL: Hero Appearance: the player's art takes after the critter's it copies.
++    for (int critterIndex = critterCount; critterIndex < gArtListDescriptions[OBJ_TYPE_CRITTER].fileNamesLength; critterIndex++) {
++        _anon_alias[critterIndex] = _anon_alias[critterIndex - critterCount];
++        gArtCritterFidShoudRunData[critterIndex] = gArtCritterFidShoudRunData[critterIndex - critterCount];
++    }
++
+     char* tileFileNames = gArtListDescriptions[OBJ_TYPE_TILE].fileNames;
+     for (int tileIndex = 0; tileIndex < gArtListDescriptions[OBJ_TYPE_TILE].fileNamesLength; tileIndex++) {
+         if (compat_stricmp(tileFileNames, "grid001.frm") == 0) {
+@@ -357,6 +393,8 @@ void artReset()
+ // 0x418EBC
+ void artExit()
+ {
++    heroAppearanceExit();
++
+     cacheFree(&gArtCache);
+ 
+     internal_free(_anon_alias);
+@@ -1606,6 +1644,20 @@ NamedCacheEntry::NamedCacheEntry(ArtPtr&& art)
+ {
+ }
+ 
++// SFALL: Hero Appearance: art loaded by name may be another now (the
++// appearance picked has its own); what is not in use is forgotten.
++void artForgetNamedFrameData()
++{
++    for (auto it = gNamedArtCache.begin(); it != gNamedArtCache.end();) {
++        if (it->second.use_count() == 1) {
++            gNamedArtCacheCurrentBytes -= artGetDataSize(it->second->art());
++            it = gNamedArtCache.erase(it);
++        } else {
++            ++it;
++        }
++    }
++}
++
+ std::shared_ptr<NamedCacheEntry> artLockNamedFrameData(const char* path)
+ {
+     auto it = gNamedArtCache.find(path);
+diff --git a/src/art.h b/src/art.h
+index 1dc500b..d1e4d0e 100644
+--- a/src/art.h
++++ b/src/art.h
+@@ -46,6 +46,7 @@ extern Cache gArtCache;
+ 
+ class NamedCacheEntry;
+ std::shared_ptr<NamedCacheEntry> artLockNamedFrameData(const char* path);
++void artForgetNamedFrameData();
+ 
+ template <typename T>
+ struct MapFrameIdToObjectType;
+diff --git a/src/character_editor.cc b/src/character_editor.cc
+index 7fa76ae..1bea449 100644
+--- a/src/character_editor.cc
++++ b/src/character_editor.cc
+@@ -41,6 +41,7 @@
+ #include "proto.h"
+ #include "scripts.h"
+ #include "settings.h"
++#include "sfall_hero_appearance.h"
+ #include "sfall_perks.h"
+ #include "skill.h"
+ #include "stat.h"
+@@ -164,8 +165,19 @@ enum Editor : int {
+     EDITOR_FIRST_TRAIT,
+     EDITOR_LAST_TRAIT = EDITOR_FIRST_TRAIT + TRAIT_COUNT - 1,
+     EDITOR_BUTTONS_COUNT = EDITOR_FIRST_TRAIT + TRAIT_COUNT,
++    // SFALL: Hero Appearance's race and style (see sfall_hero_appearance.h).
++    EDITOR_HERO_RACE = EDITOR_BUTTONS_COUNT,
++    EDITOR_HERO_STYLE,
+ };
+ 
++// SFALL: Hero Appearance's buttons.
++#define HERO_RACE_BTN_CODE 1281
++#define HERO_STYLE_BTN_CODE 1282
++#define HERO_RACE_LEFT_BTN_CODE 1297
++#define HERO_STYLE_LEFT_BTN_CODE 1298
++#define HERO_RACE_RIGHT_BTN_CODE 1299
++#define HERO_STYLE_RIGHT_BTN_CODE 1300
++
+ static constexpr int kMaxPerkOwed = 250;
+ // nb. this is number of perks, not total perk ranks. This only prevents level ups from granting more perks.
+ static constexpr int kMaxSelectablePerks = 37;
+@@ -286,6 +298,8 @@ static void characterEditorDrawName();
+ static void characterEditorDrawDerivedStats();
+ static void characterEditorDrawSkills(int a1);
+ static void characterEditorDrawCard();
++static void characterEditorDrawHeroAppearanceCard(bool style);
++static int characterEditorHandleHeroAppearance(int keyCode);
+ static int characterEditorEditName();
+ static void _PrintName(unsigned char* buf, int pitch);
+ static int characterEditorEditAge();
+@@ -857,6 +871,23 @@ static bool characterEditorOwedPerkLevelsInitialized;
+ static unsigned char gCharacterEditorIsSkillsFirstDraw;
+ 
+ static FrmImage _editorBackgroundFrmImage;
++
++// SFALL: Hero Appearance: the background made from the game's (see
++// sfall_hero_appearance.h), and the arrows that pick a race and a style.
++static unsigned char* gCharacterEditorHeroBackground = nullptr;
++static FrmImage gCharacterEditorHeroArrowFrmImages[4];
++
++static const unsigned char* characterEditorBackground()
++{
++    return gCharacterEditorHeroBackground != nullptr ? gCharacterEditorHeroBackground : _editorBackgroundFrmImage.getData();
++}
++
++// SFALL: Hero Appearance moves the skills to the right, making room for the
++// view of the character: x where the skills' things are.
++static int characterEditorSkillsX(int x, int heroX)
++{
++    return heroAppearanceEnabled() ? heroX : x;
++}
+ static FrmImage _editorFrmImages[EDITOR_GRAPHIC_COUNT];
+ static FrmImage _perkDialogBackgroundFrmImage;
+ 
+@@ -910,6 +941,12 @@ int characterEditorShow(bool isCreationMode)
+ 
+         convertMouseWheelToArrowKey(&keyCode);
+ 
++        // SFALL: Hero Appearance: the race and style, and the character turning in view.
++        if (heroAppearanceEnabled()) {
++            keyCode = characterEditorHandleHeroAppearance(keyCode);
++            heroAppearanceEditorDrawView(gCharacterEditorWindow, gCharacterEditorWindowBuffer, characterEditorBackground(), false);
++        }
++
+         bool done = false;
+         if (keyCode == 500) {
+             done = true;
+@@ -1481,7 +1518,15 @@ static int characterEditorWindowInit()
+     }
+ 
+     gCharacterEditorWindowBuffer = windowGetBuffer(gCharacterEditorWindow);
+-    memcpy(gCharacterEditorWindowBuffer, _editorBackgroundFrmImage.getData(), 640 * 480);
++
++    if (heroAppearanceEnabled()) {
++        gCharacterEditorHeroBackground = (unsigned char*)internal_malloc(640 * 480);
++        if (gCharacterEditorHeroBackground != nullptr) {
++            heroAppearanceEditorBuildBackground(_editorBackgroundFrmImage.getData(), gCharacterEditorHeroBackground, gCharacterEditorIsCreationMode);
++        }
++    }
++
++    memcpy(gCharacterEditorWindowBuffer, characterEditorBackground(), 640 * 480);
+ 
+     if (gCharacterEditorIsCreationMode) {
+         fontSetCurrent(103);
+@@ -1498,12 +1543,12 @@ static int characterEditorWindowInit()
+         // OPTIONAL TRAITS
+         str = getmsg(&gCharacterEditorMessageList, &gCharacterEditorMessageListItem, 139);
+         fontDrawText(gCharacterEditorWindowBuffer + (326 * 640) + 52, str, 640, 640, COLOR_DARK_YELLOW);
+-        characterEditorDrawBigNumber(522, 228, 0, gPerkDialogOptionCount, 0, gCharacterEditorWindow);
++        characterEditorDrawBigNumber(characterEditorSkillsX(522, 558), 228, 0, gPerkDialogOptionCount, 0, gCharacterEditorWindow);
+ 
+         // TAG SKILLS
+         str = getmsg(&gCharacterEditorMessageList, &gCharacterEditorMessageListItem, 138);
+-        fontDrawText(gCharacterEditorWindowBuffer + (233 * 640) + 422, str, 640, 640, COLOR_DARK_YELLOW);
+-        characterEditorDrawBigNumber(522, 228, 0, gCharacterEditorTaggedSkillCount, 0, gCharacterEditorWindow);
++        fontDrawText(gCharacterEditorWindowBuffer + (233 * 640) + characterEditorSkillsX(422, 458), str, 640, 640, COLOR_DARK_YELLOW);
++        characterEditorDrawBigNumber(characterEditorSkillsX(522, 558), 228, 0, gCharacterEditorTaggedSkillCount, 0, gCharacterEditorWindow);
+     } else {
+         fontSetCurrent(103);
+ 
+@@ -1716,7 +1761,7 @@ static int characterEditorWindowInit()
+         for (i = 0; i < SKILL_COUNT; i++) {
+             gCharacterEditorTagSkillBtns[i] = buttonCreate(
+                 gCharacterEditorWindow,
+-                TAG_SKILLS_BUTTON_X,
++                characterEditorSkillsX(TAG_SKILLS_BUTTON_X, TAG_SKILLS_BUTTON_X + 76),
+                 y,
+                 _editorFrmImages[EDITOR_GRAPHIC_TAG_SKILL_BUTTON_ON].getWidth(),
+                 _editorFrmImages[EDITOR_GRAPHIC_TAG_SKILL_BUTTON_ON].getHeight(),
+@@ -1949,6 +1994,15 @@ static void characterEditorWindowFree()
+ 
+     _editorBackgroundFrmImage.unlock();
+ 
++    if (gCharacterEditorHeroBackground != nullptr) {
++        internal_free(gCharacterEditorHeroBackground);
++        gCharacterEditorHeroBackground = nullptr;
++    }
++
++    for (FrmImage& arrow : gCharacterEditorHeroArrowFrmImages) {
++        arrow.unlock();
++    }
++
+     // NOTE: Uninline.
+     genericReputationFree();
+ 
+@@ -2051,7 +2105,7 @@ static void characterEditorDrawFolders()
+         return;
+     }
+ 
+-    blitBufferToBuffer(_editorBackgroundFrmImage.getData() + (360 * 640) + 34, 280, 120, 640, gCharacterEditorWindowBuffer + (360 * 640) + 34, 640);
++    blitBufferToBuffer(characterEditorBackground() + (360 * 640) + 34, 280, 120, 640, gCharacterEditorWindowBuffer + (360 * 640) + 34, 640);
+ 
+     fontSetCurrent(101);
+ 
+@@ -2414,7 +2468,7 @@ static void characterEditorDrawPcStats()
+ 
+     fontSetCurrent(101);
+ 
+-    blitBufferToBuffer(_editorBackgroundFrmImage.getData() + 640 * 280 + 32, 124, 32, 640, gCharacterEditorWindowBuffer + 640 * 280 + 32, 640);
++    blitBufferToBuffer(characterEditorBackground() + 640 * 280 + 32, 124, 32, 640, gCharacterEditorWindowBuffer + 640 * 280 + 32, 640);
+ 
+     // LEVEL
+     y = 280;
+@@ -2516,7 +2570,7 @@ static void characterEditorDrawPrimaryStat(Stat stat, bool animate, int previous
+ 
+         characterEditorDrawBigNumber(58, gCharacterEditorPrimaryStatY[stat], flags, value, previousValue, gCharacterEditorWindow);
+ 
+-        blitBufferToBuffer(_editorBackgroundFrmImage.getData() + off, kPrimaryStatDescriptionWidth, fontGetLineHeight(), 640, gCharacterEditorWindowBuffer + off, 640);
++        blitBufferToBuffer(characterEditorBackground() + off, kPrimaryStatDescriptionWidth, fontGetLineHeight(), 640, gCharacterEditorWindowBuffer + off, 640);
+ 
+         messageListItemId = critterGetStat(gDude, stat) + 199;
+         if (messageListItemId > 210) {
+@@ -2528,7 +2582,7 @@ static void characterEditorDrawPrimaryStat(Stat stat, bool animate, int previous
+     } else {
+         value = critterGetStat(gDude, stat);
+         characterEditorDrawBigNumber(58, gCharacterEditorPrimaryStatY[stat], 0, value, 0, gCharacterEditorWindow);
+-        blitBufferToBuffer(_editorBackgroundFrmImage.getData() + off, kPrimaryStatDescriptionWidth, fontGetLineHeight(), 640, gCharacterEditorWindowBuffer + off, 640);
++        blitBufferToBuffer(characterEditorBackground() + off, kPrimaryStatDescriptionWidth, fontGetLineHeight(), 640, gCharacterEditorWindowBuffer + off, 640);
+ 
+         value = critterGetStat(gDude, stat);
+         if (value > 10) {
+@@ -2670,7 +2724,7 @@ static void characterEditorDrawDerivedStats()
+ 
+     y = 46;
+ 
+-    blitBufferToBuffer(_editorBackgroundFrmImage.getData() + 640 * y + 194, 118, 108, 640, gCharacterEditorWindowBuffer + 640 * y + 194, 640);
++    blitBufferToBuffer(characterEditorBackground() + 640 * y + 194, 118, 108, 640, gCharacterEditorWindowBuffer + 640 * y + 194, 640);
+ 
+     // Hit Points
+     if (characterEditorSelectedItem == EDITOR_HIT_POINTS) {
+@@ -2789,7 +2843,7 @@ static void characterEditorDrawDerivedStats()
+ 
+     y = 179;
+ 
+-    blitBufferToBuffer(_editorBackgroundFrmImage.getData() + 640 * y + 194, 116, 130, 640, gCharacterEditorWindowBuffer + 640 * y + 194, 640);
++    blitBufferToBuffer(characterEditorBackground() + 640 * y + 194, 116, 130, 640, gCharacterEditorWindowBuffer + 640 * y + 194, 640);
+ 
+     // Armor Class
+     if (characterEditorSelectedItem == EDITOR_FIRST_DERIVED_STAT + EDITOR_DERIVED_STAT_ARMOR_CLASS) {
+@@ -2977,30 +3031,31 @@ static void characterEditorDrawSkills(int a1)
+         gCharacterEditorSliderPlusBtn = -1;
+     }
+ 
+-    blitBufferToBuffer(_editorBackgroundFrmImage.getData() + 370, 270, 252, 640, gCharacterEditorWindowBuffer + 370, 640);
++    int skillsX = characterEditorSkillsX(370, 446);
++    blitBufferToBuffer(characterEditorBackground() + skillsX, 640 - skillsX, 252, 640, gCharacterEditorWindowBuffer + skillsX, 640);
+ 
+     fontSetCurrent(103);
+ 
+     // SKILLS
+     str = getmsg(&gCharacterEditorMessageList, &gCharacterEditorMessageListItem, 117);
+-    fontDrawText(gCharacterEditorWindowBuffer + 640 * 5 + 380, str, 640, 640, COLOR_DARK_YELLOW);
++    fontDrawText(gCharacterEditorWindowBuffer + 640 * 5 + characterEditorSkillsX(380, 448), str, 640, 640, COLOR_DARK_YELLOW);
+ 
+     if (!gCharacterEditorIsCreationMode) {
+         // SKILL POINTS
+         str = getmsg(&gCharacterEditorMessageList, &gCharacterEditorMessageListItem, 112);
+-        fontDrawText(gCharacterEditorWindowBuffer + 640 * 233 + 400, str, 640, 640, COLOR_DARK_YELLOW);
++        fontDrawText(gCharacterEditorWindowBuffer + 640 * 233 + characterEditorSkillsX(400, 436), str, 640, 640, COLOR_DARK_YELLOW);
+ 
+         value = pcGetStat(PC_STAT_UNSPENT_SKILL_POINTS);
+-        characterEditorDrawBigNumber(522, 228, 0, value, 0, gCharacterEditorWindow);
++        characterEditorDrawBigNumber(characterEditorSkillsX(522, 558), 228, 0, value, 0, gCharacterEditorWindow);
+     } else {
+         // TAG SKILLS
+         str = getmsg(&gCharacterEditorMessageList, &gCharacterEditorMessageListItem, 138);
+-        fontDrawText(gCharacterEditorWindowBuffer + 640 * 233 + 422, str, 640, 640, COLOR_DARK_YELLOW);
++        fontDrawText(gCharacterEditorWindowBuffer + 640 * 233 + characterEditorSkillsX(422, 458), str, 640, 640, COLOR_DARK_YELLOW);
+ 
+         if (a1 == 2 && !gCharacterEditorIsSkillsFirstDraw) {
+-            characterEditorDrawBigNumber(522, 228, ANIMATE, gCharacterEditorTaggedSkillCount, gCharacterEditorOldTaggedSkillCount, gCharacterEditorWindow);
++            characterEditorDrawBigNumber(characterEditorSkillsX(522, 558), 228, ANIMATE, gCharacterEditorTaggedSkillCount, gCharacterEditorOldTaggedSkillCount, gCharacterEditorWindow);
+         } else {
+-            characterEditorDrawBigNumber(522, 228, 0, gCharacterEditorTaggedSkillCount, 0, gCharacterEditorWindow);
++            characterEditorDrawBigNumber(characterEditorSkillsX(522, 558), 228, 0, gCharacterEditorTaggedSkillCount, 0, gCharacterEditorWindow);
+             gCharacterEditorIsSkillsFirstDraw = 0;
+         }
+     }
+@@ -3026,12 +3081,12 @@ static void characterEditorDrawSkills(int a1)
+         }
+ 
+         str = skillGetName(skill);
+-        fontDrawText(gCharacterEditorWindowBuffer + 640 * y + 380, str, 640, 640, color);
++        fontDrawText(gCharacterEditorWindowBuffer + 640 * y + characterEditorSkillsX(380, 448), str, 640, 640, color);
+ 
+         value = skillGetValue(gDude, skill);
+         snprintf(valueString, sizeof(valueString), "%d%%", value);
+ 
+-        fontDrawText(gCharacterEditorWindowBuffer + 640 * y + 573, valueString, 640, 640, color);
++        fontDrawText(gCharacterEditorWindowBuffer + 640 * y + characterEditorSkillsX(573, 583), valueString, 640, 640, color);
+ 
+         y += fontGetLineHeight() + 1;
+     }
+@@ -3045,14 +3100,14 @@ static void characterEditorDrawSkills(int a1)
+             _editorFrmImages[EDITOR_GRAPHIC_SLIDER].getWidth(),
+             _editorFrmImages[EDITOR_GRAPHIC_SLIDER].getHeight(),
+             _editorFrmImages[EDITOR_GRAPHIC_SLIDER].getWidth(),
+-            gCharacterEditorWindowBuffer + 640 * (y + 16) + 592,
++            gCharacterEditorWindowBuffer + 640 * (y + 16) + characterEditorSkillsX(592, 595),
+             640);
+ 
+         if (a1 == 0) {
+             if (gCharacterEditorSliderPlusBtn == -1) {
+                 gCharacterEditorSliderPlusBtn = buttonCreate(
+                     gCharacterEditorWindow,
+-                    614,
++                    characterEditorSkillsX(614, 617),
+                     gCharacterEditorSkillValueAdjustmentSliderY - 7,
+                     _editorFrmImages[EDITOR_GRAPHIC_SLIDER_PLUS_ON].getWidth(),
+                     _editorFrmImages[EDITOR_GRAPHIC_SLIDER_PLUS_ON].getHeight(),
+@@ -3070,7 +3125,7 @@ static void characterEditorDrawSkills(int a1)
+             if (gCharacterEditorSliderMinusBtn == -1) {
+                 gCharacterEditorSliderMinusBtn = buttonCreate(
+                     gCharacterEditorWindow,
+-                    614,
++                    characterEditorSkillsX(614, 617),
+                     gCharacterEditorSkillValueAdjustmentSliderY + 4 - 12 + _editorFrmImages[EDITOR_GRAPHIC_SLIDER_MINUS_ON].getHeight(),
+                     _editorFrmImages[EDITOR_GRAPHIC_SLIDER_MINUS_ON].getWidth(),
+                     _editorFrmImages[EDITOR_GRAPHIC_SLIDER_MINUS_OFF].getHeight(),
+@@ -3093,6 +3148,12 @@ static void characterEditorDrawCard()
+ {
+     const auto item = characterEditorSelectedItem;
+ 
++    // SFALL: Hero Appearance's race and style.
++    if (item == EDITOR_HERO_RACE || item == EDITOR_HERO_STYLE) {
++        characterEditorDrawHeroAppearanceCard(item == EDITOR_HERO_STYLE);
++        return;
++    }
++
+     if (item < EDITOR_FIRST_PRIMARY_STAT || item > EDITOR_LAST_TRAIT) {
+         return;
+     }
+@@ -3101,7 +3162,7 @@ static void characterEditorDrawCard()
+     constexpr int CARD_X = 345;
+     constexpr int CARD_Y = 267;
+ 
+-    blitBufferToBuffer(_editorBackgroundFrmImage.getData() + (STRIDE * CARD_Y) + CARD_X, 295, 170, STRIDE, gCharacterEditorWindowBuffer + (CARD_Y * STRIDE) + CARD_X, STRIDE);
++    blitBufferToBuffer(characterEditorBackground() + (STRIDE * CARD_Y) + CARD_X, 295, 170, STRIDE, gCharacterEditorWindowBuffer + (CARD_Y * STRIDE) + CARD_X, STRIDE);
+ 
+     auto drawMsgCard = [&](SkillDexFrmId fid, int titleId, int descId) {
+         const char* title = getmsg(&gCharacterEditorMessageList, &gCharacterEditorMessageListItem, titleId);
+@@ -3488,6 +3549,7 @@ static int characterEditorEditAge()
+ static void characterEditorEditGender()
+ {
+     char* text;
++    int genderBefore = critterGetStat(gDude, STAT_GENDER);
+ 
+     int windowWidth = _editorFrmImages[EDITOR_GRAPHIC_CHARWIN].getWidth();
+     int windowHeight = _editorFrmImages[EDITOR_GRAPHIC_CHARWIN].getHeight();
+@@ -3625,6 +3687,18 @@ static void characterEditorEditGender()
+ 
+     characterEditorDrawGender();
+     windowDestroy(win);
++
++    // SFALL: Hero Appearance: another sex has races and styles of its own; the
++    // first of them, as sfall does.
++    if (heroAppearanceEnabled() && critterGetStat(gDude, STAT_GENDER) != genderBefore) {
++        heroAppearanceSetDefault();
++        _proto_dude_update_gender();
++        heroAppearanceEditorDrawView(gCharacterEditorWindow, gCharacterEditorWindowBuffer, characterEditorBackground(), true);
++        if (characterEditorSelectedItem == EDITOR_HERO_RACE || characterEditorSelectedItem == EDITOR_HERO_STYLE) {
++            characterEditorDrawCard();
++        }
++        windowRefresh(gCharacterEditorWindow);
++    }
+ }
+ 
+ // 0x4379BC StatButton
+@@ -4719,9 +4793,43 @@ static void characterEditorRegisterInfoAreas()
+ 
+     buttonCreate(gCharacterEditorWindow, 191, 41, 122, 110, -1, -1, 528, -1, nullptr, nullptr, nullptr, 0);
+     buttonCreate(gCharacterEditorWindow, 191, 175, 122, 135, -1, -1, 529, -1, nullptr, nullptr, nullptr, 0);
+-    buttonCreate(gCharacterEditorWindow, 376, 5, 223, 20, -1, -1, 530, -1, nullptr, nullptr, nullptr, 0);
+-    buttonCreate(gCharacterEditorWindow, 370, 27, 223, 195, -1, -1, 531, -1, nullptr, nullptr, nullptr, 0);
+-    buttonCreate(gCharacterEditorWindow, 396, 228, 171, 25, -1, -1, 532, -1, nullptr, nullptr, nullptr, 0);
++    buttonCreate(gCharacterEditorWindow, characterEditorSkillsX(376, 444), 5, characterEditorSkillsX(223, 155), 20, -1, -1, 530, -1, nullptr, nullptr, nullptr, 0);
++    buttonCreate(gCharacterEditorWindow, characterEditorSkillsX(370, 446), 27, characterEditorSkillsX(223, 157), 195, -1, -1, 531, -1, nullptr, nullptr, nullptr, 0);
++    buttonCreate(gCharacterEditorWindow, characterEditorSkillsX(396, 426), 228, 171, 25, -1, -1, 532, -1, nullptr, nullptr, nullptr, 0);
++
++    // SFALL: Hero Appearance: the race and style headings, and their arrows
++    // when a character is made.
++    if (heroAppearanceEnabled()) {
++        buttonCreate(gCharacterEditorWindow, 332, 0, 82, 32, -1, -1, HERO_RACE_BTN_CODE, -1, nullptr, nullptr, nullptr, 0);
++        buttonCreate(gCharacterEditorWindow, 332, 226, 82, 32, -1, -1, HERO_STYLE_BTN_CODE, -1, nullptr, nullptr, nullptr, 0);
++
++        if (gCharacterEditorIsCreationMode && (heroAppearanceHasRaces() || heroAppearanceHasStyles())) {
++            // Left up and down, right up and down.
++            for (int index = 0; index < 4; index++) {
++                gCharacterEditorHeroArrowFrmImages[index].lock(FrmId(OBJ_TYPE_INTERFACE, 122 + index));
++            }
++
++            auto arrow = [](int x, int y, int code, int image) {
++                FrmImage& up = gCharacterEditorHeroArrowFrmImages[image];
++                FrmImage& down = gCharacterEditorHeroArrowFrmImages[image + 1];
++                if (up.isLocked() && down.isLocked()) {
++                    int btn = buttonCreate(gCharacterEditorWindow, x, y, up.getWidth(), up.getHeight(), -1, -1, -1, code, up.getData(), down.getData(), nullptr, BUTTON_FLAG_TRANSPARENT);
++                    if (btn != -1) {
++                        buttonSetCallbacks(btn, _gsound_red_butt_press, nullptr);
++                    }
++                }
++            };
++
++            if (heroAppearanceHasRaces()) {
++                arrow(348, 37, HERO_RACE_LEFT_BTN_CODE, 0);
++                arrow(374, 37, HERO_RACE_RIGHT_BTN_CODE, 2);
++            }
++            if (heroAppearanceHasStyles()) {
++                arrow(348, 199, HERO_STYLE_LEFT_BTN_CODE, 0);
++                arrow(374, 199, HERO_STYLE_RIGHT_BTN_CODE, 2);
++            }
++        }
++    }
+ }
+ 
+ // copy character to editor
+@@ -4941,6 +5049,124 @@ static int characterEditorDrawCardWithOptions(const SkillDexFrmId& frmId, const
+     return 0;
+ }
+ 
++// SFALL: Hero Appearance: the race or style picked, as its own words and
++// picture tell of it (game\AppRace.msg and art\skilldex\AppRace.frm, or
++// AppStyle, of the appearance picked).
++static void characterEditorDrawHeroAppearanceCard(bool style)
++{
++    constexpr int CARD_X = 345;
++    constexpr int CARD_Y = 267;
++    blitBufferToBuffer(characterEditorBackground() + (640 * CARD_Y) + CARD_X, 295, 170, 640, gCharacterEditorWindowBuffer + (CARD_Y * 640) + CARD_X, 640);
++
++    MessageList messageList;
++    if (!messageListInit(&messageList)) {
++        return;
++    }
++
++    if (messageListLoad(&messageList, style ? "game\\AppStyle.msg" : "game\\AppRace.msg")) {
++        MessageListItem title;
++        title.num = 100;
++        MessageListItem description;
++        description.num = 101;
++        if (messageListGetItem(&messageList, &title) && messageListGetItem(&messageList, &description)) {
++            characterEditorDrawCardWithOptions(SkillDexFrmId(style ? "AppStyle.frm" : "AppRace.frm"), title.text, nullptr, description.text);
++        }
++    }
++
++    messageListFree(&messageList);
++}
++
++// SFALL: Hero Appearance: picking a race (left and right on its heading, or
++// its arrows) and a style, as sfall does. Returns the key for the rest of the
++// screen, or -1 for one taken.
++static int characterEditorHandleHeroAppearance(int keyCode)
++{
++    bool race = characterEditorSelectedItem == EDITOR_HERO_RACE;
++    bool style = characterEditorSelectedItem == EDITOR_HERO_STYLE;
++
++    // Tab from the style back to the first of the rest.
++    bool leaving = false;
++
++    if (race || style) {
++        switch (keyCode) {
++        case KEY_ARROW_LEFT:
++        case KEY_ARROW_RIGHT:
++            if (!gCharacterEditorIsCreationMode) {
++                return -1;
++            }
++            if (race) {
++                keyCode = keyCode == KEY_ARROW_LEFT ? HERO_RACE_LEFT_BTN_CODE : HERO_RACE_RIGHT_BTN_CODE;
++            } else {
++                keyCode = keyCode == KEY_ARROW_LEFT ? HERO_STYLE_LEFT_BTN_CODE : HERO_STYLE_RIGHT_BTN_CODE;
++            }
++            break;
++        case KEY_ARROW_UP:
++        case KEY_ARROW_DOWN:
++            keyCode = race ? HERO_STYLE_BTN_CODE : HERO_RACE_BTN_CODE;
++            break;
++        case KEY_TAB:
++            if (race) {
++                keyCode = HERO_STYLE_BTN_CODE;
++            } else {
++                characterEditorSelectedItem = EDITOR_FIRST_PRIMARY_STAT;
++                leaving = true;
++            }
++            break;
++        }
++    }
++
++    bool changed = false;
++    if (!leaving) {
++        switch (keyCode) {
++        case HERO_RACE_BTN_CODE:
++        case HERO_STYLE_BTN_CODE:
++            if (characterEditorSelectedItem == (keyCode == HERO_RACE_BTN_CODE ? EDITOR_HERO_RACE : EDITOR_HERO_STYLE)) {
++                return -1;
++            }
++            characterEditorSelectedItem = keyCode == HERO_RACE_BTN_CODE ? EDITOR_HERO_RACE : EDITOR_HERO_STYLE;
++            break;
++        case HERO_RACE_LEFT_BTN_CODE:
++            characterEditorSelectedItem = EDITOR_HERO_RACE;
++            changed = heroAppearanceRace() > 0 && heroAppearanceSetRace(heroAppearanceRace() - 1);
++            break;
++        case HERO_RACE_RIGHT_BTN_CODE:
++            characterEditorSelectedItem = EDITOR_HERO_RACE;
++            changed = heroAppearanceSetRace(heroAppearanceRace() + 1);
++            break;
++        case HERO_STYLE_LEFT_BTN_CODE:
++            characterEditorSelectedItem = EDITOR_HERO_STYLE;
++            changed = heroAppearanceStyle() > 0 && heroAppearanceSetStyle(heroAppearanceStyle() - 1);
++            break;
++        case HERO_STYLE_RIGHT_BTN_CODE:
++            characterEditorSelectedItem = EDITOR_HERO_STYLE;
++            changed = heroAppearanceSetStyle(heroAppearanceStyle() + 1);
++            break;
++        default:
++            return keyCode;
++        }
++
++        if (keyCode >= HERO_RACE_LEFT_BTN_CODE && keyCode <= HERO_STYLE_RIGHT_BTN_CODE) {
++            if (!changed) {
++                soundPlayFile("ib3lu1x1");
++                return -1;
++            }
++            soundPlayFile("ib3p1xx1");
++            heroAppearanceEditorDrawView(gCharacterEditorWindow, gCharacterEditorWindowBuffer, characterEditorBackground(), true);
++        }
++    }
++
++    // What is picked lit up, the rest not; and its card.
++    characterEditorDrawPrimaryStat(PRIMARY_STAT_COUNT, 0, 0);
++    characterEditorDrawOptionalTraits();
++    characterEditorDrawSkills(0);
++    characterEditorDrawPcStats();
++    characterEditorDrawFolders();
++    characterEditorDrawDerivedStats();
++    characterEditorDrawCard();
++    windowRefresh(gCharacterEditorWindow);
++    return -1;
++}
++
+ // 0x43AE8
+ static void characterEditorHandleFolderButtonPressed()
+ {
+@@ -5200,7 +5426,7 @@ static void characterEditorHandleAdjustSkillButtonPressed(int keyCode)
+                 flags = 0;
+             }
+ 
+-            characterEditorDrawBigNumber(522, 228, flags, pcGetStat(PC_STAT_UNSPENT_SKILL_POINTS), unspentSp, gCharacterEditorWindow);
++            characterEditorDrawBigNumber(characterEditorSkillsX(522, 558), 228, flags, pcGetStat(PC_STAT_UNSPENT_SKILL_POINTS), unspentSp, gCharacterEditorWindow);
+ 
+             windowRefresh(gCharacterEditorWindow);
+         }
+@@ -5317,7 +5543,7 @@ static void characterEditorDrawOptionalTraits()
+         selectedTrait = static_cast<Trait>(characterEditorSelectedItem - EDITOR_FIRST_TRAIT);
+     }
+ 
+-    blitBufferToBuffer(_editorBackgroundFrmImage.getData() + 640 * 353 + 47, 245, 100, 640, gCharacterEditorWindowBuffer + 640 * 353 + 47, 640);
++    blitBufferToBuffer(characterEditorBackground() + 640 * 353 + 47, 245, 100, 640, gCharacterEditorWindowBuffer + 640 * 353 + 47, 640);
+ 
+     fontSetCurrent(101);
+ 
+@@ -7086,7 +7312,7 @@ static void characterEditorFolderViewScroll(int direction)
+ 
+     if (characterEditorSelectedItem >= EDITOR_PERK_KARMA_KILLS && characterEditorSelectedItem < EDITOR_HIT_POINTS) {
+         blitBufferToBuffer(
+-            _editorBackgroundFrmImage.getData() + 640 * 267 + 345,
++            characterEditorBackground() + 640 * 267 + 345,
+             295,
+             170,
+             640,
+diff --git a/src/critter.cc b/src/critter.cc
+index c392082..4abb65c 100644
+--- a/src/critter.cc
++++ b/src/critter.cc
+@@ -29,6 +29,7 @@
+ #include "random.h"
+ #include "reaction.h"
+ #include "scripts.h"
++#include "sfall_hero_appearance.h"
+ #include "sfall_object_name.h"
+ #include "sfall_script_hooks.h"
+ #include "skill.h"
+@@ -1069,7 +1070,12 @@ int gcdLoad(const char* path)
+     proto->critter.data.experience = 0;
+     proto->critter.data.killType = KILL_TYPE_MAN;
+ 
++    // SFALL: Hero Appearance: the character's race and style.
++    heroAppearanceReadPremade(stream);
++
+     fileClose(stream);
++
++    _proto_dude_update_gender();
+     return 0;
+ }
+ 
+@@ -1136,6 +1142,9 @@ int gcdSave(const char* path)
+         return -1;
+     }
+ 
++    // SFALL: Hero Appearance: the character's race and style.
++    heroAppearanceWritePremade(stream);
++
+     fileClose(stream);
+     return 0;
+ }
+diff --git a/src/db.cc b/src/db.cc
+index d9b4865..8ae8896 100644
+--- a/src/db.cc
++++ b/src/db.cc
+@@ -6,6 +6,7 @@
+ 
+ #include "platform_compat.h"
+ #include "sfall_filesystem.h"
++#include "sfall_hero_appearance.h"
+ #include "xfile.h"
+ 
+ namespace fallout {
+@@ -163,6 +164,14 @@ static File* fileOpenImpl(const char* filename, const char* mode, bool useVirtua
+         }
+     }
+ 
++    // SFALL: the player's own art (see sfall_hero_appearance.h).
++    if (readOnly) {
++        File* stream = heroAppearanceOpen(filename, mode);
++        if (stream != nullptr) {
++            return stream;
++        }
++    }
++
+     return xfileOpen(filename, mode);
+ }
+ 
+diff --git a/src/game_sound.cc b/src/game_sound.cc
+index 733610c..b084b58 100644
+--- a/src/game_sound.cc
++++ b/src/game_sound.cc
+@@ -1477,6 +1477,11 @@ char* sfxBuildCharName(Object* a1, AnimationType anim, CharacterSoundEffect soun
+         return nullptr;
+     }
+ 
++    // SFALL: Hero Appearance: the player's art sounds as the critter's it copies.
++    if (artName[0] == '_') {
++        memmove(artName, artName + 1, strlen(artName));
++    }
++
+     // weapon animation and character sound effect is being mishmashed together within code
+     WeaponAnimation weaponAnimation = weaponAnimationIsValid(static_cast<int>(soundEffect)) ? static_cast<WeaponAnimation>(soundEffect) : WeaponAnimation::None;
+ 
+diff --git a/src/interpreter_extra.cc b/src/interpreter_extra.cc
+index dbeb474..1894183 100644
+--- a/src/interpreter_extra.cc
++++ b/src/interpreter_extra.cc
+@@ -41,6 +41,7 @@
+ #include "scripts.h"
+ #include "settings.h"
+ #include "sfall_config.h"
++#include "sfall_hero_appearance.h"
+ #include "sfall_opcodes.h"
+ #include "sfall_script_hooks.h"
+ #include "skill.h"
+@@ -2065,6 +2066,9 @@ static void opMetarule3(Program* program)
+                 frameId = FrmId(frameId).frameId();
+             }
+ 
++            // SFALL: Hero Appearance: the player's art number in the player's range.
++            frameId = heroAppearanceScriptSetFrameId(obj, frameId);
++
+             const FrmId frmId = FrmId(obj);
+             const FrmId newFrmId = FrmId(frmId.objectType(),
+                 frameId,
+@@ -4736,7 +4740,8 @@ static void opGetObjectFid(Program* program)
+ 
+     int fid = 0;
+     if (object != nullptr) {
+-        fid = object->fid;
++        // SFALL: Hero Appearance: the player's art number as the game's.
++        fid = heroAppearanceScriptFid(object, object->fid);
+     } else {
+         scriptPredefinedError(program, "obj_art_fid", SCRIPT_ERROR_OBJECT_IS_NULL);
+     }
+diff --git a/src/inventory.cc b/src/inventory.cc
+index 50d7358..d6a896e 100644
+--- a/src/inventory.cc
++++ b/src/inventory.cc
+@@ -46,6 +46,7 @@
+ #include "reaction.h"
+ #include "scripts.h"
+ #include "settings.h"
++#include "sfall_hero_appearance.h"
+ #include "sfall_script_hooks.h"
+ #include "skill.h"
+ #include "stat.h"
+@@ -1599,6 +1600,11 @@ FrmId inventoryComputeCritterFrmId(Object* critter, const ProtoId& baseProtoId,
+         }
+     }
+ 
++    // SFALL: Hero Appearance: the player's own art, armour included.
++    if (critter == gDude) {
++        inventoryFrameId = heroAppearanceFrameId(inventoryFrameId);
++    }
++
+     WeaponAnimation animationCode = WeaponAnimation::None;
+     Object* itemInHand = activeHand == HAND_RIGHT ? rightHandItem : leftHandItem;
+     if (itemInHand != nullptr) {
+@@ -3916,6 +3922,9 @@ int inventoryEquipFunc(Object* critter, Object* item, Hand handIndex, bool anima
+         }
+ 
+         if (critter == gDude) {
++            // SFALL: Hero Appearance: the player's own art.
++            baseFrameId = heroAppearanceFrameId(baseFrameId);
++
+             if (!isoIsDisabled()) {
+                 const CritterFrmId frmId = CritterFrmId(baseFrameId, ANIM_STAND, FrmId(critter).weaponAnimation(), critter->rotation + 1);
+                 animationRegisterSetFrmId(critter, frmId, 0);
+diff --git a/src/loadsave.cc b/src/loadsave.cc
+index d53b050..66ab83b 100644
+--- a/src/loadsave.cc
++++ b/src/loadsave.cc
+@@ -55,6 +55,7 @@
+ #include "sfall_filesystem.h"
+ #include "sfall_global_scripts.h"
+ #include "sfall_global_vars.h"
++#include "sfall_hero_appearance.h"
+ #include "skill.h"
+ #include "stat.h"
+ #include "string_utils.h"
+@@ -2285,6 +2286,9 @@ static int lsgLoadGameInSlot(int slot)
+ 
+     _loadingGame = false;
+ 
++    // SFALL: the appearance kept with the game.
++    heroAppearanceGameStarted(false);
++
+     // SFALL: Start global scripts.
+     sfall_gl_scr_exec_start_proc();
+     // SFALL: Call "after start" event
+diff --git a/src/main.cc b/src/main.cc
+index 1e1a068..6773481 100644
+--- a/src/main.cc
++++ b/src/main.cc
+@@ -37,6 +37,7 @@
+ #include "settings.h"
+ #include "sfall_callbacks.h"
+ #include "sfall_global_scripts.h"
++#include "sfall_hero_appearance.h"
+ #include "svga.h"
+ #include "text_font.h"
+ #include "window.h"
+@@ -159,6 +160,10 @@ int falloutMain(int argc, char** argv)
+                     _main_load_new(mapNameCopy);
+                     free(mapNameCopy);
+ 
++                    // SFALL: the appearance picked for the new character,
++                    // kept for the game's scripts as well.
++                    heroAppearanceGameStarted(true);
++
+                     // SFALL: AfterNewGameStartHook.
+                     sfall_gl_scr_exec_start_proc();
+                     // SFALL: Call "after loading" event
+diff --git a/src/object.cc b/src/object.cc
+index 48c7da5..4ac9654 100644
+--- a/src/object.cc
++++ b/src/object.cc
+@@ -28,6 +28,7 @@
+ #include "proto_instance.h"
+ #include "scripts.h"
+ #include "settings.h"
++#include "sfall_hero_appearance.h"
+ #include "svga.h"
+ #include "text_object.h"
+ #include "tile.h"
+@@ -3692,7 +3693,10 @@ int _obj_save_dude(File* stream)
+     gDude->flags &= ~OBJECT_NO_SAVE;
+     gDude->sid = -1;
+ 
++    // SFALL: Hero Appearance: saved with the game's art number, as sfall does.
++    heroAppearanceBeforeSave();
+     int rc = _obj_save_obj(stream, gDude);
++    heroAppearanceAfterSave();
+ 
+     gDude->sid = field_78;
+     gDude->flags |= OBJECT_NO_SAVE;
+diff --git a/src/proto.cc b/src/proto.cc
+index 866c3b8..eaf780c 100644
+--- a/src/proto.cc
++++ b/src/proto.cc
+@@ -21,6 +21,7 @@
+ #include "perk.h"
+ #include "pipboy.h"
+ #include "settings.h"
++#include "sfall_hero_appearance.h"
+ #include "skill.h"
+ #include "stat.h"
+ #include "trait.h"
+@@ -887,7 +888,8 @@ int _proto_dude_update_gender()
+         frmId = _art_vault_person_nums[nativeLook][GENDER_FEMALE];
+     }
+ 
+-    _art_vault_guy_num = frmId;
++    // SFALL: Hero Appearance: the player's own art.
++    _art_vault_guy_num = heroAppearanceFrameId(frmId);
+ 
+     if (critterGetArmor(gDude) == nullptr) {
+         WeaponAnimation weaponAnimationCode = WeaponAnimation::None;
+diff --git a/src/sfall_hero_appearance.cc b/src/sfall_hero_appearance.cc
+new file mode 100644
+index 0000000..143d167
+--- /dev/null
++++ b/src/sfall_hero_appearance.cc
+@@ -0,0 +1,627 @@
++#include "sfall_hero_appearance.h"
++
++#include <stdio.h>
++#include <string.h>
++
++#include <algorithm>
++
++#include "color.h"
++#include "critter.h"
++#include "debug.h"
++#include "dfile.h"
++#include "draw.h"
++#include "input.h"
++#include "interface.h"
++#include "inventory.h"
++#include "item.h"
++#include "message.h"
++#include "object.h"
++#include "platform_compat.h"
++#include "proto.h"
++#include "sfall_config.h"
++#include "sfall_global_vars.h"
++#include "stat.h"
++#include "text_font.h"
++#include "tile.h"
++#include "window_manager.h"
++#include "xfile.h"
++
++namespace fallout {
++
++// Where the player's art is looked for: a folder, or an archive.
++typedef struct AppearanceSource {
++    char folder[COMPAT_MAX_PATH];
++    DBase* dbase;
++} AppearanceSource;
++
++// sfall's setting: 1, or 2 when scripts see the player's art numbers as they
++// are (obj_art_fid, art_change_fid_num).
++static int gHeroAppearanceMode = 0;
++static bool gHeroAppearanceRaces = false;
++static bool gHeroAppearanceStyles = false;
++static int gHeroAppearanceCritterCount = 0;
++static int gHeroAppearanceRace = 0;
++static int gHeroAppearanceStyle = 0;
++
++// The appearance picked, then its race's first style: its folder before its
++// archive, as sfall looks in them.
++static AppearanceSource gHeroAppearanceSources[4];
++static int gHeroAppearanceSourceCount = 0;
++
++static const char* kHeroAppearanceRaceGlobal = "HAp_Race";
++static const char* kHeroAppearanceStyleGlobal = "HApStyle";
++
++static char heroAppearanceSex()
++{
++    return gDude != nullptr && critterGetStat(gDude, STAT_GENDER) == GENDER_FEMALE ? 'F' : 'M';
++}
++
++static void heroAppearanceAppearancePath(char* path, size_t size, int race, int style, const char* extension)
++{
++    snprintf(path, size, "Appearance\\h%cR%02dS%02d%s", heroAppearanceSex(), race, style, extension);
++}
++
++static void heroAppearanceCloseSources()
++{
++    for (int index = 0; index < gHeroAppearanceSourceCount; index++) {
++        if (gHeroAppearanceSources[index].dbase != nullptr) {
++            dbaseClose(gHeroAppearanceSources[index].dbase);
++        }
++    }
++    gHeroAppearanceSourceCount = 0;
++}
++
++// Adds the folder and the archive of an appearance, where there are any.
++static bool heroAppearanceAddSources(int race, int style)
++{
++    bool found = false;
++    char path[COMPAT_MAX_PATH];
++
++    heroAppearanceAppearancePath(path, sizeof(path), race, style, "");
++    if (compat_is_dir(path)) {
++        AppearanceSource* source = &(gHeroAppearanceSources[gHeroAppearanceSourceCount++]);
++        snprintf(source->folder, sizeof(source->folder), "%s", path);
++        source->dbase = nullptr;
++        found = true;
++    }
++
++    heroAppearanceAppearancePath(path, sizeof(path), race, style, ".dat");
++    if (compat_file_exists(path)) {
++        DBase* dbase = dbaseOpen(path);
++        if (dbase != nullptr) {
++            AppearanceSource* source = &(gHeroAppearanceSources[gHeroAppearanceSourceCount++]);
++            source->folder[0] = '\0';
++            source->dbase = dbase;
++        }
++        found = true;
++    }
++
++    return found;
++}
++
++// sfall's LoadHeroDat: false when the appearance has neither folder nor
++// archive (and nothing changes).
++static bool heroAppearanceLoad(int race, int style)
++{
++    char path[COMPAT_MAX_PATH];
++    heroAppearanceAppearancePath(path, sizeof(path), race, style, "");
++    bool exists = compat_is_dir(path);
++    heroAppearanceAppearancePath(path, sizeof(path), race, style, ".dat");
++    exists = exists || compat_file_exists(path);
++    if (!exists) {
++        return false;
++    }
++
++    heroAppearanceCloseSources();
++    heroAppearanceAddSources(race, style);
++    if (style != 0) {
++        heroAppearanceAddSources(race, 0);
++    }
++
++    artCacheFlush();
++    artForgetNamedFrameData();
++    return true;
++}
++
++bool heroAppearanceInit()
++{
++    gHeroAppearanceMode = 0;
++    configGetInt(&gSfallConfig, SFALL_CONFIG_MISC_KEY, "EnableHeroAppearanceMod", &gHeroAppearanceMode);
++    if (gHeroAppearanceMode <= 0) {
++        gHeroAppearanceMode = 0;
++        return true;
++    }
++
++    // Races and styles past the first, of either sex.
++    gHeroAppearanceRaces = compat_is_dir("Appearance\\hmR01S00") || compat_is_dir("Appearance\\hfR01S00")
++        || compat_file_exists("Appearance\\hmR01S00.dat") || compat_file_exists("Appearance\\hfR01S00.dat");
++    gHeroAppearanceStyles = compat_is_dir("Appearance\\hmR00S01") || compat_is_dir("Appearance\\hfR00S01")
++        || compat_file_exists("Appearance\\hmR00S01.dat") || compat_file_exists("Appearance\\hfR00S01.dat");
++
++    debugPrint("Hero Appearance on (races: %d, styles: %d)\n", gHeroAppearanceRaces, gHeroAppearanceStyles);
++    return true;
++}
++
++bool heroAppearanceEnabled()
++{
++    return gHeroAppearanceMode > 0;
++}
++
++bool heroAppearanceHasRaces()
++{
++    return heroAppearanceEnabled() && gHeroAppearanceRaces;
++}
++
++bool heroAppearanceHasStyles()
++{
++    return heroAppearanceEnabled() && gHeroAppearanceStyles;
++}
++
++int heroAppearanceCritterCount()
++{
++    return gHeroAppearanceCritterCount;
++}
++
++void heroAppearanceSetCritterCount(int count)
++{
++    gHeroAppearanceCritterCount = count;
++}
++
++CritterFrameId heroAppearanceFrameId(CritterFrameId frameId)
++{
++    int index = static_cast<int>(frameId);
++    if (!heroAppearanceEnabled() || index < 0 || index >= gHeroAppearanceCritterCount) {
++        return frameId;
++    }
++    return static_cast<CritterFrameId>(index + gHeroAppearanceCritterCount);
++}
++
++CritterFrameId heroAppearanceGameFrameId(CritterFrameId frameId)
++{
++    int index = static_cast<int>(frameId);
++    if (!heroAppearanceEnabled() || index < gHeroAppearanceCritterCount) {
++        return frameId;
++    }
++    return static_cast<CritterFrameId>(index - gHeroAppearanceCritterCount);
++}
++
++File* heroAppearanceOpen(const char* path, const char* mode)
++{
++    if (!heroAppearanceEnabled()) {
++        return nullptr;
++    }
++
++    // As in sfall, the appearance picked is looked in before the game for
++    // any file: its texts and pictures for the character screen too.
++    for (int index = 0; index < gHeroAppearanceSourceCount; index++) {
++        AppearanceSource* source = &(gHeroAppearanceSources[index]);
++        File* stream;
++        if (source->dbase != nullptr) {
++            stream = xfileOpenInDbase(source->dbase, path, mode);
++        } else {
++            char fullPath[COMPAT_MAX_PATH];
++            snprintf(fullPath, sizeof(fullPath), "%s\\%s", source->folder, path);
++            stream = compat_file_exists(fullPath) ? xfileOpen(fullPath, mode) : nullptr;
++        }
++
++        if (stream != nullptr) {
++            return stream;
++        }
++    }
++
++    // The player's art (art\critters\_<name>) the appearance has none of:
++    // the game's own of that name.
++    const char* critters = "art\\critters\\_";
++    size_t length = strlen(critters);
++    if (compat_strnicmp(path, critters, length) != 0) {
++        return nullptr;
++    }
++
++    char gamePath[COMPAT_MAX_PATH];
++    snprintf(gamePath, sizeof(gamePath), "%.*s%s", static_cast<int>(length - 1), path, path + length);
++    return fileOpen(gamePath, mode);
++}
++
++int heroAppearanceRace()
++{
++    return gHeroAppearanceRace;
++}
++
++int heroAppearanceStyle()
++{
++    return gHeroAppearanceStyle;
++}
++
++static void heroAppearanceStoreGlobals()
++{
++    sfall_gl_vars_store(kHeroAppearanceRaceGlobal, gHeroAppearanceRace);
++    sfall_gl_vars_store(kHeroAppearanceStyleGlobal, gHeroAppearanceStyle);
++}
++
++bool heroAppearanceSetRace(int race)
++{
++    if (!heroAppearanceEnabled() || race < 0) {
++        return false;
++    }
++
++    if (!heroAppearanceLoad(race, 0)) {
++        return false;
++    }
++
++    gHeroAppearanceRace = race;
++    gHeroAppearanceStyle = 0;
++    return true;
++}
++
++bool heroAppearanceSetStyle(int style)
++{
++    if (!heroAppearanceEnabled() || style < 0) {
++        return false;
++    }
++
++    if (!heroAppearanceLoad(gHeroAppearanceRace, style)) {
++        return false;
++    }
++
++    gHeroAppearanceStyle = style;
++    return true;
++}
++
++void heroAppearanceSetDefault()
++{
++    gHeroAppearanceRace = 0;
++    gHeroAppearanceStyle = 0;
++    if (heroAppearanceEnabled() && !heroAppearanceLoad(0, 0)) {
++        heroAppearanceCloseSources();
++        artCacheFlush();
++    }
++}
++
++// The player's art number in the player's range (or out of it).
++static void heroAppearanceShiftDude(bool intoRange)
++{
++    if (gDude == nullptr || !heroAppearanceEnabled()) {
++        return;
++    }
++
++    const FrmId frmId = FrmId(gDude);
++    if (frmId.objectType() != OBJ_TYPE_CRITTER) {
++        return;
++    }
++
++    CritterFrameId frameId = frmId.frameId<CritterFrameId>();
++    CritterFrameId shifted = intoRange ? heroAppearanceFrameId(frameId) : heroAppearanceGameFrameId(frameId);
++    if (shifted != frameId) {
++        gDude->fid = FrmId(OBJ_TYPE_CRITTER, static_cast<int>(shifted), frmId.animationType(), frmId.weaponAnimation(), frmId.rotation()).fid();
++    }
++}
++
++void heroAppearanceRefreshDude()
++{
++    if (gDude == nullptr) {
++        return;
++    }
++
++    Rect rect;
++    objectGetRect(gDude, &rect);
++
++    const FrmId dudeFrmId = FrmId(gDude);
++    _proto_dude_update_gender();
++
++    const FrmId frmId = inventoryComputeCritterFrmId(gDude,
++        gDude,
++        critterGetItem2(gDude),
++        critterGetItem1(gDude),
++        critterGetArmor(gDude),
++        interfaceGetCurrentHand(),
++        dudeFrmId.animationType(),
++        dudeFrmId.rotation());
++
++    Rect newRect;
++    objectSetFrmId(gDude, frmId, nullptr);
++    objectGetRect(gDude, &newRect);
++    rectUnion(&rect, &newRect, &rect);
++    tileWindowRefreshRect(&rect, gDude->elevation);
++}
++
++void heroAppearanceGameStarted(bool newGame)
++{
++    if (!heroAppearanceEnabled()) {
++        return;
++    }
++
++    if (newGame) {
++        // What was picked as the character was made.
++        heroAppearanceStoreGlobals();
++    } else {
++        int race = 0;
++        int style = 0;
++        sfall_gl_vars_fetch(kHeroAppearanceRaceGlobal, race);
++        sfall_gl_vars_fetch(kHeroAppearanceStyleGlobal, style);
++        gHeroAppearanceRace = race;
++        gHeroAppearanceStyle = style;
++    }
++
++    if (!heroAppearanceLoad(gHeroAppearanceRace, gHeroAppearanceStyle)) {
++        heroAppearanceCloseSources();
++        artCacheFlush();
++    }
++
++    heroAppearanceShiftDude(true);
++    heroAppearanceRefreshDude();
++}
++
++void heroAppearanceScriptSetRace(int race)
++{
++    if (!heroAppearanceEnabled() || race == gHeroAppearanceRace) {
++        return;
++    }
++
++    heroAppearanceSetRace(race);
++    heroAppearanceStoreGlobals();
++    heroAppearanceRefreshDude();
++}
++
++void heroAppearanceScriptSetStyle(int style)
++{
++    if (!heroAppearanceEnabled() || style == gHeroAppearanceStyle) {
++        return;
++    }
++
++    heroAppearanceSetStyle(style);
++    heroAppearanceStoreGlobals();
++    heroAppearanceRefreshDude();
++}
++
++int heroAppearanceScriptFid(Object* object, int fid)
++{
++    if (gHeroAppearanceMode != 1 || object != gDude) {
++        return fid;
++    }
++
++    const FrmId frmId = FrmId(object);
++    if (frmId.objectType() != OBJ_TYPE_CRITTER) {
++        return fid;
++    }
++
++    CritterFrameId frameId = frmId.frameId<CritterFrameId>();
++    return FrmId(OBJ_TYPE_CRITTER, static_cast<int>(heroAppearanceGameFrameId(frameId)), frmId.animationType(), frmId.weaponAnimation(), frmId.rotation()).fid();
++}
++
++int heroAppearanceScriptSetFrameId(Object* object, int frameId)
++{
++    if (gHeroAppearanceMode != 1 || object != gDude || FrmId(object).objectType() != OBJ_TYPE_CRITTER) {
++        return frameId;
++    }
++
++    return static_cast<int>(heroAppearanceFrameId(static_cast<CritterFrameId>(frameId)));
++}
++
++void heroAppearanceBeforeSave()
++{
++    heroAppearanceShiftDude(false);
++}
++
++void heroAppearanceAfterSave()
++{
++    heroAppearanceShiftDude(true);
++}
++
++void heroAppearanceReadPremade(File* stream)
++{
++    if (!heroAppearanceEnabled()) {
++        return;
++    }
++
++    // Two numbers after the rest, where sfall wrote them.
++    int race = 0;
++    int style = 0;
++    int value;
++    if (fileReadInt32(stream, &value) != -1 && value >= 0 && value < 100) {
++        race = value;
++        if (fileReadInt32(stream, &value) != -1 && value >= 0 && value < 100) {
++            style = value;
++        }
++    }
++
++    if (heroAppearanceLoad(race, style)) {
++        gHeroAppearanceRace = race;
++        gHeroAppearanceStyle = style;
++    } else if (heroAppearanceLoad(race, 0)) {
++        gHeroAppearanceRace = race;
++        gHeroAppearanceStyle = 0;
++    } else {
++        heroAppearanceSetDefault();
++    }
++}
++
++void heroAppearanceWritePremade(File* stream)
++{
++    if (!heroAppearanceEnabled()) {
++        return;
++    }
++
++    if (fileWriteInt32(stream, gHeroAppearanceRace) != -1) {
++        fileWriteInt32(stream, gHeroAppearanceStyle);
++    }
++}
++
++// Copies a w x h part of src (src pitch) at (sx, sy) to dest (dest pitch,
++// 640 for the screen) at (dx, dy), leaving out the pixels of colour `skip`
++// (-1 for none).
++static void heroAppearanceCopy(int width, int height, const unsigned char* src, int srcPitch, int sx, int sy, unsigned char* dest, int dx, int dy, int skip = -1, int destPitch = 640)
++{
++    for (int y = 0; y < height; y++) {
++        const unsigned char* from = src + (sy + y) * srcPitch + sx;
++        unsigned char* to = dest + (dy + y) * destPitch + dx;
++        for (int x = 0; x < width; x++) {
++            if (skip < 0 || from[x] != skip) {
++                to[x] = from[x];
++            }
++        }
++    }
++}
++
++void heroAppearanceEditorBuildBackground(const unsigned char* original, unsigned char* background, bool creation)
++{
++    // As sfall makes it when a mod brings no picture of its own.
++    memcpy(background, original, 640 * 480);
++
++    // The tag skills counter to the right, a blank part of the bar where it was.
++    heroAppearanceCopy(38, 26, original, 640, 519, 228, background, 519 + 36, 228);
++    heroAppearanceCopy(38, 26, original, 640, 460, 228, background, 519, 228);
++
++    // The button rail shifted along, and a shadow for the race and style buttons.
++    heroAppearanceCopy(36, 258, original, 640, 332, 0, background, 408, 0);
++    heroAppearanceCopy(6, 32, original, 640, 331, 233, background, 330, 6);
++
++    // The view's window, out of the "use item on" window's.
++    FrmImage useOn;
++    if (useOn.lock(FrmId(OBJ_TYPE_INTERFACE, 113))) {
++        int pitch = useOn.getWidth();
++        heroAppearanceCopy(81, 132, useOn.getData(), pitch, 163, 20, background, 331, 63);
++        heroAppearanceCopy(79, 31, useOn.getData(), pitch, 154, 228, background, 331, 32);
++        heroAppearanceCopy(79, 30, useOn.getData(), pitch, 158, 236, background, 331, 195);
++        useOn.unlock();
++    }
++
++    // The race and style buttons, out of the sex button cut to its mask.
++    FrmImage sexOff;
++    FrmImage sexMask;
++    if (sexOff.lock(FrmId(OBJ_TYPE_INTERFACE, 188)) && sexMask.lock(FrmId(OBJ_TYPE_INTERFACE, 187))) {
++        unsigned char button[80 * 32] = { 0 };
++        heroAppearanceCopy(std::min(80, sexOff.getWidth()), std::min(32, sexOff.getHeight()), sexOff.getData(), sexOff.getWidth(), 0, 0, button, 0, 0, -1, 80);
++        for (int y = 0; y < std::min(28, sexMask.getHeight()); y++) {
++            for (int x = 0; x < std::min(80, sexMask.getWidth()); x++) {
++                unsigned char pixel = sexMask.getData()[y * sexMask.getWidth() + x];
++                if (pixel != 0x39) {
++                    button[y * 80 + x] = pixel;
++                }
++            }
++        }
++        for (int y = 29; y < 32; y++) {
++            for (int x = 76; x < 80; x++) {
++                button[y * 80 + x] = 0;
++            }
++        }
++
++        for (int y = 0; y < 32; y++) {
++            for (int x = 0; x < 80; x++) {
++                unsigned char pixel = button[y * 80 + x];
++                if (pixel != 0) {
++                    background[y * 640 + 332 + x] = pixel;
++                    background[(225 + y) * 640 + 332 + x] = pixel;
++                }
++            }
++        }
++    }
++    sexOff.unlock();
++    sexMask.unlock();
++
++    // Behind the buttons that pick them, when a character is made.
++    if (creation && (heroAppearanceHasRaces() || heroAppearanceHasStyles())) {
++        FrmImage pickCharacter;
++        if (pickCharacter.lock(FrmId(OBJ_TYPE_INTERFACE, 174))) {
++            int pitch = pickCharacter.getWidth();
++            if (heroAppearanceHasRaces()) {
++                heroAppearanceCopy(69, 20, pickCharacter.getData(), pitch, 281, 319, background, 337, 36);
++            }
++            if (heroAppearanceHasStyles()) {
++                heroAppearanceCopy(69, 20, pickCharacter.getData(), pitch, 281, 319, background, 337, 198);
++            }
++            pickCharacter.unlock();
++        }
++    }
++
++    // RACE and STYLE, in the game's words where it has them.
++    const char* race = "Race";
++    const char* style = "Style";
++    MessageList messageList;
++    bool loaded = messageListInit(&messageList) && messageListLoad(&messageList, "game\\AppIface.msg");
++    MessageListItem item;
++    if (loaded) {
++        item.num = 100;
++        if (messageListGetItem(&messageList, &item)) {
++            race = item.text;
++        }
++        MessageListItem styleItem;
++        styleItem.num = 101;
++        if (messageListGetItem(&messageList, &styleItem)) {
++            style = styleItem.text;
++        }
++    }
++
++    int oldFont = fontGetCurrent();
++    fontSetCurrent(103);
++    fontDrawText(background + 640 * 6 + 372 - fontGetStringWidth(race) / 2, race, 640, 640, COLOR_DARK_YELLOW);
++    fontDrawText(background + 640 * 231 + 372 - fontGetStringWidth(style) / 2, style, 640, 640, COLOR_DARK_YELLOW);
++    fontSetCurrent(oldFont);
++
++    if (loaded) {
++        messageListFree(&messageList);
++    }
++}
++
++// The view of the character turns a step at a time, as fast as on the
++// inventory screen.
++static constexpr unsigned int kHeroAppearanceViewTurnDelay = 166;
++static constexpr int kHeroAppearanceViewX = 338;
++static constexpr int kHeroAppearanceViewY = 78;
++static constexpr int kHeroAppearanceViewWidth = 70;
++static constexpr int kHeroAppearanceViewHeight = 102;
++
++void heroAppearanceEditorDrawView(int window, unsigned char* windowBuffer, const unsigned char* background, bool force)
++{
++    static unsigned int lastTurn = 0;
++    static int rotation = 0;
++
++    if (gDude == nullptr) {
++        return;
++    }
++
++    unsigned int now = getTicks();
++    if (!force && getTicksBetween(now, lastTurn) < kHeroAppearanceViewTurnDelay) {
++        return;
++    }
++
++    if (!force) {
++        rotation = (rotation + 1) % ROTATION_COUNT;
++    }
++    lastTurn = now;
++
++    unsigned char* view = windowBuffer + 640 * kHeroAppearanceViewY + kHeroAppearanceViewX;
++    blitBufferToBuffer(background + 640 * kHeroAppearanceViewY + kHeroAppearanceViewX,
++        kHeroAppearanceViewWidth,
++        kHeroAppearanceViewHeight,
++        640,
++        view,
++        640);
++
++    // The player standing, with what they wear and hold.
++    const FrmId dudeFrmId = FrmId(gDude);
++    const FrmId standing = FrmId(OBJ_TYPE_CRITTER, dudeFrmId.frameId(), ANIM_STAND, dudeFrmId.weaponAnimation(), static_cast<Rotation>(rotation));
++    FrmImage art;
++    if (art.lock(standing, 0, static_cast<Rotation>(rotation))) {
++        int width = std::min(art.getWidth(), kHeroAppearanceViewWidth);
++        int height = std::min(art.getHeight(), kHeroAppearanceViewHeight);
++        int x = (kHeroAppearanceViewWidth - width) / 2;
++        int y = (kHeroAppearanceViewHeight - height) / 2;
++        blitBufferToBufferTrans(art.getData() + (art.getHeight() - height) / 2 * art.getWidth() + (art.getWidth() - width) / 2,
++            width,
++            height,
++            art.getWidth(),
++            view + 640 * y + x,
++            640);
++        art.unlock();
++    }
++
++    Rect rect = { kHeroAppearanceViewX, kHeroAppearanceViewY, kHeroAppearanceViewX + kHeroAppearanceViewWidth - 1, kHeroAppearanceViewY + kHeroAppearanceViewHeight - 1 };
++    windowRefreshRect(window, &rect);
++}
++
++void heroAppearanceExit()
++{
++    heroAppearanceCloseSources();
++}
++
++} // namespace fallout
+diff --git a/src/sfall_hero_appearance.h b/src/sfall_hero_appearance.h
+new file mode 100644
+index 0000000..ab1129e
+--- /dev/null
++++ b/src/sfall_hero_appearance.h
+@@ -0,0 +1,83 @@
++#ifndef FALLOUT_SFALL_HERO_APPEARANCE_H_
++#define FALLOUT_SFALL_HERO_APPEARANCE_H_
++
++#include "art.h"
++#include "db.h"
++#include "obj_types.h"
++
++namespace fallout {
++
++// sfall's Hero Appearance (ddraw.ini [Misc] EnableHeroAppearanceMod): the
++// player is drawn with art of their own, of a race and a style picked when
++// the character is made, found in Appearance\h<M|F>R<race>S<style> (a folder,
++// or the same name with .dat) before the game's.
++//
++// The player's critter art has numbers of its own: the critter list is
++// doubled, the second half naming each critter's art with a "_" in front
++// ("_hmjmps"), and the player's art is shifted into it. A file of that
++// second half is looked for in the appearance picked, and is the game's own
++// where it has none.
++
++// Reads the setting; called as the art is set up.
++bool heroAppearanceInit();
++bool heroAppearanceEnabled();
++
++// Whether the game has races, or styles, to pick from (besides the first).
++bool heroAppearanceHasRaces();
++bool heroAppearanceHasStyles();
++
++// The number of critter arts the game lists, the player's not counted.
++int heroAppearanceCritterCount();
++void heroAppearanceSetCritterCount(int count);
++
++// A critter's art number in the player's range, and back.
++CritterFrameId heroAppearanceFrameId(CritterFrameId frameId);
++CritterFrameId heroAppearanceGameFrameId(CritterFrameId frameId);
++
++// A file of the player's art (art\critters\_*), or null for any other.
++File* heroAppearanceOpen(const char* path, const char* mode);
++
++int heroAppearanceRace();
++int heroAppearanceStyle();
++// Picks a race (its first style) or a style; false when there is none.
++bool heroAppearanceSetRace(int race);
++bool heroAppearanceSetStyle(int style);
++// The first race and style, as a new character has.
++void heroAppearanceSetDefault();
++
++// After a game is started or loaded: the appearance kept with it (sfall's
++// globals HAp_Race and HApStyle), and the player drawn with it.
++void heroAppearanceGameStarted(bool newGame);
++// The player's art number as the game knows it, for the time a save is made.
++void heroAppearanceBeforeSave();
++void heroAppearanceAfterSave();
++
++// The player redrawn with the appearance now picked.
++void heroAppearanceRefreshDude();
++
++// set_hero_race and set_hero_style: the appearance kept for the game's
++// scripts, and the player redrawn.
++void heroAppearanceScriptSetRace(int race);
++void heroAppearanceScriptSetStyle(int style);
++
++// obj_art_fid and art_change_fid_num see the player's art numbers as the
++// game's (but where the mod asks for them as they are).
++int heroAppearanceScriptFid(Object* object, int fid);
++int heroAppearanceScriptSetFrameId(Object* object, int frameId);
++
++// A premade character's appearance (.gcd), after the rest of it.
++void heroAppearanceReadPremade(File* stream);
++void heroAppearanceWritePremade(File* stream);
++
++// The character screen (see character_editor.cc): its background, made
++// from the game's own with room for a view of the character, the race and
++// style headings and, when a character is made, buttons to pick them; and
++// the view, turning.
++void heroAppearanceEditorBuildBackground(const unsigned char* original, unsigned char* background, bool creation);
++void heroAppearanceEditorDrawView(int window, unsigned char* windowBuffer, const unsigned char* background, bool force);
++
++void heroAppearanceExit();
++
++} // namespace fallout
++
++#endif /* FALLOUT_SFALL_HERO_APPEARANCE_H_ */
+diff --git a/src/sfall_opcodes.cc b/src/sfall_opcodes.cc
+index 3230d4a..f475dee 100644
+--- a/src/sfall_opcodes.cc
++++ b/src/sfall_opcodes.cc
+@@ -45,6 +45,7 @@
+ #include "sfall_filesystem.h"
+ #include "sfall_global_scripts.h"
+ #include "sfall_global_vars.h"
++#include "sfall_hero_appearance.h"
+ #include "sfall_ini.h"
+ #include "sfall_kb_helpers.h"
+ #include "sfall_lists.h"
+@@ -2586,13 +2587,13 @@ static void op_fs_resize(Program* program)
+ static void op_set_hero_style(Program* program)
+ {
+     int style = programStackPopInteger(program);
+-    programPrintError("set_hero_style: not implemented!");
++    heroAppearanceScriptSetStyle(style);
+ }
+ 
+ static void op_set_hero_race(Program* program)
+ {
+     int race = programStackPopInteger(program);
+-    programPrintError("set_hero_race: not implemented!");
++    heroAppearanceScriptSetRace(race);
+ }
+ 
+ // set_weapon_knockback, set_target_knockback, set_attacker_knockback
+diff --git a/src/xfile.cc b/src/xfile.cc
+index 546a02e..c74b5b6 100644
+--- a/src/xfile.cc
++++ b/src/xfile.cc
+@@ -200,6 +200,26 @@ XFile* xfileOpenMemory(const void* data, size_t size)
+     return stream;
+ }
+ 
++// Opens a file of an archive the game was not started with.
++XFile* xfileOpenInDbase(DBase* dbase, const char* filePath, const char* mode)
++{
++    DFile* dfile = dfileOpen(dbase, filePath, mode);
++    if (dfile == nullptr) {
++        return nullptr;
++    }
++
++    XFile* stream = (XFile*)malloc(sizeof(*stream));
++    if (stream == nullptr) {
++        dfileClose(dfile);
++        return nullptr;
++    }
++
++    memset(stream, 0, sizeof(*stream));
++    stream->type = XFILE_TYPE_DFILE;
++    stream->dfile = dfile;
++    return stream;
++}
++
+ // 0x4DF11C xfprintf
+ int xfilePrintFormatted(XFile* stream, const char* format, ...)
+ {
+diff --git a/src/xfile.h b/src/xfile.h
+index 80e40b7..b4fd5cc 100644
+--- a/src/xfile.h
++++ b/src/xfile.h
+@@ -60,6 +60,7 @@ typedef struct XList {
+ int xfileClose(XFile* stream);
+ XFile* xfileOpen(const char* filename, const char* mode);
+ XFile* xfileOpenMemory(const void* data, size_t size);
++XFile* xfileOpenInDbase(DBase* dbase, const char* filePath, const char* mode);
+ int xfilePrintFormatted(XFile* xfile, const char* format, ...);
+ int xfilePrintFormattedArgs(XFile* stream, const char* format, va_list args);
+ int xfileReadChar(XFile* stream);

@@ -303,6 +303,9 @@ export function buildConfigFiles({
   if (named.patches) ini.set('system', 'critter_patches', named.patches);
 
   if (def.engine.id === 'fo2') {
+    // The sfall the mod came with: its scripts may ask which, and do otherwise for another.
+    if (mod?.sfall) ini.set('sfall', 'version', mod.sfall);
+    else ini.delete('sfall', 'version');
     ini.set('screen', 'resolution_x', screen.width);
     ini.set('screen', 'resolution_y', screen.height);
     ini.set('screen', 'scale', 1);

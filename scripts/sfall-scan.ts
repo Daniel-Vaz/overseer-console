@@ -35,6 +35,8 @@ interface Engine {
   hookScripts: boolean;
   /** ddraw.ini keys it reads, as "section/key" lower-cased; a '*' ends a family (movie1..32). */
   settings: string[];
+  /** What of the original program's memory it answers for: the stretches read and written, the functions called. */
+  memory: { areas: [start: number, end: number][]; calls: Set<number> };
 }
 
 /** What sfall calls things, from Fallout 2 CE's source, which lists all of it. */
@@ -131,7 +133,14 @@ async function readEngine(id: EngineId): Promise<Engine> {
   for (const match of migration.matchAll(/kSfall(\w+), "([A-Z]\w+)"/g)) settings.push(`${match[1]}/${match[2]}`.toLowerCase());
   for (const match of migration.matchAll(/migrateStartInt\("(\w+)"/g)) settings.push(`misc/${match[1]}`.toLowerCase());
   if (/"Movie%d"/.test(migration)) settings.push('misc/movie*');
-  return { id, opcodes, stubs, metarules, fires, hookScripts: /"hs_/.test(all), settings };
+  // What of the original program's memory it answers for, as registered beside what stands for it (sfall_memory.h).
+  const memory = { areas: [] as [number, number][], calls: new Set<number>() };
+  for (const match of all.matchAll(/SFALL_MEMORY(_POINTER|_ACCESSOR|_CALL)?\(\s*0x([0-9a-f]+)(?:, *\w+, *(\d+)\))?/gi)) {
+    const address = parseInt(match[2]!, 16);
+    if (match[1] === '_CALL') memory.calls.add(address);
+    else memory.areas.push([address, address + (match[3] ? Number(match[3]) : 4)]);
+  }
+  return { id, opcodes, stubs, metarules, fires, hookScripts: /"hs_/.test(all), settings, memory };
 }
 
 // --- What a mod asks for ------------------------------------------------------------------------------------------
@@ -143,11 +152,28 @@ interface ScriptUse {
   strings: Set<string>;
   /** Hooks it registers (register_hook, register_hook_proc[_spec]) by a constant id. */
   hooks: Set<number>;
+  /** The addresses its memory opcodes are given, as "opcode:address". */
+  memory: Set<string>;
 }
 
 const PUSH = new Set([0xc001, 0xa001, 0x9001]);
 const REGISTER_HOOK = 0x8207;
 const REGISTER_HOOK_PROC = new Set([0x8262, 0x827d]);
+
+/** read_byte .. read_string, write_byte .. write_int, call_offset_v0 .. r4, write_string; and how many values each takes. */
+const MEMORY_OPCODES = new Map<number, number>([
+  [0x8156, 1], [0x8157, 1], [0x8158, 1], [0x8159, 1], [0x81cf, 2], [0x81d0, 2], [0x81d1, 2],
+  ...[0, 1, 2, 3, 4].flatMap((args) => [[0x81d2 + args, args + 1], [0x81d7 + args, args + 1]] as [number, number][]),
+  [0x821b, 2],
+]);
+/** add, sub, mul. */
+const ARITHMETIC = new Map<number, (a: number, b: number) => number>([
+  [0x8039, (a, b) => a + b],
+  [0x803a, (a, b) => a - b],
+  [0x803b, (a, b) => a * b],
+]);
+/** Where the original Fallout 2 and Fallout keep their code and data. */
+const isAddress = (value: number) => value >= 0x400000 && value < 0x700000;
 
 /**
  * Reads a compiled script (.int): after a 42-byte start, its procedure table (24 bytes each, the body's offset at 16),
@@ -169,7 +195,13 @@ function readScript(data: Uint8Array): ScriptUse | null {
   }
   const opcodes = new Set<number>();
   const hooks = new Set<number>();
+  const memory = new Set<string>();
   const pushed: number[] = [];
+  // The constants pushed lately, and sums of them (an address and an offset), for the address a memory opcode is given
+  // where its values are worked out.
+  const recent: { value: number; step: number }[] = [];
+  const sums: number[] = [];
+  let step = 0;
   let at = start;
   while (at + 2 <= data.length) {
     const opcode = view.getUint16(at);
@@ -178,8 +210,27 @@ function readScript(data: Uint8Array): ScriptUse | null {
     if (PUSH.has(opcode)) {
       if (at + 4 > data.length) return null;
       pushed.push(opcode === 0xc001 ? view.getInt32(at) : NaN);
+      if (opcode === 0xc001) recent.push({ value: view.getInt32(at), step });
+      if (recent.length > 32) recent.shift();
+      sums.push(opcode === 0xc001 ? view.getInt32(at) : NaN);
       at += 4;
+      step++;
       continue;
+    }
+    step++;
+    const arithmetic = ARITHMETIC.get(opcode);
+    if (arithmetic && sums.length >= 2) {
+      const b = sums.pop()!;
+      const sum = arithmetic(sums.pop()!, b);
+      sums.push(sum);
+      if (isAddress(sum)) recent.push({ value: sum, step });
+    } else sums.length = 0;
+    const takes = MEMORY_OPCODES.get(opcode);
+    if (takes !== undefined) {
+      // All its values pushed as they are: the first is the address. Else the last address-like one, not long ago.
+      let address = pushed.length >= takes ? pushed[pushed.length - takes]! : NaN;
+      if (!isAddress(address)) address = recent.findLast((push) => isAddress(push.value) && step - push.step < 24)?.value ?? NaN;
+      memory.add(`${opcode}:${Number.isNaN(address) ? '?' : address}`);
     }
     if (opcode === REGISTER_HOOK && pushed.length >= 1) hooks.add(pushed[pushed.length - 1]!);
     if (REGISTER_HOOK_PROC.has(opcode) && pushed.length >= 2) hooks.add(pushed[pushed.length - 2]!);
@@ -187,7 +238,7 @@ function readScript(data: Uint8Array): ScriptUse | null {
     opcodes.add(opcode);
   }
   hooks.delete(NaN);
-  return { opcodes, strings, hooks };
+  return { opcodes, strings, hooks, memory };
 }
 
 interface Mod {
@@ -232,6 +283,7 @@ function addScript(mod: Mod, path: string, data: Uint8Array) {
   for (const opcode of use.opcodes) known.opcodes.add(opcode);
   for (const text of use.strings) known.strings.add(text);
   for (const hook of use.hooks) known.hooks.add(hook);
+  for (const access of use.memory) known.memory.add(access);
 }
 
 async function readArchive(mod: Mod, path: string, archive: DatArchive) {
@@ -310,9 +362,20 @@ function report(mod: Mod, engine: Engine, names: Names) {
   const metarules = new Map<string, string[]>();
   const hooks = new Map<string, string[]>();
   const add = (into: Map<string, string[]>, key: string, script: string) => into.set(key, [...(into.get(key) ?? []), script]);
+  const memory = new Map<string, string[]>();
   for (const [script, use] of mod.scripts) {
+    for (const access of use.memory) {
+      const [opcode, address] = access.split(':').map(Number) as [number, number];
+      const kind = opcode >= 0x81d2 && opcode <= 0x81db ? 'call' : opcode <= 0x8159 ? 'read' : 'write';
+      const answered = kind === 'call'
+        ? engine.memory.calls.has(address)
+        : engine.memory.areas.some(([start, end]) => address >= start && address < end);
+      if (engine.opcodes.has(opcode) && answered) continue;
+      const name = names.opcodes.get(opcode)?.replace(/_[vr]\d$/, '') ?? `0x${opcode.toString(16)}`;
+      add(memory, `${name} ${Number.isNaN(address) ? '(an address worked out)' : `0x${address.toString(16).toUpperCase()}`}`, script);
+    }
     for (const opcode of use.opcodes) {
-      if (opcode < FIRST_GAME_OPCODE) continue;
+      if (opcode < FIRST_GAME_OPCODE || MEMORY_OPCODES.has(opcode)) continue;
       if (!engine.opcodes.has(opcode)) add(lacking, opcodeName(opcode), script);
       else if (engine.stubs.has(opcode)) add(stubbed, opcodeName(opcode), script);
     }
@@ -332,6 +395,7 @@ function report(mod: Mod, engine: Engine, names: Names) {
   };
   list('opcodes the engine lacks', lacking);
   list('opcodes the engine takes and does nothing with', stubbed);
+  list("the original program's memory, which the engine does not answer for (a read gives 0, the rest does nothing)", memory);
   list('metarules the engine lacks', metarules);
   list('hooks registered that the engine never calls', hooks);
 

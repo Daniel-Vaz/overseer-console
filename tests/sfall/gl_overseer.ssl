@@ -1,6 +1,6 @@
 /*
  * A global script that calls what the engine of Fallout 2 was given of sfall
- * (engines/fallout2/patches 0008-0011) and writes what it saw into a virtual
+ * (engines/fallout2/patches 0008-0016) and writes what it saw into a virtual
  * file kept in the save, sfallfs.sav, for game.spec.ts to read:
  *   byte 0: a short written is read back, high byte first
  *   byte 1: a virtual file copied from another, read as the engine reads files
@@ -8,16 +8,35 @@
  *   bytes 3, 4: the world map's view, moved with set_viewport_x/y
  *   byte 5: the knockback and heave-ho calls ran
  *   byte 6: an MP3 of the mod's (overseer.mp3, a second of silence) plays
- *   byte 7: 66, the script got to its end
+ *   byte 7: the player's Hero Appearance style, after set_hero_style(1)
+ *   bytes 8 to 13: the original program's memory (0015), each 1 when right:
+ *     8: the game's time, read where the original keeps it
+ *     9: the player's name, written there and read with obj_name
+ *     10: the player's Strength, read from their proto
+ *     11: the mark before an object's block in the original, for the player
+ *     12: a byte of the original's code a mod changes, changed and put back
+ *     13: one of its functions called (the player's unspent skill points)
+ *   bytes 14 to 16: the version of sfall it is told, that of the ddraw.dll the
+ *     mod came with (0016)
+ *   byte 17: 66, the script got to its end
+ * In a game loaded from a save, which brings that file back, it writes only
+ * "overseer/loaded": the style the save brought back.
  * Compiled with sfall's sslc: see docs/developing.md.
  */
 procedure start;
 
 procedure start begin
-   variable id, source, copy, trait, traits, sound;
+   variable id, source, copy, trait, traits, sound, points;
    if (not(game_loaded)) then return;
 
-   id := fs_create("overseer/result", 8);
+   if (fs_find("overseer/result") != -1) then begin
+      id := fs_create("overseer/loaded", 1);
+      fs_resize(id, -1);
+      fs_write_byte(id, get_sfall_global_int("HApStyle"));
+      return;
+   end
+
+   id := fs_create("overseer/result", 18);
    fs_resize(id, -1);
 
    fs_write_short(id, 0x1234);
@@ -62,6 +81,37 @@ procedure start begin
    sound := play_sfall_sound("sound\\sfx\\overseer.mp3", 1);
    if (sound != 0) then fs_write_byte(id, 1); else fs_write_byte(id, 0);
    stop_sfall_sound(sound);
+
+   set_hero_style(1);
+   fs_write_byte(id, get_sfall_global_int("HApStyle"));
+
+   if (read_int(0x51C720) == game_time) then fs_write_byte(id, 1); else fs_write_byte(id, 0);
+
+   write_string(0x56D75C, "Overseer");
+   if (obj_name(dude_obj) == "Overseer" and read_string(0x56D75C) == "Overseer") then fs_write_byte(id, 1); else fs_write_byte(id, 0);
+
+   // The proto's base stats are 36 bytes in.
+   if (read_int(0x51C370 + 36) == get_pc_base_stat(0)) then fs_write_byte(id, 1); else fs_write_byte(id, 0);
+
+   if (read_int(dude_obj - 4) == 0xFEEDFACE) then fs_write_byte(id, 1); else fs_write_byte(id, 0);
+
+   // The largest of the Jinxed roll, as gl_zTraits_Plus of Fallout Yesterday changes it.
+   traits := read_byte(0x4238BC);
+   write_byte(0x4238BC, 0);
+   if (traits == 1 and read_byte(0x4238BC) == 0) then begin
+      write_int(0x4238BC, traits);
+      if (read_int(0x4238BC) == 1) then fs_write_byte(id, 1); else fs_write_byte(id, 0);
+   end else fs_write_byte(id, 0);
+
+   // stat_pc_set(PCSTAT_unspent_skill_points, ...)
+   points := get_pc_stat(0);
+   call_offset_v2(0x4AF910, 0, points + 3);
+   if (get_pc_stat(0) == points + 3) then fs_write_byte(id, 1); else fs_write_byte(id, 0);
+   call_offset_v2(0x4AF910, 0, points);
+
+   fs_write_byte(id, sfall_ver_major);
+   fs_write_byte(id, sfall_ver_minor);
+   fs_write_byte(id, sfall_ver_build);
 
    fs_write_byte(id, 66);
 end

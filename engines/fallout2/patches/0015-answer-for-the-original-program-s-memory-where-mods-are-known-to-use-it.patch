@@ -1,0 +1,1315 @@
+Answer for the original program's memory where mods are known to use it
+
+read_byte .. write_string and call_offset_* reach the game's variables,
+functions and the few code bytes mods change, by the addresses of Fallout 2
+1.02, where a mod is known to use them. Anything else reads 0 as before.
+---
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 40ac57b..b84fb77 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -314,6 +314,8 @@ set(FALLOUT_PLATFORM_SOURCES
+     "src/sfall_kb_helpers.h"
+     "src/sfall_lists.cc"
+     "src/sfall_lists.h"
++    "src/sfall_memory.cc"
++    "src/sfall_memory.h"
+     "src/sfall_metarules.cc"
+     "src/sfall_metarules.h"
+     "src/sfall_object_name.cc"
+diff --git a/src/actions.cc b/src/actions.cc
+index 75f5858..d946248 100644
+--- a/src/actions.cc
++++ b/src/actions.cc
+@@ -34,6 +34,7 @@
+ #include "random.h"
+ #include "scripts.h"
+ #include "settings.h"
++#include "sfall_memory.h"
+ #include "sfall_script_hooks.h"
+ #include "sfall_stat_mods.h"
+ #include "skill.h"
+@@ -214,6 +215,16 @@ AnimationType actionBlood(Object* obj, AnimationType anim, int delay)
+     return bloodyAnim;
+ }
+ 
++// SFALL: the original's code that mods change (see sfall_memory.h).
++// 0x410646: the weapon whose fire burns at less damage, a Molotov cocktail
++// (PID 159).
++static unsigned char gDeathMolotovPidCode[4] = { 0x9F, 0x00, 0x00, 0x00 };
++SFALL_MEMORY(0x410646, gDeathMolotovPidCode, 4);
++// 0x410700: jne - Bloody Mess only for the player's own kills (xor eax, eax
++// has it for anyone's).
++static unsigned char gBloodyMessDudeOnlyCode[2] = { 0x75, 0x16 };
++SFALL_MEMORY(0x410700, gBloodyMessDudeOnlyCode, 2);
++
+ // 0x41060C pick_death
+ AnimationType pickDeathAnim(Object* attacker, Object* defender, Object* weapon, int damage, AnimationType attackerAnimation, bool hitFromFront)
+ {
+@@ -232,7 +243,7 @@ AnimationType pickDeathAnim(Object* attacker, Object* defender, Object* weapon,
+ 
+     DamageType damageType = weaponGetDamageType(attacker, weapon);
+ 
+-    if (ProtoId(weapon) == ItemProtoTypeId::MolotovCocktail) {
++    if (weapon != nullptr && ProtoId(weapon).pid() == sfallMemoryInt(gDeathMolotovPidCode)) {
+         normalViolenceLevelDamageThreshold = 5;
+         maximumBloodViolenceLevelDamageThreshold = 15;
+         damageType = DAMAGE_TYPE_FIRE;
+@@ -256,7 +267,7 @@ AnimationType pickDeathAnim(Object* attacker, Object* defender, Object* weapon,
+     }
+ 
+     bool hasBloodyMess = false;
+-    if (attacker == gDude && traitIsSelectedAndActive(TRAIT_BLOODY_MESS)) {
++    if ((attacker == gDude || sfallMemoryIs(gBloodyMessDudeOnlyCode, { 0x31, 0xC0 })) && traitIsSelectedAndActive(TRAIT_BLOODY_MESS)) {
+         hasBloodyMess = true;
+     }
+ 
+diff --git a/src/animation.cc b/src/animation.cc
+index 32e4fed..53a22e9 100644
+--- a/src/animation.cc
++++ b/src/animation.cc
+@@ -33,6 +33,7 @@
+ #include "random.h"
+ #include "scripts.h"
+ #include "settings.h"
++#include "sfall_memory.h"
+ #include "stat.h"
+ #include "svga.h"
+ #include "text_object.h"
+@@ -3485,4 +3486,6 @@ static void reportOverloaded(Object* critter)
+     displayMonitorAddMessage(formattedText);
+ }
+ 
++SFALL_MEMORY_CALL(0x413C20, [](const ProgramValue* args, int) { return ProgramValue(_register_priority(args[0].integerValue)); });
++
+ } // namespace fallout
+diff --git a/src/combat.cc b/src/combat.cc
+index daf9f14..5bfb6c5 100644
+--- a/src/combat.cc
++++ b/src/combat.cc
+@@ -41,6 +41,7 @@
+ #include "sfall_callbacks.h"
+ #include "sfall_config.h"
+ #include "sfall_global_scripts.h"
++#include "sfall_memory.h"
+ #include "sfall_script_hooks.h"
+ #include "sfall_stat_mods.h"
+ #include "skill.h"
+@@ -1989,6 +1990,27 @@ static int _list_com;
+ // 0x56D398 combat_exps
+ static int _combat_exps;
+ 
++SFALL_MEMORY(0x56D38C, _combat_highlight, 4);
++SFALL_MEMORY(0x56D398, _combat_exps, 4);
++
++// SFALL: the original's code that mods change (see sfall_memory.h).
++// 0x4238BC: the largest of the Jinxed roll, which makes a miss critical at 1.
++static unsigned char gJinxedRollMaxCode[4] = { 0x01, 0x00, 0x00, 0x00 };
++SFALL_MEMORY(0x4238BC, gJinxedRollMaxCode, 4);
++// 0x42286A: cmp [dude's action points], 0 - the turn ends when they are no
++// more than its last byte.
++static unsigned char gTurnEndCode[4] = { 0x83, 0x78, 0x40, 0x00 };
++SFALL_MEMORY(0x42286A, gTurnEndCode, 4);
++// 0x426671: the second arm crippled of "both arms crippled".
++static unsigned char gBothArmsCrippledCode[1] = { DAM_CRIP_ARM_RIGHT };
++SFALL_MEMORY(0x426671, gBothArmsCrippledCode, 1);
++// 0x422609 and 0x42260E: what leaves a critter out of the combat sequence,
++// knocked out (a result) or disengaging (a maneuver).
++static unsigned char gSequenceKnockedOutCode[1] = { DAM_KNOCKED_OUT };
++SFALL_MEMORY(0x422609, gSequenceKnockedOutCode, 1);
++static unsigned char gSequenceDisengagingCode[1] = { CRITTER_MANEUVER_DISENGAGING };
++SFALL_MEMORY(0x42260E, gSequenceDisengagingCode, 1);
++
+ // bonus action points from BONUS_MOVE perk.
+ //
+ // 0x56D39C combat_free_move
+@@ -3183,8 +3205,8 @@ static void _combat_sequence()
+     for (int index = 0; index < count; index++) {
+         Object* critter = _combat_list[index];
+         if (critter != gDude) {
+-            if ((critter->data.critter.combat.results & DAM_KNOCKED_OUT) != DAM_NONE
+-                || critter->data.critter.combat.maneuver == CRITTER_MANEUVER_DISENGAGING) {
++            if ((critter->data.critter.combat.results & gSequenceKnockedOutCode[0]) != DAM_NONE
++                || critter->data.critter.combat.maneuver == static_cast<signed char>(gSequenceDisengagingCode[0])) {
+                 critter->data.critter.combat.maneuver &= ~CRITTER_MANEUVER_ENGAGING;
+                 _list_noncom += 1;
+ 
+@@ -3303,7 +3325,7 @@ static int _combat_input()
+             _combat_turn_run();
+         }
+ 
+-        if (gDude->data.critter.combat.ap <= 0 && _combat_free_move <= 0) {
++        if (gDude->data.critter.combat.ap <= static_cast<signed char>(gTurnEndCode[3]) && _combat_free_move <= 0) {
+             break;
+         }
+ 
+@@ -4122,7 +4144,7 @@ static int attackCompute(Attack* attack)
+ 
+     if (roll == ROLL_FAILURE) {
+         if (traitIsSelectedAndActive(TRAIT_JINXED) || perkHasRank(gDude, PERK_JINXED)) {
+-            if (randomBetween(0, 1) == 1) {
++            if (randomBetween(0, sfallMemoryInt(gJinxedRollMaxCode)) == 1) {
+                 roll = ROLL_CRITICAL_FAILURE;
+                 criticalPerk = PERK_JINXED;
+             }
+@@ -5958,7 +5980,7 @@ CombatBadShot _combat_check_bad_shot(Object* attacker, Object* defender, HitMode
+     Object* weapon = critterGetWeaponForHitMode(attacker, hitMode);
+     if (weapon != nullptr) {
+         if ((attacker->data.critter.combat.results & DAM_CRIP_ARM_LEFT) != DAM_NONE
+-            && (attacker->data.critter.combat.results & DAM_CRIP_ARM_RIGHT) != DAM_NONE) {
++            && (attacker->data.critter.combat.results & gBothArmsCrippledCode[0]) != DAM_NONE) {
+             return COMBAT_BAD_SHOT_BOTH_ARMS_CRIPPLED;
+         }
+ 
+@@ -6315,6 +6337,11 @@ void _combat_delete_critter(Object* obj)
+     _combatai_delete_critter(obj);
+ }
+ 
++SFALL_MEMORY_CALL(0x426DDC, [](const ProgramValue* args, int) {
++    _combat_delete_critter(static_cast<Object*>(sfallMemoryArgPointer(args[0])));
++    return ProgramValue(0);
++});
++
+ // 0x426EC4
+ void _combatKillCritterOutsideCombat(Object* critter_obj, char* msg)
+ {
+diff --git a/src/critter.cc b/src/critter.cc
+index d53e8a4..e404e75 100644
+--- a/src/critter.cc
++++ b/src/critter.cc
+@@ -30,6 +30,7 @@
+ #include "reaction.h"
+ #include "scripts.h"
+ #include "sfall_hero_appearance.h"
++#include "sfall_memory.h"
+ #include "sfall_object_name.h"
+ #include "sfall_script_hooks.h"
+ #include "skill.h"
+@@ -127,6 +128,17 @@ static MessageList gCritterMessageList;
+ // 0x56D75C pc_name
+ static char gDudeName[DUDE_NAME_MAX_LENGTH];
+ 
++SFALL_MEMORY(0x56D75C, gDudeName, 32);
++
++// SFALL: the original's code that mods change (see sfall_memory.h).
++// 0x42D2AB: add eax, edx - the poison level in the time to the next damage
++// from it (xor eax, eax leaves it out).
++static unsigned char gPoisonIntervalCode[2] = { 0x01, 0xD0 };
++SFALL_MEMORY(0x42D2AB, gPoisonIntervalCode, 2);
++// 0x42D339: the message of poison's damage (MISC.MSG).
++static unsigned char gPoisonDamageMessageCode[4] = { 0xB9, 0x0B, 0x00, 0x00 };
++SFALL_MEMORY(0x42D339, gPoisonDamageMessageCode, 4);
++
+ // 0x56D77C sneak_working
+ static int _sneak_working;
+ 
+@@ -343,7 +355,8 @@ static int critterAdjustPoisonWithoutHook(Object* critter, int amount)
+         critter->data.critter.poison = newPoison;
+ 
+         queueClearByEventType(EVENT_TYPE_POISON, nullptr);
+-        queueAddEvent(10 * (505 - 5 * newPoison), gDude, nullptr, EVENT_TYPE_POISON);
++        int poisonForInterval = sfallMemoryIs(gPoisonIntervalCode, { 0x31, 0xC0 }) ? 0 : newPoison;
++        queueAddEvent(10 * (505 - 5 * poisonForInterval), gDude, nullptr, EVENT_TYPE_POISON);
+ 
+         // You have been poisoned!
+         messageListItem.num = 3000;
+@@ -386,7 +399,7 @@ int poisonEventProcess(Object* obj, void* data)
+ 
+     MessageListItem messageListItem;
+     // You take damage from poison.
+-    messageListItem.num = 3001;
++    messageListItem.num = sfallMemoryInt(gPoisonDamageMessageCode);
+     if (messageListGetItem(&gMiscMessageList, &messageListItem)) {
+         displayMonitorAddMessage(messageListItem.text);
+     }
+@@ -1552,4 +1565,14 @@ void critterFlagUnset(const ProtoId& protoId, CritterFlags flag)
+     proto->critter.data.flags &= ~flag;
+ }
+ 
++SFALL_MEMORY_CALL(0x42D878, [](const ProgramValue* args, int) {
++    return ProgramValue(killsIncByType(static_cast<KillType>(args[0].integerValue)));
++});
++SFALL_MEMORY_CALL(0x42DA64, [](const ProgramValue* args, int) {
++    critterKill(static_cast<Object*>(sfallMemoryArgPointer(args[0])),
++        static_cast<AnimationType>(args[1].integerValue),
++        args[2].integerValue != 0);
++    return ProgramValue(0);
++});
++
+ } // namespace fallout
+diff --git a/src/game.cc b/src/game.cc
+index 8a66441..0212014 100644
+--- a/src/game.cc
++++ b/src/game.cc
+@@ -61,6 +61,7 @@
+ #include "sfall_global_vars.h"
+ #include "sfall_ini.h"
+ #include "sfall_lists.h"
++#include "sfall_memory.h"
+ #include "sfall_perks.h"
+ #include "sfall_script_hooks.h"
+ #include "sfall_stat_mods.h"
+@@ -98,6 +99,12 @@ static void showSplash();
+ 
+ inline constexpr char kBaseModPath[] = "ce.dat";
+ 
++// SFALL: the original's code that mods change (see sfall_memory.h).
++// 0x443B0D: mov eax, "ib1p1xx1" - the click of a quick save (jmp past it
++// leaves it out).
++static unsigned char gQuickSaveClickCode[2] = { 0xB8, 0x74 };
++SFALL_MEMORY(0x443B0D, gQuickSaveClickCode, 2);
++
+ // 0x501C9C aGame_0
+ static char _aGame_0[] = "game\\";
+ 
+@@ -920,7 +927,11 @@ int gameHandleKey(int eventCode, bool isInCombatMode)
+         break;
+     case KEY_F6:
+         if (1) {
+-            soundPlayFile("ib1p1xx1");
++            // SFALL: a mod saving for the player may leave the click out (see
++            // gQuickSaveClickCode).
++            if (!sfallMemoryIs(gQuickSaveClickCode, { 0xEB, 0x08 })) {
++                soundPlayFile("ib1p1xx1");
++            }
+ 
+             int rc = lsgSaveGame(LOAD_SAVE_MODE_QUICK);
+             if (rc == -1) {
+@@ -1774,4 +1785,9 @@ void gameHandleSkilldexResult(SkilldexRC rc)
+     }
+ }
+ 
++SFALL_MEMORY_CALL(0x443BFC, [](const ProgramValue* args, int) {
++    gameUiDisable(args[0].integerValue);
++    return ProgramValue(0);
++});
++
+ } // namespace fallout
+diff --git a/src/game_dialog.cc b/src/game_dialog.cc
+index a87e90e..7388cd2 100644
+--- a/src/game_dialog.cc
++++ b/src/game_dialog.cc
+@@ -41,6 +41,7 @@
+ #include "random.h"
+ #include "scripts.h"
+ #include "settings.h"
++#include "sfall_memory.h"
+ #include "skill.h"
+ #include "stat.h"
+ #include "svga.h"
+@@ -222,6 +223,11 @@ static constexpr ProtoId kDogsProtoIds[3] = {
+     CritterProtoTypeId::PariahDog,
+ };
+ 
++// SFALL: the same, as the original keeps them, which a mod may change (see
++// sfall_memory.h).
++static int gDogsProtoIds[3] = { kDogsProtoIds[0].pid(), kDogsProtoIds[1].pid(), kDogsProtoIds[2].pid() };
++SFALL_MEMORY(0x444D10, gDogsProtoIds, 12);
++
+ static std::unordered_map<int, AiMessageRange> partyMemberCcMsgIds;
+ 
+ // 0x5186D4 dialog_state_fix
+@@ -4012,7 +4018,7 @@ int _gdPickAIUpdateMsg(Object* critter)
+     }
+ 
+     for (int index = 0; index < 3; index++) {
+-        if (ProtoId(critter) == kDogsProtoIds[index]) {
++        if (ProtoId(critter).pid() == gDogsProtoIds[index]) {
+             return 677 + randomBetween(0, 1);
+         }
+     }
+diff --git a/src/game_mouse.cc b/src/game_mouse.cc
+index d20feae..16088b6 100644
+--- a/src/game_mouse.cc
++++ b/src/game_mouse.cc
+@@ -33,6 +33,7 @@
+ #include "proto.h"
+ #include "proto_instance.h"
+ #include "settings.h"
++#include "sfall_memory.h"
+ #include "sfall_script_hooks.h"
+ #include "skill.h"
+ #include "skilldex.h"
+@@ -2720,4 +2721,8 @@ Object* gmouse_get_outlined_object()
+     return gGameMouseHighlightedItem;
+ }
+ 
++SFALL_MEMORY_CALL(0x44C840, [](const ProgramValue* args, int) {
++    return ProgramValue(gameMouseSetCursor(static_cast<MouseCursorType>(args[0].integerValue)));
++});
++
+ } // namespace fallout
+diff --git a/src/interpreter.cc b/src/interpreter.cc
+index dc87116..a43e000 100644
+--- a/src/interpreter.cc
++++ b/src/interpreter.cc
+@@ -3,6 +3,7 @@
+ #include <assert.h>
+ #include <limits.h>
+ #include <stdarg.h>
++#include <stdint.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+@@ -1577,6 +1578,11 @@ static void opAdd(Program* program)
+ 
+             internal_free_safe(tempString, __FILE__, __LINE__);
+             break;
++        // SFALL: an object and a number make an address, as in the original
++        // program (see sfall_memory.h).
++        case VALUE_TYPE_INT:
++            programStackPushInteger(program, (int)(intptr_t)value[1].pointerValue + value[0].integerValue);
++            break;
+         }
+     }
+ }
+@@ -1611,6 +1617,13 @@ static void opSubtract(Program* program)
+             break;
+         }
+         break;
++    // SFALL: an object less a number is an address, as in the original
++    // program (see sfall_memory.h).
++    case VALUE_TYPE_PTR:
++        if (value[0].opcode == VALUE_TYPE_INT) {
++            programStackPushInteger(program, (int)(intptr_t)value[1].pointerValue - value[0].integerValue);
++        }
++        break;
+     }
+ }
+ 
+diff --git a/src/inventory.cc b/src/inventory.cc
+index 66abc4d..f8e0c85 100644
+--- a/src/inventory.cc
++++ b/src/inventory.cc
+@@ -47,6 +47,7 @@
+ #include "scripts.h"
+ #include "settings.h"
+ #include "sfall_hero_appearance.h"
++#include "sfall_memory.h"
+ #include "sfall_script_hooks.h"
+ #include "skill.h"
+ #include "stat.h"
+@@ -681,6 +682,36 @@ static Inventory* _target_pud;
+ // 0x59E97C barter_back_win
+ static int gInventoryBarterBackgroundWindow;
+ 
++SFALL_MEMORY(0x519054, gInventorySlotsCount, 4);
++SFALL_MEMORY_POINTER(0x519058, _inven_dude);
++SFALL_MEMORY(0x5190F8, gInventoryWindowDudeRotation, 4);
++SFALL_MEMORY(0x59E7EC, _target_stack_offset, 40);
++SFALL_MEMORY(0x59E844, _stack_offset, 40);
++SFALL_MEMORY(0x59E93C, _im_value, 4);
++SFALL_MEMORY(0x59E948, _target_curr_stack, 4);
++SFALL_MEMORY_ACCESSOR(
++    0x59E95C, []() { return gInventoryWindowDudeFrmId.fid(); }, [](int fid) { gInventoryWindowDudeFrmId = FrmId(fid); });
++SFALL_MEMORY(0x59E964, gInventoryWindow, 4);
++SFALL_MEMORY(0x59E96C, _curr_stack, 4);
++SFALL_MEMORY_POINTER(0x59E978, _target_pud);
++
++SFALL_MEMORY_CALL(0x46FDF4, [](const ProgramValue* args, int) {
++    _display_inventory(args[0].integerValue, args[1].integerValue, args[2].integerValue);
++    return ProgramValue(0);
++});
++SFALL_MEMORY_CALL(0x470650, [](const ProgramValue* args, int) {
++    _display_body(FrmId(args[0].integerValue), args[1].integerValue);
++    return ProgramValue(0);
++});
++SFALL_MEMORY_CALL(0x471D5C, [](const ProgramValue*, int) {
++    inventoryRenderSummary();
++    return ProgramValue(0);
++});
++SFALL_MEMORY_CALL(0x476394, [](const ProgramValue* args, int) {
++    _container_exit(args[0].integerValue, args[1].integerValue);
++    return ProgramValue(0);
++});
++
+ // Weight of equipped items stripped from the left/right loot-pane critter.
+ // Non-zero only while inventoryOpenLooting is active.
+ static int partyRightEquippedWeight = 0;
+diff --git a/src/item.cc b/src/item.cc
+index f9e2307..5fd9d07 100644
+--- a/src/item.cc
++++ b/src/item.cc
+@@ -32,6 +32,7 @@
+ #include "random.h"
+ #include "scripts.h"
+ #include "sfall_config.h"
++#include "sfall_memory.h"
+ #include "sfall_script_hooks.h"
+ #include "sfall_stat_mods.h"
+ #include "skill.h"
+@@ -179,6 +180,22 @@ static Object* _wd_obj;
+ // 0x59E990 wd_gvar
+ static int _wd_gvar;
+ 
++// SFALL: the original's code that mods change (see sfall_memory.h).
++// 0x477EE1: jne - the weight of what a critter wears and holds counted (jmp
++// leaves it out).
++static unsigned char gWornWeightCode[2] = { 0x75, 0x4E };
++SFALL_MEMORY(0x477EE1, gWornWeightCode, 2);
++// 0x479BD4 and 0x479BE8: Chem Resistant halving a drug's later effects for
++// the player; a mod has each halve them for anyone instead (shr esi, 1).
++static unsigned char gDrugDurationCode1[4] = { 0x3B, 0x3D, 0xB8, 0x10 };
++SFALL_MEMORY(0x479BD4, gDrugDurationCode1, 4);
++static unsigned char gDrugDurationCode2[4] = { 0x74, 0x02, 0xD1, 0xEE };
++SFALL_MEMORY(0x479BE8, gDrugDurationCode2, 4);
++// 0x479D39: whether a drug changing the player's hit points has the bar
++// count up to them.
++static unsigned char gDrugHitPointsAnimateCode[4] = { 0x01, 0x00, 0x00, 0x00 };
++SFALL_MEMORY(0x479D39, gDrugHitPointsAnimateCode, 4);
++
+ static std::vector<BookDescription> gBooks;
+ static bool gExplosionEmitsLight;
+ static int gGrenadeExplosionRadius;
+@@ -1004,7 +1021,7 @@ int objectGetInventoryWeight(Object* obj)
+         weight += itemGetWeight(item) * inventoryItem->quantity;
+     }
+ 
+-    if (FrmId(obj).objectType() == OBJ_TYPE_CRITTER) {
++    if (FrmId(obj).objectType() == OBJ_TYPE_CRITTER && !sfallMemoryIs(gWornWeightCode, { 0xEB })) {
+         Object* item2 = critterGetItem2(obj);
+         if (item2 != nullptr) {
+             if ((item2->flags & OBJECT_IN_RIGHT_HAND) == OBJECT_NONE) {
+@@ -2886,7 +2903,7 @@ static void _perform_drug_effect(Object* critter, Stat* stats, int* mods, bool i
+ 
+         if (critter == gDude) {
+             if (stat == STAT_CURRENT_HIT_POINTS) {
+-                interfaceRenderHitPoints(true);
++                interfaceRenderHitPoints(sfallMemoryInt(gDrugHitPointsAnimateCode) != 0);
+             }
+ 
+             int after = critterGetStat(critter, stat);
+@@ -3039,7 +3056,14 @@ UseItemResultCode drugItemTakeDrug(Object* critter, Object* item)
+             std::copy(proto->item.data.drug.stat, proto->item.data.drug.stat + 3, stats);
+             std::copy(delayedAmounts[index], delayedAmounts[index] + 3, amounts);
+             int delayTicks = 600 * durations[index];
+-            if (critter == gDude && traitIsSelectedAndActive(TRAIT_CHEM_RESISTANT)) {
++            // SFALL: as the original's code at 0x479BD4 and 0x479BE8 has it.
++            bool halvedForAnyone = sfallMemoryIs(gDrugDurationCode1, { 0xD1, 0xEE });
++            if (halvedForAnyone) {
++                delayTicks /= 2;
++            }
++            if (sfallMemoryIs(gDrugDurationCode2, { 0xD1, 0xEE })) {
++                delayTicks /= 2;
++            } else if ((halvedForAnyone || critter == gDude) && traitIsSelectedAndActive(TRAIT_CHEM_RESISTANT)) {
+                 delayTicks /= 2;
+             }
+             scriptHooks_DrugsEffect(critter, item->pid, &delayTicks, stats, amounts, -1, nullptr, nullptr);
+@@ -3860,4 +3884,15 @@ bool itemIsHealing(const ProtoId& protoId)
+     return false;
+ }
+ 
++SFALL_MEMORY_CALL(0x477B88, [](const ProgramValue* args, int) {
++    return ProgramValue(itemGetWeight(static_cast<Object*>(sfallMemoryArgPointer(args[0]))));
++});
++SFALL_MEMORY_CALL(0x478570, [](const ProgramValue* args, int) {
++    return ProgramValue(weaponGetDamageType(static_cast<Object*>(sfallMemoryArgPointer(args[0])),
++        static_cast<Object*>(sfallMemoryArgPointer(args[1]))));
++});
++SFALL_MEMORY_CALL(0x479A20, [](const ProgramValue* args, int) {
++    return ProgramValue(containerGetTotalSize(static_cast<Object*>(sfallMemoryArgPointer(args[0]))));
++});
++
+ } // namespace fallout
+diff --git a/src/mainmenu.cc b/src/mainmenu.cc
+index de17140..a55f596 100644
+--- a/src/mainmenu.cc
++++ b/src/mainmenu.cc
+@@ -21,6 +21,7 @@
+ #include "platform_compat.h"
+ #include "preferences.h"
+ #include "settings.h"
++#include "sfall_memory.h"
+ #include "svga.h"
+ #include "text_font.h"
+ #include "version.h"
+@@ -784,6 +785,13 @@ int _main_menu_is_enabled()
+     return 1;
+ }
+ 
++// SFALL: the original's code that mods change (see sfall_memory.h).
++// 0x481B2A: call get_input - the key the main menu takes (mov eax, <key>
++// gives it that key each time; Fallout Yesterday has it press Escape, to quit
++// the game for its settings to be taken up).
++static unsigned char gMainMenuInputCode[5] = { 0xE8, 0x49, 0x70, 0x04, 0x00 };
++SFALL_MEMORY(0x481B2A, gMainMenuInputCode, 5);
++
+ // 0x481AEC main_menu_loop
+ int mainMenuWindowHandleEvents()
+ {
+@@ -805,7 +813,9 @@ int mainMenuWindowHandleEvents()
+ 
+         sharedFpsLimiter.mark();
+ 
+-        int keyCode = inputGetInput();
++        // SFALL: a mod may have the menu take a key of its own instead (see
++        // gMainMenuInputCode).
++        int keyCode = sfallMemoryIs(gMainMenuInputCode, { 0xB8 }) ? sfallMemoryInt(gMainMenuInputCode + 1) : inputGetInput();
+ 
+         for (int buttonIndex = 0; buttonIndex < MAIN_MENU_BUTTON_COUNT; buttonIndex++) {
+             int buttonKeyCode = mainMenuButtonSpecs[buttonIndex].keyCode;
+diff --git a/src/map.cc b/src/map.cc
+index 75109e6..8b078df 100644
+--- a/src/map.cc
++++ b/src/map.cc
+@@ -40,6 +40,7 @@
+ #include "scripts.h"
+ #include "settings.h"
+ #include "sfall_callbacks.h"
++#include "sfall_memory.h"
+ #include "svga.h"
+ #include "text_object.h"
+ #include "tile.h"
+@@ -159,6 +160,8 @@ static unsigned char* gIsoWindowBuffer;
+ // 0x631D54 map_data
+ MapHeader gMapHeader;
+ 
++SFALL_MEMORY(0x631D54, gMapHeader, 236);
++
+ // 0x631E40 square
+ TileData* _square[ELEVATION_COUNT];
+ 
+diff --git a/src/object.cc b/src/object.cc
+index f740690..08df8b0 100644
+--- a/src/object.cc
++++ b/src/object.cc
+@@ -1,12 +1,17 @@
+ #include "object.h"
+ 
+ #include <assert.h>
++#include <stdint.h>
+ #include <string.h>
+ 
+ #include <algorithm>
+ #include <limits>
+ #include <vector>
+ 
++#if defined(__EMSCRIPTEN__)
++#include <emscripten/heap.h>
++#endif
++
+ #include "animation.h"
+ #include "animation_defs.h"
+ #include "art.h"
+@@ -29,6 +34,7 @@
+ #include "scripts.h"
+ #include "settings.h"
+ #include "sfall_hero_appearance.h"
++#include "sfall_memory.h"
+ #include "sfall_script_hooks.h"
+ #include "svga.h"
+ #include "text_object.h"
+@@ -2233,6 +2239,47 @@ Object* objectFindFirst()
+     return nullptr;
+ }
+ 
++// SFALL: whether `object` is one of the map's (or off it), for scripts that
++// kept it and ask after it in the original's memory (see sfall_memory.cc).
++bool objectIsLive(Object* object)
++{
++    if (object == nullptr) {
++        return false;
++    }
++
++    for (ObjectListNode* node = gObjectListHead; node != nullptr; node = node->next) {
++        if (node->obj == object) {
++            return true;
++        }
++    }
++
++#if defined(__EMSCRIPTEN__)
++    // Where it was, if it still is an object: its tile's list. (Memory the
++    // engine has can be read, an object gone or not; a number a script made
++    // up may lie beyond it.)
++    if (reinterpret_cast<uintptr_t>(object) + sizeof(Object) <= emscripten_get_heap_size()) {
++        int lastTile = object->tile;
++        if (hexGridTileIsValid(lastTile)) {
++            for (ObjectListNode* node = gObjectListHeadByTile[lastTile]; node != nullptr; node = node->next) {
++                if (node->obj == object) {
++                    return true;
++                }
++            }
++        }
++    }
++#endif
++
++    for (int tile = 0; tile < HEX_GRID_SIZE; tile++) {
++        for (ObjectListNode* node = gObjectListHeadByTile[tile]; node != nullptr; node = node->next) {
++            if (node->obj == object) {
++                return true;
++            }
++        }
++    }
++
++    return false;
++}
++
+ // 0x48B41C obj_find_next
+ Object* objectFindNext()
+ {
+@@ -4991,6 +5038,12 @@ static void objectDrawOutline(Object* object, Rect* rect)
+ }
+ 
+ // 0x48F1B0 obj_render_object
++// SFALL: the original's code that mods change (see sfall_memory.h).
++// 0x48F404: the flags of what is never seen through around the player (see-
++// through and translucent things).
++static unsigned char gEggFlagsCode[4] = { 0x00, 0xC0, 0x0F, 0x00 };
++SFALL_MEMORY(0x48F404, gEggFlagsCode, 4);
++
+ static void _obj_render_object(Object* object, Rect* rect, int light)
+ {
+     const FrmId frmId = FrmId(object);
+@@ -5061,7 +5114,7 @@ static void _obj_render_object(Object* object, Rect* rect, int light)
+     }
+ 
+     if (type == OBJ_TYPE_SCENERY || type == OBJ_TYPE_WALL) {
+-        if ((gDude->flags & OBJECT_HIDDEN) == OBJECT_NONE && (object->flags & OBJECT_FLAG_0xFC000) == OBJECT_NONE) {
++        if ((gDude->flags & OBJECT_HIDDEN) == OBJECT_NONE && (object->flags & sfallMemoryInt(gEggFlagsCode)) == 0) {
+             Proto* proto;
+             protoGetProto(object, &proto);
+ 
+diff --git a/src/object.h b/src/object.h
+index c63571a..003442f 100644
+--- a/src/object.h
++++ b/src/object.h
+@@ -67,6 +67,7 @@ Object* objectFindById(int a1);
+ Object* objectGetOwner(Object* obj);
+ void _obj_remove_all();
+ Object* objectFindFirst();
++bool objectIsLive(Object* object);
+ Object* objectFindNext();
+ Object* objectFindFirstAtElevation(MapElevation elevation);
+ Object* objectFindNextAtElevation();
+diff --git a/src/pipboy.cc b/src/pipboy.cc
+index 32fee42..f794ad2 100644
+--- a/src/pipboy.cc
++++ b/src/pipboy.cc
+@@ -37,6 +37,7 @@
+ #include "random.h"
+ #include "scripts.h"
+ #include "settings.h"
++#include "sfall_memory.h"
+ #include "sfall_script_hooks.h"
+ #include "stat.h"
+ #include "svga.h"
+@@ -300,6 +301,14 @@ int gPipboyRestOptionsCount = PIPBOY_REST_DURATION_COUNT;
+ static int pipboyRestDurationBaseMessageId = kDefaultPipboyRestDurationBaseMessageId;
+ static int pipboyRestDurationWakeHours[PIPBOY_REST_DURATION_WAKE_HOUR_COUNT];
+ 
++// SFALL: the original has these as operands in its code (see sfall_memory.h).
++// 0x499746: the message of the first way to rest.
++SFALL_MEMORY_ACCESSOR(
++    0x499746, []() { return pipboyRestDurationBaseMessageId; }, [](int id) { pipboyRestDurationBaseMessageId = id; });
++// 0x4995F3: the hour resting until morning wakes at.
++SFALL_MEMORY_ACCESSOR(
++    0x4995F3, []() { return pipboyRestDurationWakeHours[0]; }, [](int hour) { pipboyRestDurationWakeHours[0] = hour; });
++
+ // 0x51C13C bk_enable_5
+ bool gPipboyWindowIsoWasEnabled = false;
+ 
+diff --git a/src/proto.cc b/src/proto.cc
+index eaf780c..fb7c7ae 100644
+--- a/src/proto.cc
++++ b/src/proto.cc
+@@ -22,6 +22,7 @@
+ #include "pipboy.h"
+ #include "settings.h"
+ #include "sfall_hero_appearance.h"
++#include "sfall_memory.h"
+ #include "skill.h"
+ #include "stat.h"
+ #include "trait.h"
+@@ -2246,4 +2247,6 @@ int _ResetPlayer()
+     return 0;
+ }
+ 
++SFALL_MEMORY(0x51C370, gDudeProto, 416);
++
+ } // namespace fallout
+diff --git a/src/scripts.cc b/src/scripts.cc
+index 75ac283..c332e81 100644
+--- a/src/scripts.cc
++++ b/src/scripts.cc
+@@ -41,6 +41,7 @@
+ #include "scan_unimplemented.h"
+ #include "sfall_arrays.h"
+ #include "sfall_global_scripts.h"
++#include "sfall_memory.h"
+ #include "sfall_script_hooks.h"
+ #include "stat.h"
+ #include "svga.h"
+@@ -150,6 +151,8 @@ static int gGameModeEnabled = 0;
+ // 0x51C720 fallout_game_time
+ static unsigned int gGameTime = 302400;
+ 
++SFALL_MEMORY(0x51C720, gGameTime, 4);
++
+ // 0x51C724 days_in_month
+ static const int gGameTimeDaysPerMonth[12] = {
+     31, // Jan
+@@ -3444,4 +3447,27 @@ int _scr_explode_scenery(Object* explosionSource, int tile, int radius, MapEleva
+     return 0;
+ }
+ 
++SFALL_MEMORY_CALL(0x4A3B0C, [](const ProgramValue* args, int) {
++    return ProgramValue(scriptSetObjects(args[0].integerValue,
++        static_cast<Object*>(sfallMemoryArgPointer(args[1])),
++        static_cast<Object*>(sfallMemoryArgPointer(args[2]))));
++});
++SFALL_MEMORY_CALL(0x4A3B34, [](const ProgramValue* args, int) {
++    scriptSetFixedParam(args[0].integerValue, args[1].integerValue);
++    return ProgramValue(0);
++});
++SFALL_MEMORY_CALL(0x4A4810, [](const ProgramValue* args, int) {
++    return ProgramValue(scriptExecProc(args[0].integerValue, static_cast<ScriptProc>(args[1].integerValue)));
++});
++SFALL_MEMORY_CALL(0x4A53A8, [](const ProgramValue*, int) { return ProgramValue(scriptsEnable()); });
++SFALL_MEMORY_CALL(0x4A53D0, [](const ProgramValue*, int) { return ProgramValue(scriptsDisable()); });
++SFALL_MEMORY_CALL(0x4A53E0, [](const ProgramValue*, int) {
++    _scr_enable_critters();
++    return ProgramValue(0);
++});
++SFALL_MEMORY_CALL(0x4A53F0, [](const ProgramValue*, int) {
++    _scr_disable_critters();
++    return ProgramValue(0);
++});
++
+ } // namespace fallout
+diff --git a/src/sfall_memory.cc b/src/sfall_memory.cc
+new file mode 100644
+index 0000000..0f95bb0
+--- /dev/null
++++ b/src/sfall_memory.cc
+@@ -0,0 +1,217 @@
++#include "sfall_memory.h"
++
++#include <stdint.h>
++#include <string.h>
++
++#include <algorithm>
++#include <vector>
++
++#include "object.h"
++
++namespace fallout {
++
++namespace {
++
++struct Area {
++    unsigned int address;
++    // A variable laid out as the original's...
++    unsigned char* data;
++    int size;
++    // ...a pointer...
++    void** pointer;
++    // ...or an int kept otherwise.
++    int (*get)();
++    void (*set)(int);
++};
++
++struct Call {
++    unsigned int address;
++    ProgramValue (*function)(const ProgramValue* args, int argCount);
++};
++
++// Filled as the engine's files are set up, before anything runs.
++std::vector<Area>& areas()
++{
++    static std::vector<Area> list;
++    return list;
++}
++
++std::vector<Call>& calls()
++{
++    static std::vector<Call> list;
++    return list;
++}
++
++int areaSize(const Area& area)
++{
++    return area.data != nullptr ? area.size : 4;
++}
++
++const Area* areaAt(unsigned int address, int size)
++{
++    for (const Area& area : areas()) {
++        if (address >= area.address && address + size <= area.address + areaSize(area)) {
++            return &area;
++        }
++    }
++    return nullptr;
++}
++
++// The original's memory manager keeps this before each block it gives out:
++// scripts look for it before an object they kept to know it still is one.
++constexpr int kBlockCookie = static_cast<int>(0xFEEDFACE);
++
++ProgramValue pointerValue(void* pointer)
++{
++    ProgramValue value;
++    value.opcode = VALUE_TYPE_PTR;
++    value.pointerValue = pointer;
++    return value;
++}
++
++} // namespace
++
++SfallMemoryArea::SfallMemoryArea(unsigned int address, void* data, int size)
++{
++    areas().push_back({ address, static_cast<unsigned char*>(data), size, nullptr, nullptr, nullptr });
++}
++
++SfallMemoryArea::SfallMemoryArea(unsigned int address, void** pointer)
++{
++    areas().push_back({ address, nullptr, 0, pointer, nullptr, nullptr });
++}
++
++SfallMemoryArea::SfallMemoryArea(unsigned int address, int (*get)(), void (*set)(int))
++{
++    areas().push_back({ address, nullptr, 0, nullptr, get, set });
++}
++
++SfallMemoryCall::SfallMemoryCall(unsigned int address, ProgramValue (*function)(const ProgramValue* args, int argCount))
++{
++    calls().push_back({ address, function });
++}
++
++bool sfallMemoryIs(const unsigned char* bytes, std::initializer_list<unsigned char> patch)
++{
++    return std::equal(patch.begin(), patch.end(), bytes);
++}
++
++int sfallMemoryInt(const unsigned char* bytes)
++{
++    return static_cast<int>(bytes[0] | (bytes[1] << 8) | (bytes[2] << 16) | (static_cast<unsigned int>(bytes[3]) << 24));
++}
++
++bool sfallMemoryRead(unsigned int address, int size, ProgramValue* valuePtr)
++{
++    const Area* area = areaAt(address, size);
++    if (area == nullptr) {
++        // An object's block, asked after.
++        if (size == 4 && objectIsLive(reinterpret_cast<Object*>(static_cast<uintptr_t>(address + 4)))) {
++            *valuePtr = ProgramValue(kBlockCookie);
++            return true;
++        }
++        return false;
++    }
++
++    if (area->pointer != nullptr) {
++        *valuePtr = address == area->address && size == 4 ? pointerValue(*area->pointer) : ProgramValue(0);
++        return true;
++    }
++
++    if (area->get != nullptr) {
++        unsigned int value = static_cast<unsigned int>(area->get()) >> ((address - area->address) * 8);
++        *valuePtr = ProgramValue(static_cast<int>(size == 4 ? value : value & ((1u << (size * 8)) - 1)));
++        return true;
++    }
++
++    unsigned int value = 0;
++    memcpy(&value, area->data + (address - area->address), size);
++    // read_byte and read_short give what they read unsigned, as sfall does.
++    *valuePtr = ProgramValue(static_cast<int>(value));
++    return true;
++}
++
++bool sfallMemoryReadString(unsigned int address, std::string* string)
++{
++    const Area* area = areaAt(address, 1);
++    if (area == nullptr || area->data == nullptr) {
++        return false;
++    }
++
++    const char* start = reinterpret_cast<const char*>(area->data + (address - area->address));
++    size_t room = area->address + area->size - address;
++    string->assign(start, strnlen(start, room));
++    return true;
++}
++
++bool sfallMemoryWrite(unsigned int address, int size, const ProgramValue& value)
++{
++    const Area* area = areaAt(address, size);
++    if (area == nullptr) {
++        return false;
++    }
++
++    if (area->pointer != nullptr) {
++        if (address == area->address && size == 4) {
++            *area->pointer = sfallMemoryArgPointer(value);
++        }
++        return true;
++    }
++
++    unsigned int bits = static_cast<unsigned int>(sfallMemoryArgInt(value));
++
++    if (area->set != nullptr) {
++        int shift = (address - area->address) * 8;
++        unsigned int mask = size == 4 ? 0xFFFFFFFFu : ((1u << (size * 8)) - 1);
++        unsigned int old = static_cast<unsigned int>(area->get());
++        area->set(static_cast<int>((old & ~(mask << shift)) | ((bits & mask) << shift)));
++        return true;
++    }
++
++    memcpy(area->data + (address - area->address), &bits, size);
++    return true;
++}
++
++bool sfallMemoryWriteString(unsigned int address, const char* string)
++{
++    const Area* area = areaAt(address, 1);
++    if (area == nullptr || area->data == nullptr) {
++        return false;
++    }
++
++    // As far as the variable goes, ended as a string.
++    size_t room = area->address + area->size - address;
++    size_t length = std::min(strlen(string), room - 1);
++    memcpy(area->data + (address - area->address), string, length);
++    area->data[address - area->address + length] = '\0';
++    return true;
++}
++
++bool sfallMemoryCall(unsigned int address, const ProgramValue* args, int argCount, ProgramValue* resultPtr)
++{
++    for (const Call& call : calls()) {
++        if (call.address == address) {
++            *resultPtr = call.function(args, argCount);
++            return true;
++        }
++    }
++    return false;
++}
++
++int sfallMemoryArgInt(const ProgramValue& value)
++{
++    if (value.opcode == VALUE_TYPE_PTR) {
++        return static_cast<int>(reinterpret_cast<uintptr_t>(value.pointerValue));
++    }
++    return value.integerValue;
++}
++
++void* sfallMemoryArgPointer(const ProgramValue& value)
++{
++    if (value.opcode == VALUE_TYPE_PTR) {
++        return value.pointerValue;
++    }
++    return reinterpret_cast<void*>(static_cast<uintptr_t>(static_cast<unsigned int>(value.integerValue)));
++}
++
++} // namespace fallout
+diff --git a/src/sfall_memory.h b/src/sfall_memory.h
+new file mode 100644
+index 0000000..f946b27
+--- /dev/null
++++ b/src/sfall_memory.h
+@@ -0,0 +1,79 @@
++#ifndef FALLOUT_SFALL_MEMORY_H_
++#define FALLOUT_SFALL_MEMORY_H_
++
++#include <initializer_list>
++#include <string>
++
++#include "interpreter.h"
++
++namespace fallout {
++
++// The original program's memory, as the scripts made for sfall reach into it:
++// read_byte .. read_string, write_byte .. write_string and call_offset_*,
++// with the addresses of Fallout 2 1.02 (US).
++//
++// Of it, what mods are known to use is registered beside what stands for it
++// here: a variable of the game's where it is laid out as the original's (an
++// int, an array of them, a struct of ints), a getter and setter where it is
++// not, and a function. Where a mod changes the original's code, the few bytes
++// it changes are kept here as the original has them, registered the same
++// way, and the engine does what they say where the original ran them (see
++// sfallMemoryIs). Anything else reads 0 and takes no change, as before.
++//
++// npm run sfall-scan lists what a mod uses that is not registered.
++
++class SfallMemoryArea {
++public:
++    // A variable laid out as the original's.
++    SfallMemoryArea(unsigned int address, void* data, int size);
++    // A pointer (an object, an inventory): scripts see it as one.
++    SfallMemoryArea(unsigned int address, void** pointer);
++    // An int the engine keeps otherwise.
++    SfallMemoryArea(unsigned int address, int (*get)(), void (*set)(int));
++};
++
++class SfallMemoryCall {
++public:
++    // A function of the original's, given what the script passes (as many as
++    // four values, those it did not pass 0) and returning what call_offset_r*
++    // gives back.
++    SfallMemoryCall(unsigned int address, ProgramValue (*function)(const ProgramValue* args, int argCount));
++};
++
++#define SFALL_MEMORY_CONCAT_(a, b) a##b
++#define SFALL_MEMORY_CONCAT(a, b) SFALL_MEMORY_CONCAT_(a, b)
++
++// `variable` at `address`, `size` bytes as the original has it.
++#define SFALL_MEMORY(address, variable, size)                                                       \
++    static_assert(sizeof(variable) == (size), #variable " is not laid out as the original's");     \
++    static SfallMemoryArea SFALL_MEMORY_CONCAT(gSfallMemoryArea, __LINE__)(address, (void*)&(variable), size)
++
++#define SFALL_MEMORY_POINTER(address, variable) \
++    static SfallMemoryArea SFALL_MEMORY_CONCAT(gSfallMemoryArea, __LINE__)(address, (void**)&(variable))
++
++#define SFALL_MEMORY_ACCESSOR(address, get, set) \
++    static SfallMemoryArea SFALL_MEMORY_CONCAT(gSfallMemoryArea, __LINE__)(address, get, set)
++
++// (A lambda, as often as not: what follows the address.)
++#define SFALL_MEMORY_CALL(address, ...) \
++    static SfallMemoryCall SFALL_MEMORY_CONCAT(gSfallMemoryCall, __LINE__)(address, __VA_ARGS__)
++
++// Whether a script has changed the original's code kept in `bytes` to `patch`.
++bool sfallMemoryIs(const unsigned char* bytes, std::initializer_list<unsigned char> patch);
++// The little-endian int at `bytes` (an instruction's operand).
++int sfallMemoryInt(const unsigned char* bytes);
++
++// What the scripts' opcodes do: false where nothing is registered.
++bool sfallMemoryRead(unsigned int address, int size, ProgramValue* valuePtr);
++bool sfallMemoryReadString(unsigned int address, std::string* string);
++bool sfallMemoryWrite(unsigned int address, int size, const ProgramValue& value);
++bool sfallMemoryWriteString(unsigned int address, const char* string);
++bool sfallMemoryCall(unsigned int address, const ProgramValue* args, int argCount, ProgramValue* resultPtr);
++
++// What call_offset_* passes: a number, or an object.
++int sfallMemoryArgInt(const ProgramValue& value);
++void* sfallMemoryArgPointer(const ProgramValue& value);
++
++} // namespace fallout
++
++#endif /* FALLOUT_SFALL_MEMORY_H_ */
+diff --git a/src/sfall_opcodes.cc b/src/sfall_opcodes.cc
+index 510b0e3..00212e0 100644
+--- a/src/sfall_opcodes.cc
++++ b/src/sfall_opcodes.cc
+@@ -50,6 +50,7 @@
+ #include "sfall_ini.h"
+ #include "sfall_kb_helpers.h"
+ #include "sfall_lists.h"
++#include "sfall_memory.h"
+ #include "sfall_metarules.h"
+ #include "sfall_perks.h"
+ #include "sfall_script_hooks.h"
+@@ -115,24 +116,6 @@ static void op_obj_is_carrying_obj(Program* program)
+     programStackPushInteger(program, count);
+ }
+ 
+-// read_byte
+-static void op_read_byte(Program* program)
+-{
+-    int addr = programStackPopInteger(program);
+-
+-    int value = 0;
+-    switch (addr) {
+-    case 0x56D38C:
+-        value = combatGetTargetHighlight();
+-        break;
+-    default:
+-        debugPrint("%s: attempt to 'read_byte' at 0x%x", program->name, addr);
+-        break;
+-    }
+-
+-    programStackPushInteger(program, value);
+-}
+-
+ // set_pc_base_stat
+ static void op_set_pc_base_stat(Program* program)
+ {
+@@ -2236,39 +2219,66 @@ static void op_ignored_graphics(Program* program)
+     }
+ }
+ 
+-// What reads, writes or calls into the original program's memory: it is not
+-// there, so they read 0 and change nothing, as sfall does with its unsafe
+-// opcodes switched off. Once for each script, it is said.
+-static void warnMemoryAccess(Program* program, const char* what, int address)
++// What reads, writes or calls into the original program's memory: what of it
++// is known is answered for (see sfall_memory.h); the rest is not there, so it
++// reads 0 and changes nothing, as sfall does with its unsafe opcodes switched
++// off. Once for each script and address, it is said.
++static void warnMemoryAccess(Program* program, const char* what, unsigned int address)
+ {
+     static std::vector<std::string> warned;
+-    std::string key = std::string(program->name) + ":" + what;
+-    if (std::find(warned.begin(), warned.end(), key) == warned.end()) {
+-        warned.push_back(key);
++    char key[64];
++    snprintf(key, sizeof(key), ":%s:%x", what, address);
++    std::string id = std::string(program->name) + key;
++    if (std::find(warned.begin(), warned.end(), id) == warned.end()) {
++        warned.push_back(id);
+         debugPrint("%s: '%s' at 0x%x does nothing on this engine\n", program->name, what, address);
+     }
+ }
+ 
++// read_byte, read_short, read_int
+ template <int size>
+ static void op_read_memory(Program* program)
+ {
+-    int address = programStackPopInteger(program);
+-    warnMemoryAccess(program, size == 2 ? "read_short" : "read_int", address);
+-    programStackPushInteger(program, 0);
++    unsigned int address = static_cast<unsigned int>(programStackPopInteger(program));
++    ProgramValue value(0);
++    if (!sfallMemoryRead(address, size, &value)) {
++        warnMemoryAccess(program, size == 1 ? "read_byte" : size == 2 ? "read_short" : "read_int", address);
++    }
++    programStackPushValue(program, value);
+ }
+ 
+ static void op_read_string(Program* program)
+ {
+-    int address = programStackPopInteger(program);
+-    warnMemoryAccess(program, "read_string", address);
+-    programStackPushString(program, "");
++    unsigned int address = static_cast<unsigned int>(programStackPopInteger(program));
++    std::string string;
++    if (!sfallMemoryReadString(address, &string)) {
++        warnMemoryAccess(program, "read_string", address);
++    }
++    programStackPushString(program, string.c_str());
+ }
+ 
++// write_byte (0x81cf), write_short (0x81d0), write_int (0x81d1) and
++// write_string (0x821b).
+ static void op_write_memory(Program* program)
+ {
+-    programStackPopValue(program);
+-    int address = programStackPopInteger(program);
+-    warnMemoryAccess(program, "write_byte/short/int/string", address);
++    int opcode = (program->flags >> 16) & 0xFFFF;
++    ProgramValue value = programStackPopValue(program);
++    unsigned int address = static_cast<unsigned int>(programStackPopInteger(program));
++
++    if (opcode == 0x821B) {
++        const char* string = (value.opcode & VALUE_TYPE_MASK) == VALUE_TYPE_STRING
++            ? programGetString(program, value.opcode, value.integerValue)
++            : "";
++        if (!sfallMemoryWriteString(address, string)) {
++            warnMemoryAccess(program, "write_string", address);
++        }
++        return;
++    }
++
++    int size = opcode == 0x81CF ? 1 : opcode == 0x81D0 ? 2 : 4;
++    if (!sfallMemoryWrite(address, size, value)) {
++        warnMemoryAccess(program, size == 1 ? "write_byte" : size == 2 ? "write_short" : "write_int", address);
++    }
+ }
+ 
+ // call_offset_v0 .. v4 (0x81d2 to 0x81d6) and call_offset_r0 .. r4 (0x81d7 to
+@@ -2276,13 +2286,19 @@ static void op_write_memory(Program* program)
+ static void op_call_offset(Program* program)
+ {
+     int index = ((program->flags >> 16) & 0x3FF) - 0x1D2;
+-    for (int arg = 0; arg < index % 5; arg++) {
+-        programStackPopValue(program);
++    int argCount = index % 5;
++    ProgramValue args[4];
++    for (int arg = argCount - 1; arg >= 0; arg--) {
++        args[arg] = programStackPopValue(program);
++    }
++    unsigned int address = static_cast<unsigned int>(programStackPopInteger(program));
++
++    ProgramValue result(0);
++    if (!sfallMemoryCall(address, args, argCount, &result)) {
++        warnMemoryAccess(program, "call_offset", address);
+     }
+-    int address = programStackPopInteger(program);
+-    warnMemoryAccess(program, "call_offset", address);
+     if (index >= 5) {
+-        programStackPushInteger(program, 0);
++        programStackPushValue(program, result);
+     }
+ }
+ 
+@@ -2750,17 +2766,16 @@ static void op_get_perk_freq(Program* program)
+ void sfallOpcodesInit()
+ {
+     // ref. https://github.com/sfall-team/sfall/blob/71ecec3d405bd5e945f157954618b169e60068fe/artifacts/scripting/sfall%20opcode%20list.txt#L145
+-    // Note: we can't really implement these since address space is different.
+-    // We can potentially special case some of them, but we should try to avoid that.
++    // What of the original program's memory mods are known to use (see
++    // sfall_memory.h).
+     // 0x8156 - int   read_byte(int address)
+-    interpreterRegisterOpcode(0x8156, op_read_byte);
++    interpreterRegisterOpcode(0x8156, op_read_memory<1>);
+     // 0x8157 - int   read_short(int address)
+     interpreterRegisterOpcode(0x8157, op_read_memory<2>);
+     // 0x8158 - int   read_int(int address)
+     interpreterRegisterOpcode(0x8158, op_read_memory<4>);
+     // 0x8159 - string read_string(int address)
+     interpreterRegisterOpcode(0x8159, op_read_string);
+-    // Writes and calls: they do nothing here (see warnMemoryAccess).
+     interpreterRegisterOpcode(0x81CF, op_write_memory);
+     interpreterRegisterOpcode(0x81D0, op_write_memory);
+     interpreterRegisterOpcode(0x81D1, op_write_memory);
+diff --git a/src/skill.cc b/src/skill.cc
+index e689617..665dd13 100644
+--- a/src/skill.cc
++++ b/src/skill.cc
+@@ -30,6 +30,7 @@
+ #include "scripts.h"
+ #include "settings.h"
+ #include "sfall_config.h"
++#include "sfall_memory.h"
+ #include "sfall_script_hooks.h"
+ #include "stat.h"
+ #include "string_utils.h"
+@@ -157,6 +158,8 @@ static int _timesSkillUsed[SKILL_COUNT][SKILLS_MAX_USES_PER_DAY];
+ // 0x668070 tag_skill
+ static Skill gTaggedSkills[NUM_TAGGED_SKILLS];
+ 
++SFALL_MEMORY(0x668070, gTaggedSkills, 16);
++
+ // sfall's set_skill_max limit. Global scripts restore content-specific values
+ // after every game reset.
+ static int skillMaximum = 300;
+diff --git a/src/stat.cc b/src/stat.cc
+index 05498ad..e28ed45 100644
+--- a/src/stat.cc
++++ b/src/stat.cc
+@@ -26,6 +26,7 @@
+ #include "proto.h"
+ #include "random.h"
+ #include "scripts.h"
++#include "sfall_memory.h"
+ #include "sfall_stat_mods.h"
+ #include "skill.h"
+ #include "svga.h"
+@@ -1062,4 +1063,8 @@ int pcSetExperience(int xp)
+     return 0;
+ }
+ 
++SFALL_MEMORY_CALL(0x4AF910, [](const ProgramValue* args, int) {
++    return ProgramValue(pcSetStat(static_cast<PcStat>(args[0].integerValue), args[1].integerValue));
++});
++
+ } // namespace fallout
+diff --git a/src/trait.cc b/src/trait.cc
+index e88317e..3c1f791 100644
+--- a/src/trait.cc
++++ b/src/trait.cc
+@@ -13,6 +13,7 @@
+ #include "object.h"
+ #include "platform_compat.h"
+ #include "sfall_config.h"
++#include "sfall_memory.h"
+ #include "skill.h"
+ #include "stat.h"
+ 
+@@ -43,6 +44,8 @@ static MessageList gTraitsMessageList;
+ // 0x66BE40 pc_trait
+ static Trait gSelectedTraits[TRAITS_MAX_SELECTED_COUNT];
+ 
++SFALL_MEMORY(0x66BE40, gSelectedTraits, 8);
++
+ // 0x51DB84 trait_data
+ static TraitDescription traitDescriptions[TRAIT_COUNT] = {
+     { nullptr, nullptr, SkillDexFrameId::FastMetabolism },

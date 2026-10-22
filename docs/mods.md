@@ -93,9 +93,8 @@ by a file of their own or the name of their folder.
 
 *Tested here* means the console's own tests play it from its real files: loaded, started, and into a new game, with
 the engine reading the mod's own archives. What is known not to work on this engine is said on the mod's page and
-when it is loaded: Olympus 2207 was made for sfall 5, the Megamod for the original engine with sfall, Fallout
-Yesterday for sfall 4 (its Hero Appearance, the look picked for your character, is not there),
-and what Fixt, Resurrection and Yesterday change in the game's program itself does not come along.
+when it is loaded: the Megamod was made for the original engine with sfall, and what Fixt changes in the game's
+program itself does not come along.
 
 Sonora, Nevada and Olympus are whole games of their own, with their own archives; they still need Fallout 2 in deck B,
 whose engine they play on. Olympus needs a picture at least 600 lines tall, so it is played at high resolution.
@@ -114,12 +113,15 @@ the console the zip, or the Fallout 2 folder it was unpacked into, rather than t
 > [!NOTE]
 > fo2.exe and similar launchers run the original programs of the games, with sfall, the original engine's
 > extension, as a switch. The engines the console runs have what mods need of sfall built in: there is nothing to
-> switch on. Fallout 2's has sfall's scripting, its hook scripts (`hs_*.int`, which the Megamod, Olympus and
-> Resurrection bring) and its virtual files (the Restoration Project's walking speeds). Fallout's follows the sfall
+> switch on. Fallout 2's has sfall's scripting, with what sfall 5 adds that Olympus and Yesterday call; its hook
+> scripts (`hs_*.int`, which the Megamod, Olympus and Resurrection bring); its virtual files (the Restoration Project's
+> walking speeds); Hero Appearance, the look picked for your character in the Restoration Project and Yesterday; and
+> what mods are known to read, write and call in the original program, as Yesterday's traits, poison and stealing,
+> Resurrection's skill points and Et Tu's Pip-Boy do. A mod's scripts are told they run on the sfall it came with (its
+> `ddraw.dll`), and do as they would there; one loaded before the console read that is told sfall 4.3. Fallout's follows the sfall
 > settings a mod's `ddraw.ini` sets, as Fallout Fixt's does: its fixes, its faster game, the middle mouse button
-> switching hands, and Shift (HILITE on a touch screen) lighting up what lies on the ground. What a mod changes in a
-> game's program itself cannot come along, and a few mods reach further into the original engine than its Community
-> Edition follows; those parts of them are not there.
+> switching hands, and Shift (HILITE on a touch screen) lighting up what lies on the ground. What else a mod changes
+> in a game's program itself cannot come along, as Fixt's own changes to Fallout's do not.
 
 ## Fallout Et Tu
 

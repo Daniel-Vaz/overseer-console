@@ -6,6 +6,7 @@ import type { Page } from '@playwright/test';
 import type { FileReads } from '../../src/lib/engine/host';
 import { parseSaveHeader, type SaveHeader } from '../../src/lib/savefile';
 import { expect, test } from './fixtures';
+import { sfallLibrary } from '../mods';
 import { tempFolder } from './tempdirs';
 import { distance, engineStats, fingerprint, inProgress, launch, openConsole, pause, pickFolder, showsPicture, waitForPicture } from './helpers';
 
@@ -592,7 +593,7 @@ test('Fallout: a mod whose lists end their lines as Windows writes them plays', 
 
 /**
  * What the engine of Fallout 2 was given of sfall for the known mods
- * (engines/fallout2/patches 0008-0011), played in the real game by two scripts
+ * (engines/fallout2/patches 0008-0012), played in the real game by two scripts
  * of tests/sfall loaded as a mod: a global script that calls them and writes
  * what it saw into a virtual file kept in the save, and a hook script, found
  * by its file name, that counts its runs in another. Both are read back out of
@@ -607,11 +608,21 @@ test('Fallout 2: sfall virtual files, hook scripts and the calls the mods make, 
 
   const folder = join(tempFolder(), 'Overseer sfall test');
   mkdirSync(join(folder, 'data', 'scripts'), { recursive: true });
-  for (const script of ['gl_overseer.int', 'hs_gamemodechange.int']) {
+  for (const script of ['gl_overseer.int', 'hs_gamemodechange.int', 'hs_setglobalvar.int']) {
     writeFileSync(join(folder, 'data', 'scripts', script), readFileSync(new URL(`../sfall/${script}`, import.meta.url)));
   }
   mkdirSync(join(folder, 'data', 'sound', 'sfx'), { recursive: true });
   writeFileSync(join(folder, 'data', 'sound', 'sfx', 'overseer.mp3'), readFileSync(new URL('../sfall/overseer.mp3', import.meta.url)));
+  // Hero Appearance on, with a style of its own: the first ready-made character, standing, in a robe (Fallout 2's
+  // own robe, out of critter.dat).
+  writeFileSync(join(folder, 'ddraw.ini'), '[Misc]\r\nEnableHeroAppearanceMod=1\r\n');
+  // The sfall it came with, which its scripts are told.
+  writeFileSync(join(folder, 'ddraw.dll'), sfallLibrary(['4.4.5.1', [4, 4, 5]]));
+  const critterName = readdirSync(fallout2!).find((name) => name.toLowerCase() === 'critter.dat')!;
+  const critters = (await openAsBlob(join(fallout2!, critterName))) as unknown as DatArchive;
+  const robe = (await indexDat(critters, 'dat2')).get('art/critters/harobeaa.frm')!;
+  mkdirSync(join(folder, 'appearance', 'hmR00S01', 'art', 'critters'), { recursive: true });
+  writeFileSync(join(folder, 'appearance', 'hmR00S01', 'art', 'critters', '_HMWARRAA.FRM'), await readDatEntry(critters, 'dat2', robe));
 
   await openConsole(page, 'fo2', { skipIntro: true });
   await pickFolder(page, fallout2!);
@@ -645,22 +656,56 @@ test('Fallout 2: sfall virtual files, hook scripts and the calls the mods make, 
   await expect(page.locator('#toast')).toHaveText('QUICK SAVED IN SLOT 07', { timeout: 30_000 });
 
   // sfallfs.sav: the number of files, then each one's length, name (128 bytes), position and bytes.
-  const data = Buffer.from((await engineFile(page, 'data/savegame/slot07/sfallfs.sav')) ?? []);
-  const files = new Map<string, Buffer>();
-  for (let at = 4, index = 0; index < data.readUInt32LE(0); index++) {
-    const length = data.readUInt32LE(at);
-    const name = data.subarray(at + 4, at + 132);
-    files.set(name.subarray(0, name.indexOf(0)).toString('latin1'), data.subarray(at + 136, at + 136 + length));
-    at += 136 + length;
-  }
+  const keptFiles = async () => {
+    const data = Buffer.from((await engineFile(page, 'data/savegame/slot07/sfallfs.sav')) ?? []);
+    const kept = new Map<string, Buffer>();
+    for (let at = 4, index = 0; index < data.readUInt32LE(0); index++) {
+      const length = data.readUInt32LE(at);
+      const name = data.subarray(at + 4, at + 132);
+      kept.set(name.subarray(0, name.indexOf(0)).toString('latin1'), data.subarray(at + 136, at + 136 + length));
+      at += 136 + length;
+    }
+    return kept;
+  };
+  const files = await keptFiles();
   console.log(`sfall test: kept ${[...files].map(([name, bytes]) => `${name} [${[...bytes].join(' ')}]`).join(', ')}`);
   // Read back high byte first; copied from a virtual file; two traits; the world map's view; the knockback and
-  // heave-ho calls; an MP3 played; and the end of the script.
-  expect([...files.get('overseer/result')!]).toEqual([1, 1, 1, 5, 7, 1, 1, 66]);
+  // heave-ho calls; an MP3 played; the Hero Appearance style kept for scripts; six reads, writes and a call into the
+  // original program's memory; the version of the mod's sfall; and the end of the script.
+  expect([...files.get('overseer/result')!]).toEqual([1, 1, 1, 5, 7, 1, 1, 1, 1, 1, 1, 1, 1, 1, 4, 4, 5, 66]);
+  // The player in the style's robe.
+  const path = test.info().outputPath('hero-appearance.png');
+  await page.locator('#canvas').screenshot({ path });
+  await test.info().attach('Hero Appearance: the player in the style picked by script', { path, contentType: 'image/png' });
   // Started with the game, and run at each change of game mode since.
   expect(files.get('overseer/hooks')!.readInt32BE(0)).toBeGreaterThanOrEqual(3);
+  // Global variable 0 set to 7, read back as 8: the SetGlobalVar hook, by a hook script of its own, once the game
+  // is up (the first run of the game mode hook script is before).
+  expect([...files.get('overseer/globalvar')!]).toEqual([8]);
   // Only the files the scripts asked to keep.
-  expect([...files.keys()].sort()).toEqual(['overseer/hooks', 'overseer/result']);
+  expect([...files.keys()].sort()).toEqual(['overseer/globalvar', 'overseer/hooks', 'overseer/result']);
+
+  // Loaded and saved again: the style came back with the save (the script only says which it found), and the
+  // player is drawn in it.
+  await page.keyboard.press('F7');
+  await pause(page, 10_000);
+  await expect.poll(() => inProgress(page), { timeout: 120_000, intervals: [1000] }).toBe(true);
+  await pause(page, 3000);
+  const loadedPath = test.info().outputPath('hero-appearance-loaded.png');
+  await page.locator('#canvas').screenshot({ path: loadedPath });
+  await test.info().attach('Hero Appearance: the player after loading the save', { path: loadedPath, contentType: 'image/png' });
+  await page.keyboard.press('F6');
+  await expect(page.locator('#toast')).toHaveText('QUICK SAVED IN SLOT 07', { timeout: 30_000 });
+  expect([...((await keptFiles()).get('overseer/loaded') ?? [])]).toEqual([1]);
+
+  // The character screen with the view of the character, and the race and style headings.
+  await page.keyboard.press('c');
+  await pause(page, 3000);
+  const screenPath = test.info().outputPath('hero-appearance-character-screen.png');
+  await page.locator('#canvas').screenshot({ path: screenPath });
+  await test.info().attach('Hero Appearance: the character screen', { path: screenPath, contentType: 'image/png' });
+  await page.keyboard.press('Escape');
+  await pause(page, 2000);
   expect(faults).toEqual([]);
 });
 
