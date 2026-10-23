@@ -110,8 +110,11 @@ swiping finger, as a phone's lists do.
 
 - **Saves as in the originals.** Saved games work as they always did, and can be exported to and imported
   from zip files.
+- **A thousand save slots.** Both games' save screens have a hundred pages of ten slots, turned with the arrow keys
+  left and right (ten pages with Shift) or BACK and MORE under the list. Fallout's own had just the one page.
 - **Autosave.** Every ten minutes of play (or five, fifteen, thirty, or never) a game is saved by itself, in turn
-  in slots 8, 9 and 10. The first six are the player's own, and so is any save made by hand in the last three.
+  in slots 8, 9 and 10. Slots 1 to 6 and every slot from 11 on are the player's own, and so is any save made by
+  hand in 8 to 10.
 - **Quick save in slot 7.** F6 saves into slot 7 at once and F7 loads it, without asking for a slot: on a touch
   screen they are two buttons beside the picture.
 - **A history for every slot.** Saving over a slot keeps what was in it: every slot has earlier versions to

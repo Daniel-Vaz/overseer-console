@@ -436,8 +436,10 @@
             made when you could have made a quick save yourself, so never in combat or in a conversation.
           </p>
           <p>
-            Slots 01 to 06 are yours alone, and so is a save you make in 08 to 10 yourself: an autosave never replaces it.
-            How often, or not at all, is under Terminal settings.
+            Slots 01 to 06 are yours alone, and so is every slot from 11 on: both games have a hundred pages of ten, turned
+            with the arrow keys left and right (ten pages with SHIFT) or BACK and MORE under the list. A save you make in 08
+            to 10 yourself is yours as well: an autosave never replaces it. How often, or not at all, is under Terminal
+            settings.
           </p>
 
           <h2>Last exported</h2>

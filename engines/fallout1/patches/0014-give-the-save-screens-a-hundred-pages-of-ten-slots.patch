@@ -1,0 +1,450 @@
+Give the save screens a hundred pages of ten slots
+
+As Fallout 2 CE has: the arrows left and right turn a page, ten pages
+with SHIFT, as do "<< BACK" and "MORE >>" under the list, in the
+Pip-Boy's own words; up and down go on into the next page. A page's
+slots are read when it is first shown. Loading a save at start-up,
+and saving into the slot the page asks for, take any of the thousand.
+---
+diff --git a/src/game/loadsave.cc b/src/game/loadsave.cc
+index aaa9580..db4be63 100644
+--- a/src/game/loadsave.cc
++++ b/src/game/loadsave.cc
+@@ -7,6 +7,8 @@
+ 
+ #include <algorithm>
+ 
++#include <SDL.h>
++
+ #include "game/automap.h"
+ #include "game/bmpdlog.h"
+ #include "game/combat.h"
+@@ -147,6 +149,11 @@ static int QuickSlotState();
+ static void ReportQuick(int load, int outcome);
+ static int GetSlotList();
+ static void ShowSlotList(int a1);
++static void LoadSlotPage(int page);
++static void MoveSlotCursor(int slot);
++static bool ChangeSlotPage(int delta);
++static int SlotPageRowY();
++static int SlotPageDeltaAt(int mouseX, int mouseY);
+ static void DrawInfoBox(int a1);
+ static int LoadTumbSlot(int a1);
+ static int GetComment(int a1);
+@@ -187,6 +194,20 @@ static bool quick_done = false;
+ // never ask for a slot, so that the page can offer them as buttons.
+ static constexpr int kQuickSaveSlot = 6;
+ 
++// CE: the slots come in pages of ten, as in Fallout 2 CE: the arrows left and
++// right turn a page (ten pages with SHIFT), as do "<< BACK" and "MORE >>"
++// under the list, and up and down go on into the next page.
++static constexpr int kSlotPageFastStep = 10;
++
++// The page the screen shows, and the pages whose slots were looked at since
++// it opened.
++static int slot_page = 0;
++static bool slot_page_loaded[LOAD_SAVE_PAGE_COUNT];
++
++// What the Pip-Boy calls its own pages (pipboy.msg 201 and 200).
++static char slot_page_back[32] = "BACK";
++static char slot_page_more[32] = "MORE";
++
+ // 0x505964
+ static bool bk_enable = false;
+ 
+@@ -276,10 +297,10 @@ static Size ginfo[LOAD_SAVE_FRM_COUNT];
+ static MessageList lsgame_msgfl;
+ 
+ // 0x6122B0
+-static LoadSaveSlotData LSData[10];
++static LoadSaveSlotData LSData[LOAD_SAVE_SLOT_COUNT];
+ 
+ // 0x612800
+-static int LSstatus[10];
++static int LSstatus[LOAD_SAVE_SLOT_COUNT];
+ 
+ // 0x612828
+ static unsigned char* thumbnail_image[2];
+@@ -334,6 +355,7 @@ void InitLoadSave()
+ {
+     quick_done = false;
+     slot_cursor = 0;
++    slot_page = 0;
+ 
+     if (!config_get_string(&game_config, GAME_CONFIG_SYSTEM_KEY, GAME_CONFIG_MASTER_PATCHES_KEY, &patches)) {
+         debug_printf("\nLOADSAVE: Error reading patches config variable! Using default.\n");
+@@ -511,28 +533,29 @@ int SaveGame(int mode)
+         } else {
+             switch (keyCode) {
+             case KEY_ARROW_UP:
+-                slot_cursor -= 1;
+-                if (slot_cursor < 0) {
+-                    slot_cursor = 0;
+-                }
++                MoveSlotCursor(slot_cursor - 1);
+                 selectionChanged = true;
+                 doubleClickSlot = -1;
+                 break;
+             case KEY_ARROW_DOWN:
+-                slot_cursor += 1;
+-                if (slot_cursor > 9) {
+-                    slot_cursor = 9;
+-                }
++                MoveSlotCursor(slot_cursor + 1);
+                 selectionChanged = true;
+                 doubleClickSlot = -1;
+                 break;
++            case KEY_ARROW_LEFT:
++            case KEY_ARROW_RIGHT:
++                if (ChangeSlotPage((keyCode == KEY_ARROW_LEFT ? -1 : 1) * ((SDL_GetModState() & KMOD_SHIFT) != 0 ? kSlotPageFastStep : 1))) {
++                    selectionChanged = true;
++                    doubleClickSlot = -1;
++                }
++                break;
+             case KEY_HOME:
+-                slot_cursor = 0;
++                slot_cursor = slot_page * LOAD_SAVE_SLOTS_PER_PAGE;
+                 selectionChanged = true;
+                 doubleClickSlot = -1;
+                 break;
+             case KEY_END:
+-                slot_cursor = 9;
++                slot_cursor = slot_page * LOAD_SAVE_SLOTS_PER_PAGE + LOAD_SAVE_SLOTS_PER_PAGE - 1;
+                 selectionChanged = true;
+                 doubleClickSlot = -1;
+                 break;
+@@ -548,14 +571,20 @@ int SaveGame(int mode)
+                     int mouseY;
+                     mouseGetPositionInWindow(lsgwin, &mouseX, &mouseY);
+ 
+-                    slot_cursor = (mouseY - 79) / (3 * text_height() + 4);
+-                    if (slot_cursor < 0) {
+-                        slot_cursor = 0;
+-                    }
+-                    if (slot_cursor > 9) {
+-                        slot_cursor = 9;
++                    // CE: the row under the list turns its pages.
++                    int pageDelta = SlotPageDeltaAt(mouseX, mouseY);
++                    if (pageDelta != 0 || mouseY >= SlotPageRowY()) {
++                        if (ChangeSlotPage(pageDelta)) {
++                            selectionChanged = true;
++                            doubleClickSlot = -1;
++                        }
++                        break;
+                     }
+ 
++                    int row = (mouseY - 79) / (3 * text_height() + 4);
++                    row = std::clamp(row, 0, LOAD_SAVE_SLOTS_PER_PAGE - 1);
++                    slot_cursor = slot_page * LOAD_SAVE_SLOTS_PER_PAGE + row;
++
+                     selectionChanged = true;
+ 
+                     if (slot_cursor == doubleClickSlot) {
+@@ -626,17 +655,7 @@ int SaveGame(int mode)
+                         }
+                     }
+ 
+-                    if (scrollDirection == LOAD_SAVE_SCROLL_DIRECTION_UP) {
+-                        slot_cursor -= 1;
+-                        if (slot_cursor < 0) {
+-                            slot_cursor = 0;
+-                        }
+-                    } else {
+-                        slot_cursor += 1;
+-                        if (slot_cursor > 9) {
+-                            slot_cursor = 9;
+-                        }
+-                    }
++                    MoveSlotCursor(slot_cursor + (scrollDirection == LOAD_SAVE_SCROLL_DIRECTION_UP ? -1 : 1));
+ 
+                     // TODO: Does not check for unsupported version error like
+                     // other switches do.
+@@ -1034,26 +1053,29 @@ int LoadGame(int mode)
+         } else {
+             switch (keyCode) {
+             case KEY_ARROW_UP:
+-                if (--slot_cursor < 0) {
+-                    slot_cursor = 0;
+-                }
++                MoveSlotCursor(slot_cursor - 1);
+                 selectionChanged = true;
+                 doubleClickSlot = -1;
+                 break;
+             case KEY_ARROW_DOWN:
+-                if (++slot_cursor > 9) {
+-                    slot_cursor = 9;
+-                }
++                MoveSlotCursor(slot_cursor + 1);
+                 selectionChanged = true;
+                 doubleClickSlot = -1;
+                 break;
++            case KEY_ARROW_LEFT:
++            case KEY_ARROW_RIGHT:
++                if (ChangeSlotPage((keyCode == KEY_ARROW_LEFT ? -1 : 1) * ((SDL_GetModState() & KMOD_SHIFT) != 0 ? kSlotPageFastStep : 1))) {
++                    selectionChanged = true;
++                    doubleClickSlot = -1;
++                }
++                break;
+             case KEY_HOME:
+-                slot_cursor = 0;
++                slot_cursor = slot_page * LOAD_SAVE_SLOTS_PER_PAGE;
+                 selectionChanged = true;
+                 doubleClickSlot = -1;
+                 break;
+             case KEY_END:
+-                slot_cursor = 9;
++                slot_cursor = slot_page * LOAD_SAVE_SLOTS_PER_PAGE + LOAD_SAVE_SLOTS_PER_PAGE - 1;
+                 selectionChanged = true;
+                 doubleClickSlot = -1;
+                 break;
+@@ -1069,13 +1091,20 @@ int LoadGame(int mode)
+                     int mouseY;
+                     mouseGetPositionInWindow(lsgwin, &mouseX, &mouseY);
+ 
+-                    int clickedSlot = (mouseY - 79) / (3 * text_height() + 4);
+-                    if (clickedSlot < 0) {
+-                        clickedSlot = 0;
+-                    } else if (clickedSlot > 9) {
+-                        clickedSlot = 9;
++                    // CE: the row under the list turns its pages.
++                    int pageDelta = SlotPageDeltaAt(mouseX, mouseY);
++                    if (pageDelta != 0 || mouseY >= SlotPageRowY()) {
++                        if (ChangeSlotPage(pageDelta)) {
++                            selectionChanged = true;
++                            doubleClickSlot = -1;
++                        }
++                        break;
+                     }
+ 
++                    int row = (mouseY - 79) / (3 * text_height() + 4);
++                    row = std::clamp(row, 0, LOAD_SAVE_SLOTS_PER_PAGE - 1);
++                    int clickedSlot = slot_page * LOAD_SAVE_SLOTS_PER_PAGE + row;
++
+                     slot_cursor = clickedSlot;
+                     if (clickedSlot == doubleClickSlot) {
+                         keyCode = 500;
+@@ -1140,17 +1169,7 @@ int LoadGame(int mode)
+                         }
+                     }
+ 
+-                    if (scrollDirection == LOAD_SAVE_SCROLL_DIRECTION_UP) {
+-                        slot_cursor -= 1;
+-                        if (slot_cursor < 0) {
+-                            slot_cursor = 0;
+-                        }
+-                    } else {
+-                        slot_cursor += 1;
+-                        if (slot_cursor > 9) {
+-                            slot_cursor = 9;
+-                        }
+-                    }
++                    MoveSlotCursor(slot_cursor + (scrollDirection == LOAD_SAVE_SCROLL_DIRECTION_UP ? -1 : 1));
+ 
+                     switch (LSstatus[slot_cursor]) {
+                     case SLOT_STATE_EMPTY:
+@@ -1294,11 +1313,12 @@ int LoadGame(int mode)
+ // quick load does once its slot has been picked.
+ int LoadGameInSlot(int slot)
+ {
+-    if (slot < 0 || slot > 9) {
++    if (slot < 0 || slot >= LOAD_SAVE_SLOT_COUNT) {
+         return -1;
+     }
+ 
+     slot_cursor = slot;
++    slot_page = slot / LOAD_SAVE_SLOTS_PER_PAGE;
+     quick_done = true;
+ 
+     int rc = LoadGame(LOAD_SAVE_MODE_QUICK);
+@@ -1322,7 +1342,7 @@ int AutoSaveInSlot(int slot)
+ // when it fails: whoever asked for it says so.
+ static int SaveInSlotAs(int slot, const char* what)
+ {
+-    if (slot < 0 || slot > 9) {
++    if (slot < 0 || slot >= LOAD_SAVE_SLOT_COUNT) {
+         return -1;
+     }
+ 
+@@ -1409,6 +1429,20 @@ static int LSGameStart(int windowType)
+         return -1;
+     }
+ 
++    // CE: the words the Pip-Boy turns its pages with, for the slots' pages.
++    MessageList pipboyMessages;
++    if (message_init(&pipboyMessages)) {
++        snprintf(str, sizeof(str), "%s%s", msg_path, "pipboy.msg");
++        if (message_load(&pipboyMessages, str)) {
++            MessageListItem item;
++            item.num = 201;
++            if (message_search(&pipboyMessages, &item)) snprintf(slot_page_back, sizeof(slot_page_back), "%s", item.text);
++            item.num = 200;
++            if (message_search(&pipboyMessages, &item)) snprintf(slot_page_more, sizeof(slot_page_more), "%s", item.text);
++        }
++        message_exit(&pipboyMessages);
++    }
++
+     snapshot = (unsigned char*)mem_malloc(61632);
+     if (snapshot == NULL) {
+         message_exit(&lsgame_msgfl);
+@@ -2024,9 +2058,25 @@ static int LoadHeader(int slot)
+ // 0x4705C4
+ static int GetSlotList()
+ {
++    // CE: a page is read when it is first shown.
++    std::fill_n(slot_page_loaded, LOAD_SAVE_PAGE_COUNT, false);
++    slot_cursor = std::clamp(slot_cursor, 0, LOAD_SAVE_SLOT_COUNT - 1);
++    slot_page = slot_cursor / LOAD_SAVE_SLOTS_PER_PAGE;
++    LoadSlotPage(slot_page);
++    return LOAD_SAVE_SLOTS_PER_PAGE;
++}
++
++// CE: reads what the slots of a page hold, once while the screen is up.
++static void LoadSlotPage(int page)
++{
++    if (slot_page_loaded[page]) {
++        return;
++    }
++    slot_page_loaded[page] = true;
++
+     dir_entry de;
+-    int index = 0;
+-    for (; index < 10; index += 1) {
++    int first = page * LOAD_SAVE_SLOTS_PER_PAGE;
++    for (int index = first; index < first + LOAD_SAVE_SLOTS_PER_PAGE; index += 1) {
+         snprintf(str, sizeof(str), "%s\\%s%.2d\\%s", "SAVEGAME", "SLOT", index + 1, "SAVE.DAT");
+ 
+         if (db_dir_entry(str, &de) != 0) {
+@@ -2036,12 +2086,13 @@ static int GetSlotList()
+ 
+             if (flptr == NULL) {
+                 debug_printf("\nLOADSAVE: ** Error opening save  game for reading! **\n");
+-                return -1;
++                LSstatus[index] = SLOT_STATE_ERROR;
++                continue;
+             }
+ 
+             if (LoadHeader(index) == -1) {
+                 if (ls_error_code == 1) {
+-                    debug_printf("LOADSAVE: ** save file #%d is an older version! **\n", slot_cursor);
++                    debug_printf("LOADSAVE: ** save file #%d is an older version! **\n", index);
+                     LSstatus[index] = SLOT_STATE_UNSUPPORTED_VERSION;
+                 } else {
+                     debug_printf("LOADSAVE: ** Save file #%d corrupt! **", index);
+@@ -2054,7 +2105,58 @@ static int GetSlotList()
+             db_fclose(flptr);
+         }
+     }
+-    return index;
++}
++
++// CE: puts the cursor on a slot, on whichever page that is.
++static void MoveSlotCursor(int slot)
++{
++    slot_cursor = std::clamp(slot, 0, LOAD_SAVE_SLOT_COUNT - 1);
++    slot_page = slot_cursor / LOAD_SAVE_SLOTS_PER_PAGE;
++    LoadSlotPage(slot_page);
++}
++
++// CE: turns `delta` pages, the cursor on the same row of the new one. False
++// when there is no page that way.
++static bool ChangeSlotPage(int delta)
++{
++    int page = std::clamp(slot_page + delta, 0, LOAD_SAVE_PAGE_COUNT - 1);
++    if (page == slot_page) {
++        return false;
++    }
++
++    gsound_play_sfx_file("ib1p1xx1");
++    MoveSlotCursor(page * LOAD_SAVE_SLOTS_PER_PAGE + slot_cursor % LOAD_SAVE_SLOTS_PER_PAGE);
++    return true;
++}
++
++// CE: where the row that turns the pages is, under the ten slots.
++static int SlotPageRowY()
++{
++    return 87 + LOAD_SAVE_SLOTS_PER_PAGE * (3 * text_height() + 4);
++}
++
++// CE: the pages a click on that row turns: "<<" ten back, BACK one, MORE one
++// on, ">>" ten on. 0 elsewhere.
++static int SlotPageDeltaAt(int mouseX, int mouseY)
++{
++    int y = SlotPageRowY();
++    if (mouseY < y || mouseY >= y + text_height()) {
++        return 0;
++    }
++
++    if (mouseX >= 55 && mouseX <= 85) {
++        return -kSlotPageFastStep;
++    }
++    if (mouseX >= 86 && mouseX <= 180) {
++        return -1;
++    }
++    if (mouseX >= 195 && mouseX <= 250) {
++        return 1;
++    }
++    if (mouseX >= 251 && mouseX <= 285) {
++        return kSlotPageFastStep;
++    }
++    return 0;
+ }
+ 
+ // 0x4706CC
+@@ -2062,8 +2164,11 @@ static void ShowSlotList(int a1)
+ {
+     buf_fill(lsgbuf + LS_WINDOW_WIDTH * 87 + 55, 230, 353, LS_WINDOW_WIDTH, lsgbuf[LS_WINDOW_WIDTH * 86 + 55] & 0xFF);
+ 
++    LoadSlotPage(slot_page);
++
+     int y = 87;
+-    for (int index = 0; index < 10; index += 1) {
++    int first = slot_page * LOAD_SAVE_SLOTS_PER_PAGE;
++    for (int index = first; index < first + LOAD_SAVE_SLOTS_PER_PAGE; index += 1) {
+ 
+         int color = index == slot_cursor ? colorTable[32747] : colorTable[992];
+         const char* text = getmsg(&lsgame_msgfl, &lsgmesg, a1 != 0 ? 110 : 109);
+@@ -2097,6 +2202,15 @@ static void ShowSlotList(int a1)
+         text_to_buf(lsgbuf + LS_WINDOW_WIDTH * y + 55, str, LS_WINDOW_WIDTH, LS_WINDOW_WIDTH, color);
+         y += 2 * text_height() + 4;
+     }
++
++    // CE: the row that turns the pages, lit where there is a page to turn to.
++    int rowY = SlotPageRowY();
++    int back = slot_page > 0 ? colorTable[992] : colorTable[15 << 5];
++    int more = slot_page < LOAD_SAVE_PAGE_COUNT - 1 ? colorTable[992] : colorTable[15 << 5];
++    text_to_buf(lsgbuf + LS_WINDOW_WIDTH * rowY + 55, "<<", LS_WINDOW_WIDTH, LS_WINDOW_WIDTH, back);
++    text_to_buf(lsgbuf + LS_WINDOW_WIDTH * rowY + 95, slot_page_back, LS_WINDOW_WIDTH, LS_WINDOW_WIDTH, back);
++    text_to_buf(lsgbuf + LS_WINDOW_WIDTH * rowY + 210, slot_page_more, LS_WINDOW_WIDTH, LS_WINDOW_WIDTH, more);
++    text_to_buf(lsgbuf + LS_WINDOW_WIDTH * rowY + 270, ">>", LS_WINDOW_WIDTH, LS_WINDOW_WIDTH, more);
+ }
+ 
+ // 0x4708D4
+diff --git a/src/game/loadsave.h b/src/game/loadsave.h
+index 49cacd8..28a6f88 100644
+--- a/src/game/loadsave.h
++++ b/src/game/loadsave.h
+@@ -19,6 +19,11 @@ typedef enum LoadSaveMode {
+     LOAD_SAVE_MODE_QUICK,
+ } LoadSaveMode;
+ 
++// CE: a hundred pages of ten save slots, as Fallout 2 CE has.
++#define LOAD_SAVE_SLOTS_PER_PAGE 10
++#define LOAD_SAVE_PAGE_COUNT 100
++#define LOAD_SAVE_SLOT_COUNT (LOAD_SAVE_SLOTS_PER_PAGE * LOAD_SAVE_PAGE_COUNT)
++
+ void InitLoadSave();
+ void ResetLoadSave();
+ int SaveGame(int mode);
+diff --git a/src/game/main.cc b/src/game/main.cc
+index 6ca51a6..ff85c95 100644
+--- a/src/game/main.cc
++++ b/src/game/main.cc
+@@ -267,7 +267,7 @@ static int main_parse_load_game_slot(int argc, char** argv)
+             const char* value = argv[index] + prefixLength;
+             char* end = NULL;
+             long slot = strtol(value, &end, 10);
+-            if (end != value && *end == '\0' && slot >= 1 && slot <= 10) {
++            if (end != value && *end == '\0' && slot >= 1 && slot <= LOAD_SAVE_SLOT_COUNT) {
+                 return (int)slot - 1;
+             }
+ 

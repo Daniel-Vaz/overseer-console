@@ -67,6 +67,22 @@ for (const game of GAMES) {
     await expect(page.locator('#toast')).toHaveText('SAVED TO BROWSER STORAGE', { timeout: 30_000 });
     expect((await engineStats(page)).syncs).toBeGreaterThan(0);
 
+    // The save screen has pages of ten slots, Fallout's as well as Fallout 2's: the next one starts at slot 11.
+    const ownSave = (await engineStats(page)).syncs;
+    await pause(page, 1500);
+    await page.keyboard.press('F4');
+    await pause(page, 2500);
+    await page.keyboard.press('ArrowRight');
+    await pause(page, 1000);
+    const pagePicture = test.info().outputPath(`${game.id}-save-page-2.png`);
+    await page.locator('canvas').screenshot({ path: pagePicture });
+    await test.info().attach(`${game.title}: the second page of save slots`, { path: pagePicture, contentType: 'image/png' });
+    await page.keyboard.press('Enter');
+    await pause(page, 1500);
+    await page.keyboard.type('page two', { delay: 80 });
+    await page.keyboard.press('Enter');
+    await expect.poll(async () => (await engineStats(page)).syncs, { timeout: 30_000 }).toBeGreaterThan(ownSave);
+
     // An autosave, asked for now rather than after minutes of play: in slot 8, the first of the last three.
     expect(await inProgress(page)).toBe(true);
     await pause(page, 3000);
@@ -128,6 +144,7 @@ for (const game of GAMES) {
     await expect(slot).toContainText('SLOT 01');
     await expect(slot).toContainText('e2e');
     await expect(page.locator('.menu li', { hasText: 'SLOT 07' })).toContainText(/QUICKSAVE \d\d:\d\d/);
+    await expect(page.locator('.menu li', { hasText: 'SLOT 11' })).toContainText('page two');
     await page.keyboard.press('ArrowDown');
     await expect(page.locator('.menu li.selected')).toContainText('SLOT 07');
     await expect(page.locator('.menu-note')).toContainText('1 earlier version kept.');
