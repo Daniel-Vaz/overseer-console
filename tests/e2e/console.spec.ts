@@ -425,6 +425,28 @@ test('keeps what a slot held before it was replaced, and rolls back to it', asyn
   await expect(page.getByText('Saved games are kept in this browser.')).toBeVisible();
 });
 
+test('says so when restoring an archive over a slot fails', async ({ page }) => {
+  await openConsole(page, 'saves/fo2');
+  const restore = async (description: string) => {
+    const archive = zipSync({ 'SAVEGAME/SLOT04/SAVE.DAT': new Uint8Array(fakeSaveDat('Narg', description)) });
+    await page.locator('input[accept*="zip"]').setInputFiles({ name: 'saves.zip', mimeType: 'application/zip', buffer: Buffer.from(archive) });
+  };
+  await restore('first');
+  await expect(page.getByText('1 save restored from the archive.')).toBeVisible();
+  await restore('second');
+  await expect(page.getByText('SLOT 04 ALREADY HOLDS A SAVE')).toBeVisible();
+
+  // The browser's storage turns the slot down.
+  await page.evaluate(() => {
+    IDBObjectStore.prototype.put = () => {
+      throw new DOMException('The quota has been exceeded.', 'QuotaExceededError');
+    };
+  });
+  await page.keyboard.press('y');
+  await expect(page.getByText('The archive was not restored in full: The quota has been exceeded.')).toBeVisible();
+  await expect(page.locator('.menu li').first()).toContainText('first');
+});
+
 test('refuses an archive without saved games', async ({ page }) => {
   await openConsole(page, 'saves/fo1');
   const archive = zipSync({ 'notes.txt': new Uint8Array([104, 105]) });

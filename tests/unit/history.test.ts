@@ -179,6 +179,22 @@ describe('save history', () => {
     expect(main).toHaveLength(HEADER_SIZE + 16);
   });
 
+  it('leaves a slot as it was when what is to replace it cannot be stored', async () => {
+    await commitWithHistory('fo2', save(3, 'mine', 1000, { 'ARTEMPLE.SAV': [1] }));
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function (this: IDBObjectStore, ...args: Parameters<typeof put>) {
+      if (this.name === 'overlay') throw new DOMException('The quota has been exceeded.', 'QuotaExceededError');
+      return put.apply(this, args);
+    };
+    try {
+      await expect(replaceSlot('fo2', 3, save(3, 'from archive', 5000).puts, 'import')).rejects.toThrow('The quota has been exceeded.');
+    } finally {
+      IDBObjectStore.prototype.put = put;
+    }
+    expect(await slotDescription(3)).toBe('mine');
+    expect((await listSaves('fo2'))[0]).toMatchObject({ slot: 3, files: 2 });
+  });
+
   it('thins out old versions and drops their files', async () => {
     const start = Date.UTC(2026, 0, 1);
     const realNow = Date.now;

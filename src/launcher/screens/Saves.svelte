@@ -229,9 +229,16 @@
     if (!game || !open) return;
     const slot = open.slot;
     const inCloud = sys.cloud.linked && isSynced(game, slot);
-    const kept = await deleteSave(game, slot);
-    open = null;
     confirm = null;
+    let kept: boolean;
+    try {
+      kept = await deleteSave(game, slot);
+    } catch (err) {
+      message = { text: `${slotLabel(slot)} was not erased: ${err instanceof Error ? err.message : String(err)}`, bad: true };
+      sfx.deny();
+      return;
+    }
+    open = null;
     // What an erased slot held stays in its history for a while.
     const undo = kept ? ' It can be put back for a week: see Erased saves.' : '';
     message = { text: `${slotLabel(slot)} erased.${undo}` };
@@ -387,12 +394,19 @@
 
   async function commitImport(): Promise<void> {
     if (!pendingImport) return;
-    const count = pendingImport.slots.length;
-    await pendingImport.commit();
+    const restoring = pendingImport;
+    const count = restoring.slots.length;
     pendingImport = null;
     confirm = null;
-    message = { text: `${count} ${count === 1 ? 'save' : 'saves'} restored from the archive.` };
-    sfx.done();
+    try {
+      await restoring.commit();
+      message = { text: `${count} ${count === 1 ? 'save' : 'saves'} restored from the archive.` };
+      sfx.done();
+    } catch (err) {
+      // Slots are restored one by one: those before the failure are in place.
+      message = { text: `The archive was not restored in full: ${err instanceof Error ? err.message : String(err)}`, bad: true };
+      sfx.deny();
+    }
     await load();
   }
 

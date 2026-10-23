@@ -57,11 +57,28 @@ function openDb(): Promise<IDBDatabase> {
 }
 
 function done(tx: IDBTransaction): Promise<void> {
-  return new Promise((resolve, reject) => {
+  const finished = new Promise<void>((resolve, reject) => {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error ?? new Error('storage transaction failed'));
     tx.onabort = () => reject(tx.error ?? new Error('storage transaction was aborted'));
   });
+  // Not waited for when a request could not be made: that failure is the one reported.
+  finished.catch(() => undefined);
+  return finished;
+}
+
+/**
+ * Makes the requests of a transaction. One that cannot even be made calls the
+ * whole transaction off: those made before it must not be committed alone
+ * (the old files of a slot deleted, and nothing put in their place).
+ */
+function requests(tx: IDBTransaction, make: () => void): void {
+  try {
+    make();
+  } catch (err) {
+    tx.abort();
+    throw err;
+  }
 }
 
 function result<T>(request: IDBRequest<T>): Promise<T> {
@@ -117,13 +134,16 @@ export async function commitOverlay(game: GameId, changes: OverlayChanges): Prom
   const db = await openDb();
   const tx = db.transaction(STORE, 'readwrite', { durability: 'strict' });
   const store = tx.objectStore(STORE);
-  for (const put of changes.puts) {
-    store.put({ game, key: put.key, path: put.path, mtime: put.mtime, deleted: false, data: plainBytes(put.data) } satisfies OverlayEntry);
-  }
-  for (const del of changes.deletes) {
-    store.put({ game, key: del.key, path: del.path, mtime: Date.now(), deleted: true } satisfies OverlayEntry);
-  }
-  await done(tx);
+  const finished = done(tx);
+  requests(tx, () => {
+    for (const put of changes.puts) {
+      store.put({ game, key: put.key, path: put.path, mtime: put.mtime, deleted: false, data: plainBytes(put.data) } satisfies OverlayEntry);
+    }
+    for (const del of changes.deletes) {
+      store.put({ game, key: del.key, path: del.path, mtime: Date.now(), deleted: true } satisfies OverlayEntry);
+    }
+  });
+  await finished;
 }
 
 /**
@@ -134,11 +154,14 @@ export async function replaceOverlay(game: GameId, prefix: string, puts: Overlay
   const db = await openDb();
   const tx = db.transaction(STORE, 'readwrite', { durability: 'strict' });
   const store = tx.objectStore(STORE);
-  store.delete(rangeFor(game, prefix));
-  for (const put of puts) {
-    store.put({ game, key: put.key, path: put.path, mtime: put.mtime, deleted: false, data: plainBytes(put.data) } satisfies OverlayEntry);
-  }
-  await done(tx);
+  const finished = done(tx);
+  requests(tx, () => {
+    store.delete(rangeFor(game, prefix));
+    for (const put of puts) {
+      store.put({ game, key: put.key, path: put.path, mtime: put.mtime, deleted: false, data: plainBytes(put.data) } satisfies OverlayEntry);
+    }
+  });
+  await finished;
 }
 
 /** Forgets overlay entries: all of a game's, or those below a path prefix. */
