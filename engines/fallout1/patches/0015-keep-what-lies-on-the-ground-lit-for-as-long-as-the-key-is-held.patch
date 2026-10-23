@@ -1,0 +1,87 @@
+Keep what lies on the ground lit for as long as the key is held
+
+sfall1 lit what lay on the ground when the key went down, and nothing
+after: a map entered, a game loaded or an item dropped stayed dark
+until the key was pressed again, which a key the page holds for a
+touch screen's switch never is. While it is held, what is not lit is
+lit, four times a second, and the picture drawn again only then.
+---
+diff --git a/src/game/sfall_input.cc b/src/game/sfall_input.cc
+index eb46db5..f50665b 100644
+--- a/src/game/sfall_input.cc
++++ b/src/game/sfall_input.cc
+@@ -283,6 +283,11 @@ static constexpr SDL_Scancode kDiks[DIK_MAP_COUNT] = {
+ // Whether what lies on the ground is lit up.
+ static bool highlighting = false;
+ 
++// When what lies on the ground was last looked at while it is lit up, and how
++// often it is looked at again.
++static unsigned int lastLook = 0;
++static constexpr unsigned int kLookAgainMs = 250;
++
+ // Whether the middle mouse button was down at the last look.
+ static bool middleMouseDown = false;
+ 
+@@ -332,9 +337,11 @@ static void sfall_input_press_key(int key)
+ 
+ // What lies on the ground on the elevation in view, items in yellow, and
+ // containers and the bodies that can be searched in grey if the mod asks for
+-// them; or none of it.
+-static void sfall_input_outline_items(bool on)
++// them; or none of it. Only what is not lit as it should be is changed, and
++// the picture drawn again only when something was: true then.
++static bool sfall_input_outline_items(bool on)
+ {
++    bool changed = false;
+     for (Object* object = obj_find_first_at(map_elevation); object != NULL; object = obj_find_next_at()) {
+         if (object->owner != NULL) {
+             continue;
+@@ -362,18 +369,26 @@ static void sfall_input_outline_items(bool on)
+             continue;
+         }
+ 
+-        if (!on) {
+-            object->outline = 0;
+-        } else if ((object->flags & OBJECT_HIDDEN) == 0) {
++        int outline = 0;
++        if (on && (object->flags & OBJECT_HIDDEN) == 0) {
+             if (!container) {
+-                object->outline = OUTLINE_TYPE_ITEM;
++                outline = OUTLINE_TYPE_ITEM;
+             } else if (sfall_settings.highlightContainers) {
+-                object->outline = OUTLINE_TYPE_4;
++                outline = OUTLINE_TYPE_4;
+             }
+         }
++
++        // An outline the game has hidden for now (OUTLINE_DISABLED) is its own business.
++        if (on ? outline != 0 && (object->outline & OUTLINE_TYPE_MASK) != outline : object->outline != 0) {
++            object->outline = outline;
++            changed = true;
++        }
+     }
+ 
+-    tile_refresh_display();
++    if (changed) {
++        tile_refresh_display();
++    }
++    return changed;
+ }
+ 
+ void sfall_input_process()
+@@ -391,6 +406,15 @@ void sfall_input_process()
+         if (held != highlighting) {
+             highlighting = held;
+             sfall_input_outline_items(held);
++            lastLook = SDL_GetTicks();
++        } else if (held && SDL_GetTicks() - lastLook >= kLookAgainMs) {
++            // CE: for as long as it is held, what the key lit stays lit, and
++            // what is new is lit too: a map entered, a game loaded, a
++            // conversation over, an item dropped. sfall1 lit only what lay
++            // there when the key went down, and a key held for the page by a
++            // switch (see sfall_input_key_held) is never pressed again.
++            lastLook = SDL_GetTicks();
++            sfall_input_outline_items(true);
+         }
+     }
+ }

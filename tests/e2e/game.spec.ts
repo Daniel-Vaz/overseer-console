@@ -730,6 +730,104 @@ test('Fallout 2: sfall virtual files, hook scripts and the calls the mods make, 
 });
 
 /**
+ * The touch deck's HILITE switch holds the key that lights up what lies on the
+ * ground for the game's script. The script puts the lights out whenever the
+ * game leaves the map for a save, a load, a screen over it or a conversation;
+ * with the switch still on, they come back as soon as the game is back on the
+ * map. In Arroyo, where there is something to light.
+ */
+test('Fallout 2: what the HILITE switch lights stays lit through saves, a load and the inventory', async ({ page }, testInfo) => {
+  const fallout2 = GAMES[1].dir;
+  test.skip(!fallout2, 'set FO2_DIR to your Fallout 2 folder to run this');
+  test.setTimeout(900_000);
+  const faults: string[] = [];
+  page.on('pageerror', (error) => faults.push(error.message));
+
+  const folder = join(tempFolder(), 'Fallout 2');
+  mkdirSync(folder, { recursive: true });
+  linkInto(fallout2!, folder);
+  mkdirSync(join(folder, 'data', 'config'), { recursive: true });
+  writeFileSync(join(folder, 'data', 'config', 'game#patch.cfg'), '[start]\r\nmap=arvillag.map\r\n');
+
+  await openConsole(page, 'fo2', { skipIntro: true });
+  await pickFolder(page, folder);
+  await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 300_000 });
+  await launch(page, 'Begin simulation', '1');
+  await waitForPicture(page, 4000);
+  await page.keyboard.press('n');
+  await pause(page, 3500);
+  await page.keyboard.press('t');
+  await pause(page, 4500);
+  await page.keyboard.press('Escape');
+  await expect.poll(() => inProgress(page), { timeout: 120_000, intervals: [1000] }).toBe(true);
+  await pause(page, 6000);
+  // The pointer is kept off the picture: what it points at lights up of itself.
+  await page.mouse.move(2, 2);
+  await pause(page, 1000);
+
+  const setLights = (on: boolean) => page.evaluate((on) => (window as unknown as { overseerEngine: { setLights(on: boolean): void } }).overseerEngine.setLights(on), on);
+  /** How much of the map is drawn in the yellow the script outlines items with. */
+  const outlined = async (name: string): Promise<number> => {
+    const path = testInfo.outputPath(`hilite-${name.replace(/\W+/g, '-')}.png`);
+    const png = await page.locator('#canvas').screenshot({ path });
+    await testInfo.attach(`Fallout 2: HILITE, ${name}`, { path, contentType: 'image/png' });
+    return page.evaluate(async (base64) => {
+      const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+      const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+      const canvas = document.createElement('canvas');
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      const context = canvas.getContext('2d')!;
+      context.drawImage(bitmap, 0, 0);
+      // Above the interface bar.
+      const pixels = context.getImageData(0, 0, bitmap.width, Math.floor((bitmap.height * 380) / 480)).data;
+      let count = 0;
+      for (let i = 0; i < pixels.length; i += 4) if (pixels[i] === 164 && pixels[i + 1] === 136 && pixels[i + 2] === 48) count++;
+      return count;
+    }, png.toString('base64'));
+  };
+
+  const plain = await outlined('off');
+  await setLights(true);
+  await pause(page, 1500);
+  const lit = await outlined('on');
+  console.log(`Fallout 2: HILITE off ${plain}, on ${lit} outlined pixels`);
+  expect(lit).toBeGreaterThan(200);
+  expect(lit).toBeGreaterThan(plain * 5);
+
+  /** Still lit: as much outlined as when it was switched on, near enough. */
+  const stillLit = async (after: string) => {
+    await page.mouse.move(2, 2);
+    await pause(page, 2500);
+    const now = await outlined(`on, after ${after}`);
+    console.log(`Fallout 2: after ${after}, ${now} outlined pixels`);
+    expect(now, after).toBeGreaterThan(lit / 2);
+  };
+
+  await page.evaluate(() => (window as unknown as { overseerAutosave(): Promise<boolean> }).overseerAutosave());
+  await expect(page.locator('#toast')).toHaveText('AUTOSAVED IN SLOT 08', { timeout: 30_000 });
+  await stillLit('an autosave');
+
+  await page.keyboard.press('F6');
+  await expect(page.locator('#toast')).toHaveText('QUICK SAVED IN SLOT 07', { timeout: 30_000 });
+  await stillLit('a quick save');
+
+  await page.keyboard.press('i');
+  await pause(page, 2000);
+  await page.keyboard.press('Escape');
+  await stillLit('the inventory');
+
+  await page.keyboard.press('F7');
+  await expect(page.locator('#toast')).toHaveText('QUICK LOADED FROM SLOT 07', { timeout: 30_000 });
+  await stillLit('a quick load');
+
+  await setLights(false);
+  await pause(page, 1500);
+  expect(await outlined('off again')).toBeLessThan(lit / 5);
+  expect(faults).toEqual([]);
+});
+
+/**
  * Fallout Fixt's sfall settings (its ddraw.ini), which the engine of Fallout
  * follows (engines/fallout1/patches): holding left Shift lights up what lies
  * on the ground, here the bodies by the vault's door in grey, and letting go
@@ -776,6 +874,33 @@ test("Fallout Fixt: its sfall settings' key lights up what lies on the ground", 
   console.log(`Fallout Fixt: Shift held ${distance(plain, lit).toFixed(2)} from the plain picture`);
   expect(distance(plain, lit)).toBeGreaterThan(0.2);
   expect(distance(plain, await fingerprint(page))).toBeLessThan(0.1);
+
+  // The touch deck's HILITE switch holds the same key, and what it lights stays lit through a quick save and a
+  // quick load, whose map comes back with nothing lit.
+  const setLights = (on: boolean) => page.evaluate((on) => (window as unknown as { overseerEngine: { setLights(on: boolean): void } }).overseerEngine.setLights(on), on);
+  await setLights(true);
+  await pause(page, 1500);
+  expect(distance(plain, await fingerprint(page))).toBeGreaterThan(0.2);
+  await page.keyboard.press('F6');
+  await expect(page.locator('#toast')).toHaveText('QUICK SAVED IN SLOT 07', { timeout: 30_000 });
+  await pause(page, 2000);
+  expect(distance(plain, await fingerprint(page)), 'after a quick save').toBeGreaterThan(0.2);
+  await page.keyboard.press('F7');
+  await expect(page.locator('#toast')).toHaveText('QUICK LOADED FROM SLOT 07', { timeout: 30_000 });
+  await pause(page, 3000);
+  const reloaded = testInfo.outputPath('fixt-lit-after-load.png');
+  await page.locator('#canvas').screenshot({ path: reloaded });
+  await testInfo.attach('Fallout Fixt: HILITE on after a quick load', { path: reloaded, contentType: 'image/png' });
+  const litAfterLoad = await fingerprint(page);
+  const afterLoad = distance(plain, litAfterLoad);
+  console.log(`Fallout Fixt: HILITE on after a quick load ${afterLoad.toFixed(2)} from the plain picture`);
+  expect(afterLoad, 'after a quick load').toBeGreaterThan(0.2);
+  // Off again, the lights go out (the load put its own words in the message box: the plain picture is not quite this one).
+  await setLights(false);
+  await pause(page, 1500);
+  const off = await fingerprint(page);
+  expect(distance(off, litAfterLoad)).toBeGreaterThan(0.2);
+  expect(distance(off, plain)).toBeLessThan(afterLoad);
   expect(faults).toEqual([]);
 });
 

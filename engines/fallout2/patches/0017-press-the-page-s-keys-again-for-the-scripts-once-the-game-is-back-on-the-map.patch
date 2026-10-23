@@ -1,0 +1,155 @@
+Press the page's keys again for the scripts once the game is back on the map
+
+The script that lights up what lies on the ground puts the lights out
+when the game is saved or loaded or goes into a conversation or a
+screen over the map, and has nothing lit on a map just entered. A
+player holding the key lets go of it and presses it again; a key the
+page holds for a touch screen's switch cannot be. While the page holds
+a key, the scripts hear it let go of and pressed again once the game is
+back on the map after a save, a load, or a change of its mode, its map
+or its elevation.
+---
+diff --git a/src/loadsave.cc b/src/loadsave.cc
+index 66ab83b..71e643c 100644
+--- a/src/loadsave.cc
++++ b/src/loadsave.cc
+@@ -56,6 +56,7 @@
+ #include "sfall_global_scripts.h"
+ #include "sfall_global_vars.h"
+ #include "sfall_hero_appearance.h"
++#include "sfall_kb_helpers.h"
+ #include "skill.h"
+ #include "stat.h"
+ #include "string_utils.h"
+@@ -2164,6 +2165,9 @@ static int lsgPerformSaveGame()
+ 
+     backgroundSoundResume();
+ 
++    // Overseer Console: what the scripts light up while a key is held goes out with a save.
++    sfall_kb_page_keys_stale();
++
+     return 0;
+ }
+ 
+@@ -2295,6 +2299,9 @@ static int lsgLoadGameInSlot(int slot)
+     sfallOnAfterGameStarted();
+     gGameLoaded = true;
+ 
++    // Overseer Console: and with a load.
++    sfall_kb_page_keys_stale();
++
+     return 0;
+ }
+ 
+diff --git a/src/sfall_kb_helpers.cc b/src/sfall_kb_helpers.cc
+index e6e5b4b..aa63ee3 100644
+--- a/src/sfall_kb_helpers.cc
++++ b/src/sfall_kb_helpers.cc
+@@ -3,10 +3,13 @@
+ #include <SDL.h>
+ 
+ #include "game.h"
++#include "map.h"
+ #include "sfall_script_hooks.h"
+ #include "svga.h"
+ 
+ #include <deque>
++#include <set>
++#include <string.h>
+ #include <unordered_map>
+ 
+ #if defined(__EMSCRIPTEN__)
+@@ -402,6 +405,19 @@ int sfall_kb_handle_key_pressed(int sdlScanCode, bool pressed)
+     return get_scancode_from_key(overrideDxCode);
+ }
+ 
++#if defined(__EMSCRIPTEN__)
++// Overseer Console: the keys the page holds are to be let go of and pressed
++// again for the scripts, once the game is back on the map.
++static bool pageKeysStale = false;
++#endif
++
++void sfall_kb_page_keys_stale()
++{
++#if defined(__EMSCRIPTEN__)
++    pageKeysStale = true;
++#endif
++}
++
+ void sfall_kb_handle_page_keys()
+ {
+ #if defined(__EMSCRIPTEN__)
+@@ -411,11 +427,56 @@ void sfall_kb_handle_page_keys()
+         return;
+     }
+ 
++    // The keys the page holds, as it told of them.
++    static std::set<int> held;
++
+     int change;
+     while ((change = overseer_script_key_change()) >= 0) {
+-        SDL_Scancode scancode = get_scancode_from_key(change >> 1);
++        int key = change >> 1;
++        bool pressed = (change & 1) != 0;
++        if (pressed) {
++            held.insert(key);
++        } else {
++            held.erase(key);
++        }
++
++        SDL_Scancode scancode = get_scancode_from_key(key);
+         if (scancode != SDL_SCANCODE_UNKNOWN) {
+-            sfall_kb_handle_key_pressed(scancode, (change & 1) != 0);
++            sfall_kb_handle_key_pressed(scancode, pressed);
++        }
++    }
++
++    // A key held on a keyboard is let go of and pressed again by the player
++    // whenever a script stopped doing what it does while the key is down:
++    // the script that lights up what lies on the ground puts the lights out
++    // when the game goes into a conversation or an inventory, or is saved or
++    // loaded, and has nothing lit on a map just entered. The page's key
++    // cannot be pressed again by hand, so the scripts hear it let go of and
++    // pressed again here, once the game is back on the map.
++    static unsigned int lastMode = 0;
++    static char lastMap[sizeof(gMapHeader.name)] = { 0 };
++    static int lastElevation = -1;
++    bool& stale = pageKeysStale;
++
++    unsigned int mode = static_cast<unsigned int>(GameMode::getCurrentGameMode());
++    if (mode != lastMode || lastElevation != gElevation || memcmp(lastMap, gMapHeader.name, sizeof(lastMap)) != 0) {
++        lastMode = mode;
++        lastElevation = gElevation;
++        memcpy(lastMap, gMapHeader.name, sizeof(lastMap));
++        stale = true;
++    }
++
++    // On the map: neither the world map nor a screen over the game. A fight is
++    // on the map, and so is the player's turn in it.
++    unsigned int onMap = mode & ~static_cast<unsigned int>(GameMode::kCombat | GameMode::kPlayerTurn);
++    if (stale && onMap == 0) {
++        stale = false;
++        for (int key : held) {
++            SDL_Scancode scancode = get_scancode_from_key(key);
++            if (scancode != SDL_SCANCODE_UNKNOWN) {
++                sfall_kb_handle_key_pressed(scancode, false);
++                sfall_kb_handle_key_pressed(scancode, true);
++            }
+         }
+     }
+ #endif
+diff --git a/src/sfall_kb_helpers.h b/src/sfall_kb_helpers.h
+index e62a19e..8e21a36 100644
+--- a/src/sfall_kb_helpers.h
++++ b/src/sfall_kb_helpers.h
+@@ -23,6 +23,10 @@ int sfall_kb_handle_key_pressed(int sdlScanCode, bool pressed);
+ // of for them alone, as the keyboard's own are told of (HOOK_KEYPRESS).
+ void sfall_kb_handle_page_keys();
+ 
++// Overseer Console: the game was saved or loaded; the keys the page holds are
++// let go of and pressed again for the scripts once it is back on the map.
++void sfall_kb_page_keys_stale();
++
+ } // namespace fallout
+ 
+ #endif /* FALLOUT_SFALL_KB_HELPERS_H_ */
