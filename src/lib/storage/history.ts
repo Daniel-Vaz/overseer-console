@@ -282,17 +282,31 @@ export async function replaceSlot(
   await replaceOverlay(game, slotPrefix(slot), puts);
 }
 
+/** The slot no longer holds the save a change was made to. */
+export class SlotChangedError extends Error {
+  override name = 'SlotChangedError';
+}
+
 /**
  * Replaces one file of a slot (the save editor's SAVE.DAT), keeping what the
  * slot held before as a version. Unlike a save the game made, this one must
  * not go without its version: it fails when none could be kept.
+ *
+ * `savedAt`: when the save that was changed was written. Should the slot have
+ * been saved again since (an autosave in another tab, a fetch from the
+ * cloud), nothing is replaced: the change was made to a save it no longer holds.
  */
 export async function replaceInSlot(
   game: GameId,
   slot: number,
   put: OverlayChanges['puts'][number] | OverlayChanges['puts'],
   cause: VersionCause,
+  savedAt?: number,
 ): Promise<void> {
+  if (savedAt !== undefined) {
+    const main = liveFiles(await listOverlay(game, slotPrefix(slot))).find((entry) => isSaveData(entry.key));
+    if (main?.mtime !== savedAt) throw new SlotChangedError('the slot was saved again since this save was opened: open it again to change the save it holds now');
+  }
   if (!(await keepVersion(game, slot, cause, Date.now()))) throw new Error('the save as it was could not be kept as an earlier version');
   await commitOverlay(game, { puts: Array.isArray(put) ? put : [put], deletes: [] });
 }

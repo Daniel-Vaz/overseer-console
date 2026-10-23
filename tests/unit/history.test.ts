@@ -11,6 +11,8 @@ import {
   listErased,
   listVersions,
   readVersionSave,
+  SlotChangedError,
+  replaceInSlot,
   replaceSlot,
   restoreVersion,
   versionsToKeep,
@@ -193,6 +195,18 @@ describe('save history', () => {
     }
     expect(await slotDescription(3)).toBe('mine');
     expect((await listSaves('fo2'))[0]).toMatchObject({ slot: 3, files: 2 });
+  });
+
+  it('changes a save only while its slot still holds it', async () => {
+    await commitWithHistory('fo2', save(5, 'opened', 1000));
+    const edited = save(5, 'edited', 2000).puts[0]!;
+    // Saved again while the change was being made.
+    await commitWithHistory('fo2', save(5, 'autosave', 1500));
+    await expect(replaceInSlot('fo2', 5, edited, 'edit', 1000)).rejects.toBeInstanceOf(SlotChangedError);
+    expect(await slotDescription(5)).toBe('autosave');
+
+    await replaceInSlot('fo2', 5, edited, 'edit', 1500);
+    expect(await slotDescription(5)).toBe('edited');
   });
 
   it('thins out old versions and drops their files', async () => {

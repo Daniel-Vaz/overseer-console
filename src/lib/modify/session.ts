@@ -129,6 +129,6 @@ export async function storeSession(session: EditorSession, save: Uint8Array, par
   const puts = [{ key: `${slotPrefix(session.slot)}save.dat`, path: session.path, mtime, data: save }];
   const party = session.original.party;
   if (partyMap && party) puts.push({ key: party.key, path: party.path, mtime, data: partyMap });
-  await replaceInSlot(session.game, session.slot, puts, 'edit');
+  await replaceInSlot(session.game, session.slot, puts, 'edit', session.savedAt);
   return mtime;
 }
