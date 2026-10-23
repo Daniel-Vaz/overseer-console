@@ -73,7 +73,7 @@ FO1_DIR=... FO2_DIR=... RPU=... FO2TWEAKS=... CASSIDY=... PARTY_ORDERS=... MUSIC
 
 FO2tweaks and Cassidy's head are laid over Fallout 2, whose settings are given `[debug] mode=screen` and
 `show_script_messages=1`: the engine's own log says it opened both, in their order, and FO2tweaks' scripts say they
-started; its keymap moving quick save to F5 is played too. Party Orders goes over the Restoration Project in place of
+started; its keymap leaves quick save on F6, the console's key. Party Orders goes over the Restoration Project in place of
 the older copy it comes with, last in its load order, and the music over Fallout, whose engine then reads its tracks
 and none of the game's. `tests/e2e/addons.spec.ts` and `tests/unit/addons.test.ts` cover add-ons on made-up files.
 

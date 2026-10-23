@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { addonRecord, addonsOn, forgetAddon, gamesWith, newAddonId, registerAddon, setAddonOn } from '../../src/lib/addons';
 import { findInDat } from '../../src/lib/dat';
-import { buildConfigFiles } from '../../src/lib/engine/config';
+import { buildConfigFiles, withConsoleKeys } from '../../src/lib/engine/config';
 import { registerMod } from '../../src/lib/games';
 import { planAddon } from '../../src/lib/storage/addons';
 import { ImportError, planImport, type ImportContext, type ImportPlan } from '../../src/lib/storage/importer';
@@ -207,5 +207,25 @@ describe('the add-ons a game has laid over it', () => {
     expect(newAddonId('Cassidy head')).toBe('cassidy-head');
     expect(newAddonId('fo2')).toBe('fo2-2');
     forgetAddon('party-orders');
+  });
+});
+
+describe("FO2tweaks' keymap", () => {
+  const shipped = '[main]\r\nkeymap=1\r\n\r\n[keymap]\r\n; NEW_key=OLD_key\r\n; quick save\r\nF5=F6\r\n; quick load\r\nF8=F7\r\n; load game\r\nF9=F5\r\nJ=Home\r\n\r\n[highlighting]\r\nkey=42\r\n';
+
+  it("keeps the console's keys the console's: what would move a game function onto them, or off them, is left out", () => {
+    expect(withConsoleKeys(shipped)).toBe(
+      '[main]\r\nkeymap=1\r\n\r\n[keymap]\r\n; NEW_key=OLD_key\r\n; quick save\r\n; quick load\r\n; load game\r\nJ=Home\r\n\r\n[highlighting]\r\nkey=42\r\n',
+    );
+    expect(withConsoleKeys('[keymap]\nJ=Home\n')).toBeNull();
+    expect(withConsoleKeys('[main]\nkeymap=0\n')).toBeNull();
+  });
+
+  it('is written for the start where the game or an add-on brings it', () => {
+    const screen = { width: 640, height: 480 };
+    const files = buildConfigFiles({ game: 'fo2', manifest: fallout2.manifest, screen, skipIntro: false, tweaks: shipped });
+    expect(files['mods/fo2tweaks.ini']).not.toContain('F8=F7');
+    expect(files['mods/fo2tweaks.ini']).toContain('J=Home');
+    expect(buildConfigFiles({ game: 'fo2', manifest: fallout2.manifest, screen, skipIntro: false })['mods/fo2tweaks.ini']).toBeUndefined();
   });
 });

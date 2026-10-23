@@ -17,7 +17,7 @@ import { StorageUnavailableError, loadInstall, openBlob, openInstalled, type Ins
 export { StorageUnavailableError };
 import { commitWithHistory } from '../storage/history';
 import { listOverlay, type OverlayEntry } from '../storage/overlay';
-import { HIGHLIGHT_KEY, HIGHLIGHTING_FILE, MODS_ORDER, buildConfigFiles, chooseScreen, settingsFileOf, sfallLightsAtKey, wantsEngineData, type ScreenSize } from './config';
+import { HIGHLIGHT_KEY, HIGHLIGHTING_FILE, MODS_ORDER, TWEAKS_FILE, buildConfigFiles, chooseScreen, settingsFileOf, sfallLightsAtKey, wantsEngineData, type ScreenSize } from './config';
 import type { EngineFactory, EngineInfo, EngineModule, PersistBatch, QuickKind, QuickOutcome, ScreenRect } from './types';
 
 const GAME_ROOT = '/game';
@@ -340,6 +340,7 @@ export async function bootEngine(
   // things up is replaced with the console's, the rest of it stands.
   const mods = await openMounted(installed, mounted, HIGHLIGHTING_FILE);
   const highRes = await openMounted(installed, mounted, 'f2_res.ini');
+  const tweaks = await openMounted(installed, mounted, TWEAKS_FILE);
   // The load order as the player left it, or as the game came, which the add-ons laid over it add to.
   const savedOrder = overlay.find((entry) => entry.key === MODS_ORDER && !entry.deleted && entry.data);
   const order = savedOrder ? savedOrder.data : await (await openMounted(installed, mounted, MODS_ORDER))?.arrayBuffer();
@@ -358,6 +359,7 @@ export async function bootEngine(
     highRes: await highRes?.text(),
     addons: installed.addons.map((addon) => addon.manifest),
     modsOrder: order ? new TextDecoder('latin1').decode(order) : undefined,
+    tweaks: tweaks ? new TextDecoder('latin1').decode(new Uint8Array(await tweaks.arrayBuffer())) : undefined,
   });
   const reads = new Map<string, FileReads>();
   await populate(module, game, installed, mounted, overlay, configFiles, engineData, reads);

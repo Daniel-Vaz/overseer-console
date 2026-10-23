@@ -162,6 +162,39 @@ export function withHighlighting(text: string): string | null {
   return replaced === text ? null : replaced;
 }
 
+/** Where FO2tweaks keeps its settings, its keymap among them. */
+export const TWEAKS_FILE = 'mods/fo2tweaks.ini';
+
+/**
+ * The keys that are the console's: F6 and F7 quick save and quick load (in
+ * slot 07, which the touch deck presses too), F8 fast forward, F9 the
+ * console's menu, F11 fullscreen.
+ */
+const CONSOLE_KEYS = new Set(['F6', 'F7', 'F8', 'F9', 'F11']);
+
+/**
+ * FO2tweaks' keymap without the lines that move a game function onto one of
+ * the console's keys, or off one: its table is NEW=OLD, the new key doing what
+ * the old one did and the old one switched off. As it comes it moves quick save
+ * to F5, quick load to F8 and the load screen to F9, which the console would
+ * swallow. The rest of its keymap, and of the file, stands. Null when nothing
+ * in it touches the console's keys.
+ */
+export function withConsoleKeys(text: string): string | null {
+  const header = /^[ \t]*\[keymap\][ \t]*$/im.exec(text);
+  if (!header) return null;
+  const start = header.index + header[0].length;
+  const rest = text.slice(start);
+  const length = /^[ \t]*\[/m.exec(rest)?.index ?? rest.length;
+  const lines = rest.slice(0, length).split(/(?<=\n)/);
+  const kept = lines.filter((line) => {
+    const entry = /^[ \t]*([^;#=\s][^=]*?)\s*=\s*([^;#\s]+)/.exec(line);
+    return !entry || (!CONSOLE_KEYS.has(entry[1]!.toUpperCase()) && !CONSOLE_KEYS.has(entry[2]!.toUpperCase()));
+  });
+  if (kept.length === lines.length) return null;
+  return text.slice(0, start) + kept.join('') + rest.slice(length);
+}
+
 /** Whether a game is started with the engine's own data file beside it. */
 export function wantsEngineData(game: GameId, improvements: boolean): boolean {
   const when = gameDef(game).engineData;
@@ -206,6 +239,8 @@ export interface ConfigInputs {
   addons?: readonly Manifest[];
   /** Fallout 2: its load order (mods/mods_order.txt) as the engine would read it without them, if it has one. */
   modsOrder?: string;
+  /** FO2tweaks' settings, where the game or an add-on brought them (see withConsoleKeys). */
+  tweaks?: string;
 }
 
 /**
@@ -270,6 +305,7 @@ export function buildConfigFiles({
   highRes,
   addons = [],
   modsOrder,
+  tweaks,
 }: ConfigInputs): Record<string, string> {
   const def = gameDef(game);
   const settingsFile = configFile ?? def.configFile;
@@ -339,6 +375,9 @@ export function buildConfigFiles({
     // The add-ons' archives, after the game's own in its load order.
     const order = addonModsOrder(mounted, modsOrder);
     if (order !== null) files[MODS_ORDER] = order;
+    // The console's keys stay the console's.
+    const keymap = tweaks === undefined ? null : withConsoleKeys(tweaks);
+    if (keymap !== null) files[TWEAKS_FILE] = keymap;
     return { [settingsFile]: ini.toString(), ...files };
   }
 

@@ -110,10 +110,10 @@ says. Switching one off and on again puts it over the others. A change takes hol
 save made with an add-on may need it, as one made with a mod's part does.
 
 > [!NOTE]
-> FO2tweaks comes with its keymap on: quick save moves to F5, quick load to F8 and the load screen to F9. The
-> console keeps F8 (fast forward) and F9 (its menu) for itself, so with that keymap the game's quick load and load
-> screen have no key. Turn the keymap off (`keymap=0` in `mods/fo2tweaks.ini`) before loading it, or load from the
-> game's options menu.
+> The console's own keys stay its own whatever an add-on maps: F6 and F7 quick save and quick load (slot 07, which
+> the touch deck presses too), F8 fast forward, F9 the console's menu, F11 fullscreen. FO2tweaks comes with a keymap
+> that moves quick save to F5, quick load to F8 and the load screen to F9: the console leaves out those lines when the
+> game starts, so the game keeps its own keys, and the rest of the keymap (J to centre on the player) stands.
 
 ## The mods the console knows
 

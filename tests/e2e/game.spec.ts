@@ -835,11 +835,11 @@ test('Fallout 2: add-ons laid over it, their archives opened and their scripts r
   // Cassidy's head, large enough to be read on demand: its archive's directory read from the add-on.
   expect((await fileReads(page)).addon).toContain('mods/cassidy_head.dat');
 
-  // FO2tweaks' keymap, on as it comes: quick save moved from F6, which does nothing now, to F5.
+  // FO2tweaks' keymap, on as it comes, without what it would move onto or off the console's keys: quick save on F6 still.
+  const keymap = Buffer.from((await engineFile(page, 'mods/fo2tweaks.ini')) ?? []).toString('latin1');
+  expect(keymap).toMatch(/^keymap=1/m);
+  expect(keymap).not.toMatch(/^F[5-9]=/m);
   await page.keyboard.press('F6');
-  await pause(page, 3000);
-  await expect(page.locator('#toast')).not.toHaveText('QUICK SAVED IN SLOT 07');
-  await page.keyboard.press('F5');
   await expect(page.locator('#toast')).toHaveText('QUICK SAVED IN SLOT 07', { timeout: 30_000 });
   expect(await savedHeader(page, 7)).toMatchObject({ map: 'ARTEMPLE', character: 'Narg' });
   await page.keyboard.press('F9');
