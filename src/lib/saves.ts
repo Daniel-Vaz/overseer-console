@@ -10,6 +10,7 @@ import { gameDef, type GameId } from './games';
 import { SAVE_PREFIX, isSaveData, parseCharacter, parseSaveHeader, saveLayoutOf, slotOf, slotPrefix, type Character } from './savefile';
 import { countVersions, eraseSlot, replaceSlot, type VersionCause } from './storage/history';
 import { pathKey } from './storage/manifest';
+import { isJunk } from './storage/plan';
 import { listOverlay, listOverlayKeys, readOverlay, type OverlayChanges, type OverlayEntry } from './storage/overlay';
 
 export { THUMBNAIL_HEIGHT, THUMBNAIL_WIDTH, parseSaveHeader } from './savefile';
@@ -276,6 +277,9 @@ export async function readSaveArchive(game: GameId, archive: Blob, options: Arch
   for (const [name, data] of Object.entries(unzipped)) {
     if (name.endsWith('/')) continue;
     const parts = name.replace(/\\/g, '/').split('/');
+    // What a Mac or Windows leaves in a zipped folder is no part of a save.
+    const file = parts.at(-1)!.toLowerCase();
+    if (isJunk(file) || file.startsWith('._') || parts.some((part) => part.toLowerCase() === '__macosx')) continue;
     const at = parts.findIndex((part) => /^slot\d+$/i.test(part));
     if (at < 0 || at === parts.length - 1) continue;
     const slot = Number(parts[at]!.slice(4));

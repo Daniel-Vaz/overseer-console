@@ -403,6 +403,18 @@ describe('save archives', () => {
     expect((await readSaveArchive('fo2', fallout2)).slots).toEqual([1]);
   });
 
+  it('leaves out what a Mac or Windows puts in a zipped folder', async () => {
+    const archive = zipSync({
+      'SAVEGAME/SLOT03/SAVE.DAT': saveDat('junk'),
+      'SAVEGAME/SLOT03/.DS_Store': new Uint8Array(8),
+      'SAVEGAME/SLOT03/Thumbs.db': new Uint8Array(8),
+      'SAVEGAME/SLOT03/._SAVE.DAT': new Uint8Array(8),
+      '__MACOSX/SAVEGAME/SLOT03/._SAVE.DAT': new Uint8Array(8),
+    });
+    await (await readSaveArchive('fo2', new Blob([archive]))).commit();
+    expect((await listSaves('fo2'))[0]).toMatchObject({ slot: 3, files: 1 });
+  });
+
   it('packs nothing for a slot without a readable save', async () => {
     expect(await packSlot('fo2', 6)).toBeNull();
   });
