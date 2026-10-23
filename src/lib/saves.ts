@@ -7,7 +7,7 @@
  */
 import { strFromU8, strToU8, unzipSync, zipSync, type Zippable } from 'fflate';
 import { gameDef, type GameId } from './games';
-import { SAVE_PREFIX, isSaveData, parseCharacter, parseSaveHeader, slotOf, slotPrefix, type Character } from './savefile';
+import { SAVE_PREFIX, isSaveData, parseCharacter, parseSaveHeader, saveLayoutOf, slotOf, slotPrefix, type Character } from './savefile';
 import { countVersions, eraseSlot, replaceSlot, type VersionCause } from './storage/history';
 import { pathKey } from './storage/manifest';
 import { listOverlay, listOverlayKeys, readOverlay, type OverlayChanges, type OverlayEntry } from './storage/overlay';
@@ -301,10 +301,19 @@ export async function readSaveArchive(game: GameId, archive: Blob, options: Arch
   }
 
   // A slot is only worth importing with its SAVE.DAT, and of the right game.
+  const engine = gameDef(game).engine.id;
   for (const slot of slots) {
+    const name = `SLOT${String(slot).padStart(2, '0')}`;
     const main = puts.find((put) => put.key === `${slotPrefix(slot)}save.dat`);
     if (!main || !parseSaveHeader(main.data)) {
-      throw new Error(`SLOT${String(slot).padStart(2, '0')} in that archive has no readable SAVE.DAT.`);
+      throw new Error(`${name} in that archive has no readable SAVE.DAT.`);
+    }
+    // Saved by the other engine. A save that does not say is let through.
+    const layout = saveLayoutOf(main.data);
+    if (layout && layout !== engine) {
+      const def = gameDef(game);
+      const on = def.mod ? ` (played on ${gameDef(engine).title})` : '';
+      throw new Error(`${name} in that archive is a save of ${gameDef(layout).title}. ${def.title}${on} cannot load it.`);
     }
   }
 

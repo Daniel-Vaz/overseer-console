@@ -65,6 +65,20 @@ export function parseSaveHeader(data: Uint8Array): SaveHeader | null {
   };
 }
 
+/**
+ * The engine a SAVE.DAT was written by, from the version after its signature:
+ * Fallout writes 1.1, Fallout 2 1.2, both with the release letter R. Null
+ * when it says neither. Fallout 2's engine refuses a save of the other, while
+ * Fallout's loads whatever it is given.
+ */
+export function saveLayoutOf(data: Uint8Array): SaveLayout | null {
+  if (data.length < 0x1d) return null;
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  if (view.getInt16(0x18, false) !== 1 || data[0x1c] !== 0x52) return null;
+  const minor = view.getInt16(0x1a, false);
+  return minor === 1 ? 'fo1' : minor === 2 ? 'fo2' : null;
+}
+
 const SAVE_PREFIX = 'data/savegame/';
 
 /** The slot a path inside the game folder belongs to, if it is part of a save. */

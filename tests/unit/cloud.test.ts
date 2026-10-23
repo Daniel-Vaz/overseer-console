@@ -385,6 +385,24 @@ describe('save archives', () => {
     expect((await listSaves('fo2'))[0]).toMatchObject({ savedAt: T2, files: 2 });
   });
 
+  it("refuses a save the game's engine cannot load", async () => {
+    /** As the engines write it: version 1.1 (Fallout) or 1.2 (Fallout 2), release R. */
+    const by = (minor: number) => {
+      const data = saveDat('vault 13');
+      const view = new DataView(data.buffer);
+      view.setInt16(0x18, 1, false);
+      view.setInt16(0x1a, minor, false);
+      data[0x1c] = 'R'.charCodeAt(0);
+      return data;
+    };
+    const fallout = new Blob([zipSync({ 'SAVEGAME/SLOT01/SAVE.DAT': by(1) })]);
+    const fallout2 = new Blob([zipSync({ 'SAVEGAME/SLOT01/SAVE.DAT': by(2) })]);
+    await expect(readSaveArchive('fo2', fallout)).rejects.toThrow('SLOT01 in that archive is a save of Fallout. Fallout 2 cannot load it.');
+    await expect(readSaveArchive('fo1', fallout2)).rejects.toThrow('SLOT01 in that archive is a save of Fallout 2. Fallout cannot load it.');
+    expect((await readSaveArchive('fo1', fallout)).slots).toEqual([1]);
+    expect((await readSaveArchive('fo2', fallout2)).slots).toEqual([1]);
+  });
+
   it('packs nothing for a slot without a readable save', async () => {
     expect(await packSlot('fo2', 6)).toBeNull();
   });
