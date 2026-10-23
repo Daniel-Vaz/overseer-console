@@ -4,10 +4,10 @@
   import { CloudError } from '../../lib/cloud/errors';
   import { showFolder } from '../../lib/cloud/folders';
   import { listCloudMods, modsFolder, type CloudMod } from '../../lib/cloud/games';
-  import { BASE_GAMES, gameDef, isGameId, type GameId } from '../../lib/games';
+  import { BASE_GAMES, gameDef, isGameId, type BaseGameId, type GameId } from '../../lib/games';
   import { KNOWN_MODS, KNOWN_MOD_IDS, type KnownModId } from '../../lib/mods/catalog';
   import { MOD_RELEASES, isOlder, isZip, releaseOf } from '../../lib/mods/releases';
-  import { sourcesFromFileList } from '../../lib/storage/importer';
+  import { sourcesFromFileList, type SourceFile } from '../../lib/storage/importer';
   import { formatBytes } from '../../lib/storage/manifest';
   import Glyph from '../components/Glyph.svelte';
   import JobResult from '../components/JobResult.svelte';
@@ -15,22 +15,28 @@
   import Menu from '../components/Menu.svelte';
   import ModDisk from '../components/ModDisk.svelte';
   import { PICTURE_NAMES } from '../picture';
-  import { STATUS_NAMES, STATUS_NOTES, modName } from '../mods';
+  import { STATUS_NAMES, STATUS_NOTES, addonHolds, addonName, modName } from '../mods';
+  import { step } from '../picture';
   import { sfx } from '../sfx';
   import { consoleState as sys } from '../state.svelte';
   import type { MenuItem } from '../types';
 
   /**
-   * library: the mods loaded here. load: loading one. known: the mods the
-   * console knows by name, and with `known` one of them.
+   * library: the mods and add-ons loaded here. load: loading a mod. addons:
+   * loading an add-on. known: the mods the console knows by name, and with
+   * `known` one of them.
    */
-  let { go, view, known = undefined }: { go: (path: string) => void; view: 'library' | 'load' | 'known'; known?: KnownModId } = $props();
+  let { go, view, known = undefined }: { go: (path: string) => void; view: 'library' | 'load' | 'addons' | 'known'; known?: KnownModId } = $props();
 
   // Folder selection is a desktop browser feature; phones only pick files.
   const canPickFolder = 'webkitdirectory' in HTMLInputElement.prototype;
   let folderInput: HTMLInputElement | undefined = $state();
   let zipInput: HTMLInputElement | undefined = $state();
+  let addonFolderInput: HTMLInputElement | undefined = $state();
+  let addonZipInput: HTMLInputElement | undefined = $state();
   let selected = $state(0);
+  /** The game an add-on loaded here is for: the console cannot always tell by its files. */
+  let addonBase = $state<BaseGameId>('fo2');
 
   /** The mods in the Mods folder of the player's cloud, once asked for. */
   let cloud = $state<{ mods: CloudMod[] | null; error: string | null } | null>(null);
@@ -44,7 +50,8 @@
   const cloudHome = $derived(linked?.home ?? '');
 
   // A copy of a mod whose name is not known yet, or no longer (it was stopped before it arrived): it is shown here.
-  const job = $derived(sys.job.phase !== 'idle' && (sys.job.game === undefined || !isGameId(sys.job.game)) ? sys.job : null);
+  // So is an add-on's, but for one loaded for a game or mod, which that one's page shows.
+  const job = $derived(sys.job.phase !== 'idle' && (sys.job.game === undefined || !isGameId(sys.job.game)) && !sys.job.target ? sys.job : null);
   const loading = $derived(job?.phase === 'reading' || job?.phase === 'copying');
 
   onMount(() => {
@@ -65,11 +72,23 @@
   });
 
   $effect(() => {
-    // Once the mod is known, it is shown on its own page.
+    // Once the mod is known, it is shown on its own page; an add-on (also one "Load a mod" was handed) on its.
     const going = sys.job.game;
-    if ((sys.job.phase === 'copying' || sys.job.phase === 'reading') && going && going !== 'mod' && isGameId(going)) {
+    if ((sys.job.phase === 'copying' || sys.job.phase === 'reading') && going && going !== 'mod' && going !== 'addon' && isGameId(going)) {
       go(gameDef(going).mod ? `mods/${going}` : going);
+    } else if (sys.job.phase === 'copying' && going === 'addon' && sys.job.addon && !sys.job.target) {
+      go(`mods/addons/${sys.job.addon}`);
     }
+  });
+
+  $effect(() => {
+    // An add-on dropped while an add-on is being loaded here is one for the game chosen.
+    if (view !== 'addons') return;
+    const take = (sources: SourceFile[]) => void sys.importAddon(sources, { base: addonBase });
+    sys.dropTarget = { take, label: `Release to load the add-on for ${gameDef(addonBase).title}`, blocked: () => sys.busy || !sys.supported };
+    return () => {
+      if (sys.dropTarget?.take === take) sys.dropTarget = null;
+    };
   });
 
   $effect(() => {
@@ -81,6 +100,13 @@
     const sources = sourcesFromFileList(input.files);
     input.value = '';
     await sys.importFrom(sources, 'mod');
+  }
+
+  async function pickedAddon(input: HTMLInputElement | undefined): Promise<void> {
+    if (!input?.files?.length) return;
+    const sources = sourcesFromFileList(input.files);
+    input.value = '';
+    await sys.importAddon(sources, { base: addonBase });
   }
 
   async function lookInCloud(): Promise<void> {
@@ -109,11 +135,21 @@
     return { state: 'READY' };
   }
 
-  const KEYS = '123456789abcdefghjmnopqrstuvwyz';
+  const KEYS = '123456789bcdefghjmnopqrstuvwyz';
   const INSTALLABLE = KNOWN_MOD_IDS.filter((id) => MOD_RELEASES[id]);
 
   /** The mods in the order the library lists them: those for Fallout first. */
   const listed = $derived(BASE_GAMES.flatMap((base) => mods.filter((game) => gameDef(game).mod!.base === base)));
+  /** The add-ons, after the mods: those for Fallout first. */
+  const addons = $derived(BASE_GAMES.flatMap((base) => sys.addons.filter((record) => record.base === base)));
+
+  /** Where an add-on is laid, in a word or two. */
+  function laidOver(id: string): { state: string; tone?: 'amber' } {
+    if (sys.addonInstalls[id] === null) return { state: 'NO HOLODISK', tone: 'amber' };
+    const games = sys.games.filter((game) => sys.laid[game]?.includes(id));
+    if (!games.length) return { state: 'NOT IN USE' };
+    return { state: games.length === 1 ? `ON ${gameDef(games[0]!).short}` : `ON ${games.length} GAMES` };
+  }
 
   const libraryItems = $derived<MenuItem[]>([
     ...listed.map((game, index): MenuItem => {
@@ -127,6 +163,18 @@
         note: sys.installs[game] === null ? `Its files were ejected. Its saves are kept: open it to load it again.` : `${def.blurb} ${STATUS_NOTES[def.mod!.status]}`,
         icon: 'gamedata',
         action: () => go(`mods/${game}`),
+      };
+    }),
+    ...addons.map((record, index): MenuItem => {
+      const info = sys.addonInstalls[record.id];
+      return {
+        key: KEYS[listed.length + index] ?? `a${index}`,
+        group: `Add-ons for ${gameDef(record.base).title}`,
+        label: addonName(record),
+        ...laidOver(record.id),
+        note: `${info ? `${addonHolds(info)}. ` : ''}Laid over ${gameDef(record.base).title} or its mods, where it is switched on.`,
+        icon: 'gamedata',
+        action: () => go(`mods/addons/${record.id}`),
       };
     }),
     {
@@ -143,6 +191,13 @@
       icon: 'folder',
       note: 'From its zip, its folder or your cloud, or from a game folder it was installed in.',
       action: () => go('mods/load'),
+    },
+    {
+      key: 'a',
+      label: 'Load an add-on',
+      icon: 'folder',
+      note: 'A small mod laid over a game or a mod rather than played as one: archives for the load order, scripts, music.',
+      action: () => go('mods/addons'),
     },
     {
       key: 'k',
@@ -201,6 +256,47 @@
     { key: '0', label: 'Back', icon: 'back', action: () => go('mods') },
   ]);
 
+  const addonItems = $derived<MenuItem[]>([
+    {
+      key: '1',
+      label: 'For',
+      state: gameDef(addonBase).title.toUpperCase(),
+      icon: 'gamedata',
+      note: `The game it is made for: it is laid over that game, or over that game's mods. ENTER or the arrows choose the other.`,
+      action: () => (addonBase = step(BASE_GAMES, addonBase)),
+      adjust: (direction) => (addonBase = step(BASE_GAMES, addonBase, direction)),
+    },
+    {
+      key: '2',
+      label: 'Select a zip',
+      icon: 'folder',
+      note: 'The zip an add-on is downloaded as, or the one archive it is. It is read where it lies, and nothing leaves this device.',
+      action: () => addonZipInput?.click(),
+    },
+    ...(canPickFolder
+      ? [
+          {
+            key: '3',
+            label: 'Select a folder',
+            icon: 'folder',
+            note: 'Its folder, as it would be unpacked into the game folder. The browser will ask you to confirm the "upload"; nothing leaves this device.',
+            action: () => addonFolderInput?.click(),
+          } satisfies MenuItem,
+        ]
+      : []),
+    {
+      key: '4',
+      label: sys.cloud.linked ? `From ${sys.cloud.name}` : 'From your cloud',
+      state: sys.cloud.linked ? undefined : 'NOT LINKED',
+      icon: 'uplink',
+      note: sys.cloud.linked
+        ? `From ${cloudMods}, in ${cloudHome} in your ${sys.cloud.name}, where add-ons are kept beside the mods.`
+        : 'Optional. Link your own Dropbox or Google Drive and keep your mods and add-ons in its Mods folder.',
+      action: () => (sys.cloud.linked ? void lookInCloud() : go('settings/cloud')),
+    },
+    { key: '0', label: 'Back', icon: 'back', action: () => go('mods') },
+  ]);
+
   const cloudItems = $derived<MenuItem[]>([
     ...(cloud?.mods ?? []).map(
       (mod, index): MenuItem => ({
@@ -208,10 +304,11 @@
         label: mod.name,
         state: `${mod.zip ? 'ZIP' : `${mod.files} ${mod.files === 1 ? 'FILE' : 'FILES'}`}, ${formatBytes(mod.bytes)}`,
         icon: mod.zip ? 'folder' : 'gamedata',
-        note: `Loads the mod in ${mod.name}, fetched from your ${sys.cloud.name}.`,
+        note: view === 'addons' ? `Loads the add-on in ${mod.name}, fetched from your ${sys.cloud.name}.` : `Loads the mod in ${mod.name}, fetched from your ${sys.cloud.name}.`,
         action: () => {
           cloud = null;
-          void sys.importModFromCloud(mod.name);
+          if (view === 'addons') void sys.importAddonFromCloud(mod.name, { base: addonBase });
+          else void sys.importModFromCloud(mod.name);
         },
       }),
     ),
@@ -290,15 +387,23 @@
     ];
   });
 
-  const items = $derived(view === 'library' ? libraryItems : view === 'load' ? (cloud ? cloudItems : loadItems) : page ? pageItems : knownItems);
+  const items = $derived(
+    view === 'library' ? libraryItems : view === 'load' ? (cloud ? cloudItems : loadItems) : view === 'addons' ? (cloud ? cloudItems : addonItems) : page ? pageItems : knownItems,
+  );
   const pointed = $derived(items[selected]);
   /** The mod under the cursor in the library, if it is one: they come first in its list. */
   const pointedMod = $derived(view === 'library' ? (listed[selected] ?? null) : null);
+  /** The add-on under the cursor in the library, if it is one: they come after the mods. */
+  const pointedAddon = $derived(view === 'library' && selected >= listed.length ? (addons[selected - listed.length] ?? null) : null);
 </script>
 
 <!-- Hidden pickers behind the entries that load a mod. -->
 <input class="sr-only" type="file" tabindex="-1" aria-hidden="true" webkitdirectory multiple bind:this={folderInput} onchange={() => picked(folderInput)} />
 <input class="sr-only" type="file" accept=".zip,application/zip" tabindex="-1" aria-hidden="true" bind:this={zipInput} onchange={() => picked(zipInput)} />
+{#if view === 'addons'}
+  <input class="sr-only" type="file" tabindex="-1" aria-hidden="true" webkitdirectory multiple bind:this={addonFolderInput} onchange={() => pickedAddon(addonFolderInput)} />
+  <input class="sr-only" type="file" accept=".zip,.dat,application/zip" tabindex="-1" aria-hidden="true" bind:this={addonZipInput} onchange={() => pickedAddon(addonZipInput)} />
+{/if}
 
 {#if view === 'known' && page}
   <h1>{page.title}</h1>
@@ -309,17 +414,20 @@
 {:else if view === 'load'}
   <h1>Load a mod</h1>
   <p class="sub">From its zip or folder as it is downloaded, or from a game folder it was installed in.</p>
+{:else if view === 'addons'}
+  <h1>Load an add-on</h1>
+  <p class="sub">A small mod laid over a game or a mod, rather than played as one.</p>
 {:else}
   <h1>Mod library</h1>
-  <p class="sub">Mods for Fallout and Fallout 2. Each is played on its own game, with saves of its own.</p>
+  <p class="sub">Mods for Fallout and Fallout 2, each played on its own game with saves of its own, and add-ons laid over them.</p>
 {/if}
 
 <div class="columns">
   <div>
-    {#if view === 'load' && loading && job}
-      <Loading {job} what="mod" />
+    {#if (view === 'load' || view === 'addons') && loading && job}
+      <Loading {job} what={view === 'addons' || job.game === 'addon' ? 'add-on' : 'mod'} />
     {:else}
-      {#if (view === 'load' || view === 'library') && job}
+      {#if (view === 'load' || view === 'library' || view === 'addons') && job}
         <JobResult {job} />
       {/if}
       {#if view === 'known' && page}
@@ -345,7 +453,7 @@
         <Menu items={pageItems} label={page.title} bind:selected />
       {:else if view === 'known'}
         <Menu items={knownItems} label="Mods the console knows" bind:selected />
-      {:else if view === 'load' && cloud}
+      {:else if (view === 'load' || view === 'addons') && cloud}
         {#if cloud.mods === null}
           <p class="gap">CONTACTING {sys.cloud.name.toUpperCase()}<span class="cursor"></span></p>
         {:else if cloud.error}
@@ -369,6 +477,20 @@
         {/if}
         {#if cloud.mods !== null}
           <Menu items={cloudItems} label={`Mods in your ${sys.cloud.name}`} bind:selected />
+        {/if}
+      {:else if view === 'addons'}
+        {#if sys.supported}
+          <p class="gap prose">
+            An add-on has no game of its own: its archives for the load order, its scripts, its music or its loose data
+            are laid over a game or mod when that starts. Loaded once, it can be switched on for the game it is made for
+            and for any of that game's mods, here on its page or under Add-ons on theirs, the later over the earlier.
+          </p>
+          <Menu items={addonItems} label="Load an add-on" bind:selected />
+          {#if canPickFolder}
+            <p class="gap dim">OR DROP AN ADD-ON, ITS ZIP OR ITS ARCHIVE, ANYWHERE ON THIS SCREEN.</p>
+          {/if}
+        {:else}
+          <p class="gap alert">THIS BROWSER CANNOT STORE GAME DATA. SEE THE MAIN DIRECTORY.</p>
         {/if}
       {:else if view === 'load'}
         {#if sys.supported}
@@ -406,6 +528,17 @@
         <dd>{sys.installs[pointedMod] ? formatBytes(sys.installs[pointedMod]!.totalBytes) : 'NOT LOADED'}</dd>
         <dt>Saves</dt>
         <dd>{sys.saves[pointedMod] || 'NONE'}</dd>
+      </dl>
+    {:else if pointedAddon}
+      {@const info = sys.addonInstalls[pointedAddon.id]}
+      <ModDisk label={`ADD-ON, DECK ${gameDef(pointedAddon.base).deck}`} title={pointedAddon.title.toUpperCase()} loaded={!!info} />
+      <dl class="readout">
+        <dt>Made for</dt>
+        <dd>{gameDef(pointedAddon.base).title.toUpperCase()}</dd>
+        <dt>Laid over</dt>
+        <dd>{sys.games.filter((game) => sys.laid[game]?.includes(pointedAddon.id)).map((game) => gameDef(game).short).join(', ') || 'NOTHING'}</dd>
+        <dt>Holodisk</dt>
+        <dd>{info ? formatBytes(info.totalBytes) : 'NOT LOADED'}</dd>
       </dl>
     {:else if view === 'known' && page}
       <ModDisk label={`FOR DECK ${gameDef(page.base).deck}`} title={page.short} loaded={isGameId(page.id) && !!sys.installs[page.id]} />

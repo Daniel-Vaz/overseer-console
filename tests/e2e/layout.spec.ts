@@ -1,7 +1,8 @@
 import type { Page } from '@playwright/test';
 import { zipSync } from 'fflate';
 import { expect, test } from './fixtures';
-import { fakeEttuZip, fakeFallout1Folder, fakeFallout2Folder, fakeSaveDat, openConsole, pickFolder } from './helpers';
+import { fo2tweaksFiles } from '../mods';
+import { fakeEttuZip, fakeFallout1Folder, fakeFallout2Folder, fakeSaveDat, openConsole, pickFolder, zipOf } from './helpers';
 
 /**
  * How the console fills its tube, at the window sizes people really have:
@@ -35,8 +36,9 @@ function fit(page: Page) {
 }
 
 /**
- * Both games in their decks, Fallout Et Tu in the Mod library, and three saves
- * of Fallout 2, so that every screen has what it shows when the console is in use.
+ * Both games in their decks, Fallout Et Tu and an add-on laid over Fallout 2
+ * in the Mod library, and three saves of Fallout 2, so that every screen has
+ * what it shows when the console is in use.
  */
 async function furnish(page: Page): Promise<void> {
   await openConsole(page, 'fo1');
@@ -48,6 +50,10 @@ async function furnish(page: Page): Promise<void> {
   await page.goto('#/mods/load');
   await page.locator('input[accept*="zip"]').setInputFiles(fakeEttuZip({ forEngine: true }));
   await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 60_000 });
+  await page.goto('#/mods/addons');
+  await page.locator('input[accept*=".dat"]').setInputFiles(await zipOf(fo2tweaksFiles(), 'fo2tweaks_v14.7.zip'));
+  await expect(page.getByRole('heading', { name: 'Fo2tweaks 14.7' })).toBeVisible({ timeout: 60_000 });
+  await page.locator('.menu button', { hasText: 'Fallout 2' }).click();
   await page.goto('#/saves/fo2');
   const saves = zipSync({
     'SAVEGAME/SLOT01/SAVE.DAT': new Uint8Array(fakeSaveDat('Narg', 'before the temple')),
@@ -61,7 +67,7 @@ async function furnish(page: Page): Promise<void> {
   await expect(page.locator('.menu li.selected')).toBeVisible();
 }
 
-const SCREENS = ['', 'fo2', 'mods', 'mods/ettu', 'mods/load', 'mods/install', 'mods/install/resurrection', 'mods/known', 'mods/known/olympus', 'mods/known/resurrection', 'mods/known/yesterday', 'saves/fo2', 'settings', 'settings/picture', 'settings/cloud', 'manual'];
+const SCREENS = ['', 'fo2', 'mods', 'mods/ettu', 'mods/load', 'mods/addons', 'mods/addons/fo2tweaks', 'mods/install', 'mods/install/resurrection', 'mods/known', 'mods/known/olympus', 'mods/known/resurrection', 'mods/known/yesterday', 'saves/fo2', 'settings', 'settings/picture', 'settings/cloud', 'manual'];
 
 test('holds the same page however large the window is: nothing runs off the tube, nothing is cut short', async ({ page }) => {
   await furnish(page);

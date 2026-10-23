@@ -6,6 +6,7 @@
   import { sourcesFromFileList } from '../../lib/storage/importer';
   import { formatBytes } from '../../lib/storage/manifest';
   import { removeInstall } from '../../lib/storage/opfs';
+  import Addons from '../components/Addons.svelte';
   import Deck from '../components/Deck.svelte';
   import Glyph from '../components/Glyph.svelte';
   import JobResult from '../components/JobResult.svelte';
@@ -13,7 +14,7 @@
   import Menu from '../components/Menu.svelte';
   import { ago, exportedState, stamp } from '../format';
   import { launchGame } from '../launch';
-  import { modName } from '../mods';
+  import { addonName, modName } from '../mods';
   import { PICTURE_NAMES, PICTURE_NOTES, step } from '../picture';
   import { sfx } from '../sfx';
   import { consoleState as sys } from '../state.svelte';
@@ -28,9 +29,11 @@
 
   /**
    * main: the deck. stores: where the game is sold. holodisk: loading the
-   * game again, or taking it out. eject: asked before it is done.
+   * game again, or taking it out. eject: asked before it is done. addons:
+   * those laid over what the deck plays.
    */
-  let view = $state<'main' | 'stores' | 'holodisk' | 'eject'>('main');
+  let view = $state<'main' | 'stores' | 'holodisk' | 'eject' | 'addons'>('main');
+  let addonsView: Addons | undefined = $state();
   let folderInput: HTMLInputElement | undefined = $state();
   let filesInput: HTMLInputElement | undefined = $state();
   let zipInput: HTMLInputElement | undefined = $state();
@@ -67,6 +70,7 @@
   /** Closes the innermost open view. False when there is none. */
   function stepBack(): boolean {
     if (view === 'main') return false;
+    if (view === 'addons' && addonsView?.stepBack()) return true;
     view = view === 'eject' ? 'holodisk' : 'main';
     return true;
   }
@@ -180,6 +184,9 @@
   const playingDef = $derived(gameDef(playing));
   /** Said of what the deck plays, where it is a mod. */
   const forMod = $derived(modded ? ` of ${playingDef.title}` : '');
+  /** The add-ons laid over what the deck plays, and those there are for its game. */
+  const laid = $derived((sys.laid[playing] ?? []).map((id) => sys.addons.find((record) => record.id === id)).filter((record) => !!record));
+  const addonsFor = $derived(sys.addons.filter((record) => record.base === game).length);
 
   /** The deck's choice of what it plays: the game itself, or one of the mods loaded for it. */
   const modChoice = $derived([game, ...mods.filter((other) => sys.installs[other])] as GameId[]);
@@ -238,6 +245,14 @@
         note: `${PICTURE_NOTES[picture]} For ${modded ? playingDef.title : 'this game'} only.`,
         action: () => sys.setPicture(playing, step(pictures, picture)),
         adjust: (direction) => sys.setPicture(playing, step(pictures, picture, direction)),
+      },
+      {
+        label: 'Add-ons',
+        state: laid.length ? `${laid.length} ON` : addonsFor ? 'NONE ON' : 'NONE',
+        note: laid.length
+          ? `Laid over ${modded ? playingDef.title : def.title} when it starts: ${laid.map((record) => record.title).join(', ')}. Switch them, or load another.`
+          : `Small mods laid over ${modded ? playingDef.title : def.title} when it starts: archives for its load order, scripts, music. ${addonsFor ? 'Switch one on' : 'Load one'} here.`,
+        action: () => (view = 'addons'),
       },
       {
         label: 'Holodisk',
@@ -340,6 +355,8 @@
   {#if view === 'stores'}
     <p class="gap">{def.title} is sold by:</p>
     <Menu items={storeItems} label="Stores" />
+  {:else if view === 'addons' && install}
+    <Addons game={playing} {go} back={() => (view = 'main')} bind:this={addonsView} />
   {:else if view === 'eject' && install}
     <div class="signed ask gap">
       <Glyph name="warning" tone="amber" />
@@ -367,6 +384,10 @@
       {#if modded}
         <dt>Mod</dt>
         <dd class:amber={!playable}>{modName(playing).toUpperCase()}{playable ? '' : ': NOT LOADED'}</dd>
+      {/if}
+      {#if laid.length}
+        <dt>Add-ons</dt>
+        <dd>{laid.map((record) => addonName(record).toUpperCase()).join(', ')}</dd>
       {/if}
       <dt>Saved games</dt>
       <dd>{sys.saves[playing] || 'NONE'}</dd>

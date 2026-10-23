@@ -5,10 +5,12 @@
  * tools next to the data that matters. Importing finds the game inside it,
  * keeps what the engine reads and leaves the rest.
  */
+import { registerAddon } from '../addons';
 import { GAMES, gameDef, gameForDatFormat, isBaseGame, registerMod, type BaseGameId, type DatFormat, type GameId } from '../games';
 import { Ini } from '../ini';
 import { KNOWN_MODS, isKnownMod } from '../mods/catalog';
 import { ZipError, looksLikeZip, readZip } from '../zip';
+import { isAddonShaped, planAddon } from './addons';
 import { findEttu, planEttu } from './ettu';
 import { findMod, installerOf, isInstaller, isOtherArchive, planFoundMod } from './mods';
 import { MANIFEST_VERSION, basename, dirname, pathKey, type Manifest } from './manifest';
@@ -178,6 +180,8 @@ async function planMod(sources: SourceFile[], survey: Survey, target: GameId | u
   }
   const archive = isOtherArchive(sources);
   if (archive) throw new ImportError(`${archive}: the console opens zip archives only. Unpack it and pick the folder, or make a zip of it.`);
+  // Nothing but what goes in Fallout 2's mods folder: an add-on, laid over a game or mod rather than played as one.
+  if (!target && !survey.candidates.length && isAddonShaped(sources)) return planAddon(sources, 'fo2');
   const found = findMod(sources, survey.candidates);
   if (!found) {
     throw new ImportError(
@@ -218,8 +222,8 @@ export async function planImport(sources: SourceFile[], preferred?: GameId | 'mo
       );
     }
   }
-  // Nothing asked for, no game in it, and what a mod unpacks into a game folder.
-  if (!masters && preferred === undefined && mod) return planMod(sources, survey, undefined, context);
+  // Nothing asked for, no game in it, and what a mod unpacks into a game folder, or an add-on.
+  if (!masters && preferred === undefined && (mod || isAddonShaped(sources))) return planMod(sources, survey, undefined, context);
   if (!masters) {
     throw new ImportError(
       'No MASTER.DAT in that selection. Pick the folder the game was installed to: the one that contains MASTER.DAT and CRITTER.DAT.',
@@ -323,6 +327,7 @@ const DERIVED_SETTINGS = 'data/config/';
  * (see writeInstall): nothing of the game is changed then.
  */
 export async function runImport(plan: ImportPlan, onProgress?: (p: ImportProgress) => void, signal?: AbortSignal): Promise<Manifest> {
+  if (plan.addon) return runAddonImport(plan, onProgress, signal);
   const manifest = await writeInstall(
     plan.game,
     plan.entries,
@@ -362,5 +367,29 @@ export async function runImport(plan: ImportPlan, onProgress?: (p: ImportProgres
     );
     await commitOverlay(plan.game, { puts, deletes: [] });
   }
+  return manifest;
+}
+
+/** Copies a planned add-on into storage, beside the games: it has no saves, and no settings of its own. */
+async function runAddonImport(plan: ImportPlan, onProgress?: (p: ImportProgress) => void, signal?: AbortSignal): Promise<Manifest> {
+  const manifest = await writeInstall(
+    plan.game,
+    plan.entries,
+    (install, files) => ({
+      version: MANIFEST_VERSION,
+      game: plan.game,
+      install,
+      importedAt: Date.now(),
+      totalBytes: plan.totalBytes,
+      datFormat: plan.datFormat,
+      files,
+      dirs: plan.dirs,
+      addon: plan.addon,
+    }),
+    onProgress,
+    signal,
+    'addons',
+  );
+  registerAddon(plan.addon!.record);
   return manifest;
 }

@@ -31,6 +31,9 @@ own **Operations manual** (entry 6 of the main directory) explains each of these
   was sold, one key away on its deck. See [Mods](mods.md).
 - **Bring your own.** Hand the console a mod as it is downloaded (a zip or its folder) or a game folder it was
   installed in. It keeps only what differs from your game in the deck, and does what a mod's installer would do.
+- **Add-ons.** Small mods with no game of their own (FO2tweaks, Party Orders, a talking head, music) loaded once and
+  laid over a game or any of its mods, several at a time, switched on and off on its page: their archives join its
+  load order, their loose data and music go where the engine reads them over its own. See [Add-ons](mods.md#add-ons).
 - **Install a known mod.** Each of the nine at the version the console's tests play, from its makers' own link: a zip
   downloaded by your Dropbox into its Mods folder, or by your browser and checked when you hand it over; a 7z or an
   installer step by step, then its folder. A mod loaded at an older version is offered the newer one.

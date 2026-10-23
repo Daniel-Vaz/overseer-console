@@ -13,6 +13,7 @@
   import { sourcesFromFileList } from '../../lib/storage/importer';
   import { formatBytes } from '../../lib/storage/manifest';
   import { removeInstall } from '../../lib/storage/opfs';
+  import Addons from '../components/Addons.svelte';
   import Glyph from '../components/Glyph.svelte';
   import JobResult from '../components/JobResult.svelte';
   import Loading from '../components/Loading.svelte';
@@ -20,7 +21,7 @@
   import ModDisk from '../components/ModDisk.svelte';
   import { ago, exportedState, stamp } from '../format';
   import { launchGame } from '../launch';
-  import { STATUS_NAMES, STATUS_NOTES, modName } from '../mods';
+  import { STATUS_NAMES, STATUS_NOTES, addonName, modName } from '../mods';
   import { PICTURE_NAMES, PICTURE_NOTES, step } from '../picture';
   import { sfx } from '../sfx';
   import { consoleState as sys } from '../state.svelte';
@@ -41,8 +42,12 @@
   const install = $derived(sys.installs[game]);
   const canPickFolder = 'webkitdirectory' in HTMLInputElement.prototype;
 
-  /** main: the mod. components: its parts switched on and off. holodisk: its files loaded again, or taken out. eject: asked first. */
-  let view = $state<'main' | 'components' | 'holodisk' | 'eject'>('main');
+  /**
+   * main: the mod. components: its parts switched on and off. addons: those laid over it. holodisk: its files
+   * loaded again, or taken out. eject: asked first.
+   */
+  let view = $state<'main' | 'components' | 'addons' | 'holodisk' | 'eject'>('main');
+  let addonsView: Addons | undefined = $state();
   /** Its parts, once read. */
   let components = $state<Components | null>(null);
   let componentSelected = $state(0);
@@ -80,6 +85,7 @@
 
   function stepBack(): boolean {
     if (cloud) cloud = null;
+    else if (view === 'addons' && addonsView?.stepBack()) return true;
     else if (view !== 'main') view = view === 'eject' ? 'holodisk' : 'main';
     else return false;
     return true;
@@ -154,6 +160,9 @@
   const pictures = $derived(picturesFor(game));
   const picture = $derived(sys.picture(game));
   const inDeck = $derived(sys.deckGame(mod.base) === game);
+  /** The add-ons laid over it, and those there are for its game. */
+  const laid = $derived((sys.laid[game] ?? []).map((id) => sys.addons.find((record) => record.id === id)).filter((record) => !!record));
+  const addonsFor = $derived(sys.addons.filter((record) => record.base === mod.base).length);
 
   /** Ways of handing the console this mod's files again. */
   const sourceItems = $derived.by((): Entry[] => {
@@ -270,6 +279,14 @@
             },
           ]
         : []),
+      {
+        label: 'Add-ons',
+        state: laid.length ? `${laid.length} ON` : addonsFor ? 'NONE ON' : 'NONE',
+        note: laid.length
+          ? `Laid over ${def.title} when it starts: ${laid.map((record) => record.title).join(', ')}. Switch them, or load another.`
+          : `Small mods laid over ${def.title} when it starts, as over ${base.title}: archives for its load order, scripts, music. ${addonsFor ? 'Switch one on' : 'Load one'} here.`,
+        action: () => (view = 'addons'),
+      },
       {
         label: 'Holodisk',
         state: formatBytes(install?.totalBytes ?? 0),
@@ -408,6 +425,8 @@
         {#if cloud.mods !== null}
           <Menu items={cloudItems} label={`Mods in your ${sys.cloud.name}`} />
         {/if}
+      {:else if view === 'addons' && install}
+        <Addons {game} {go} back={() => (view = 'main')} bind:this={addonsView} />
       {:else if view === 'components' && components}
         <p class="gap">COMPONENTS OF {def.title.toUpperCase()}</p>
         <p class="dim prose">
@@ -441,6 +460,10 @@
           {/if}
           <dt>Status</dt>
           <dd class:amber={mod.status === 'experimental'}>{STATUS_NAMES[mod.status]}</dd>
+          {#if laid.length}
+            <dt>Add-ons</dt>
+            <dd>{laid.map((record) => addonName(record).toUpperCase()).join(', ')}</dd>
+          {/if}
           <dt>Saved games</dt>
           <dd class:amber={!!sys.saves[game] && !sys.exported[game]}>
             {sys.saves[game] ? `${sys.saves[game]}, LAST EXPORTED ${exportedState(sys.exported[game] ?? null)}` : 'NONE'}

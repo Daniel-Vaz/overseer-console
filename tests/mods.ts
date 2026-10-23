@@ -376,3 +376,50 @@ export function yesterdayFiles(): Record<string, AnyData> {
   for (let i = 0; i < 20; i++) files[`data/scripts/gl_fy${i}.int`] = pattern(300 + i, 130 + i);
   return files;
 }
+
+/** FO2tweaks as its zip holds it: sfall's library, and its archive and settings for the mods folder. */
+export function fo2tweaksFiles(): Record<string, Data> {
+  return {
+    'ddraw.dll': sfallLibrary(['4.4.9.1', [4, 4, 9]]),
+    'mods/fo2tweaks.ini': '[main]\r\nunlimited_trunk=1\r\n',
+    'mods/fo2tweaks.dat': dat2({ 'scripts\\gl_fo2tweaks.int': { data: pattern(400, 140), packed: false } }),
+  };
+}
+
+/** Party Orders as its zip holds it, with a load order of its own and a folder in its mods folder. */
+export function partyOrdersFiles(): Record<string, Data> {
+  return {
+    'ddraw.dll': 'sfall',
+    'mods/mods_order.txt': 'party_orders.dat\r\n;party_orders_extra.dat\r\nparty_orders_text\r\n',
+    'mods/party_orders.dat': dat2({ 'scripts\\gl_partycontrol.int': { data: pattern(300, 141), packed: false } }),
+    'mods/party_orders_extra.dat': dat2({ 'scripts\\gl_partyextra.int': { data: pattern(200, 142), packed: false } }),
+    'mods/party_orders.ini': '[Keys]\r\nHeal=33\r\n',
+    'mods/party_orders_text/text/english/game/party.msg': '{100}{}{Heal}',
+    'readme.txt': 'Party Orders',
+  };
+}
+
+/** Cassidy's talking head: one archive, handed over on its own. */
+export function cassidyHeadFiles(): Record<string, Data> {
+  return { 'cassidy_head.dat': dat2({ 'art\\heads\\cassidy.frm': { data: pattern(700, 143), packed: false } }) };
+}
+
+/** The music for both games, as its zip holds it: the tracks alone, to be put where the game keeps its own. */
+export function musicFiles(): Record<string, Data> {
+  return {
+    '01hub.acm': pattern(120 << 10, 144),
+    '02mstrlr.acm': pattern(110 << 10, 145),
+    'wind1.acm': pattern(30 << 10, 146),
+    'LICENSE.md': 'CC BY-NC-SA',
+  };
+}
+
+/** An add-on of loose data in the folders of a data folder, as one "extracted into data" is. */
+export function looseDataFiles(): Record<string, Data> {
+  return {
+    'Better Armour/art/critters/hmlthraa.frm': pattern(800, 147),
+    'Better Armour/proto/items/00000074.pro': pattern(120, 148),
+    'Better Armour/text/english/game/pro_item.msg': '{100}{}{Leather Armor Mk II}',
+    'Better Armour/readme.txt': 'Unpack into data.',
+  };
+}

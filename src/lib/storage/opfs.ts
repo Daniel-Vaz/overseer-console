@@ -146,10 +146,13 @@ export async function probeStorage(): Promise<boolean> {
   }
 }
 
-async function gameDir(game: GameId, create = false): Promise<FileSystemDirectoryHandle> {
+/** Where installs are kept: the games and mods, or the add-ons laid over them (see addons.ts). */
+export type Shelf = 'games' | 'addons';
+
+async function gameDir(game: GameId, create = false, shelf: Shelf = 'games'): Promise<FileSystemDirectoryHandle> {
   const root = await storeRoot();
   const store = await root.getDirectoryHandle(STORE_ROOT, { create });
-  const games = await store.getDirectoryHandle('games', { create });
+  const games = await store.getDirectoryHandle(shelf, { create });
   return games.getDirectoryHandle(game, { create });
 }
 
@@ -167,10 +170,10 @@ export interface Install {
   dir: FileSystemDirectoryHandle;
 }
 
-/** The installed copy of a game, or null when there is none. */
-export async function loadInstall(game: GameId): Promise<Install | null> {
+/** The installed copy of a game (or on the add-ons' shelf, of an add-on), or null when there is none. */
+export async function loadInstall(game: GameId, shelf: Shelf = 'games'): Promise<Install | null> {
   try {
-    const dir = await gameDir(game);
+    const dir = await gameDir(game, false, shelf);
     const current = await readJson<CurrentPointer>(dir, 'current.json');
     const installDir = await dir.getDirectoryHandle(current.install);
     const manifest = await readJson<Manifest>(installDir, 'manifest.json');
@@ -215,10 +218,11 @@ export async function writeInstall(
   describe: (install: string, files: ManifestFile[]) => Manifest,
   onProgress?: (p: ImportProgress) => void,
   signal?: AbortSignal,
+  shelf: Shelf = 'games',
 ): Promise<Manifest> {
   const install = `i${Date.now().toString(36)}`;
-  const base = ['games', game];
-  const previous = await loadInstall(game).catch(() => null);
+  const base = [shelf, game];
+  const previous = await loadInstall(game, shelf).catch(() => null);
 
   // Files of this device go to the worker as they are. Anything else it asks
   // the page for, a piece at a time.
@@ -245,7 +249,7 @@ export async function writeInstall(
   await call({ op: 'write', dir: base, name: 'current.json', data: encode({ install } satisfies CurrentPointer) });
 
   // Drop the previous copy and anything an interrupted import left behind.
-  const dir = await gameDir(game);
+  const dir = await gameDir(game, false, shelf);
   for await (const [name, handle] of dir.entries()) {
     if (handle.kind === 'directory' && name !== install) {
       await call({ op: 'remove', dir: base, name }).catch(() => undefined);
@@ -255,12 +259,12 @@ export async function writeInstall(
   return manifest;
 }
 
-/** The ids of every game that has a folder in the store, installed or half so. */
-export async function storedGames(): Promise<string[]> {
+/** The ids of every game (or add-on) that has a folder in the store, installed or half so. */
+export async function storedGames(shelf: Shelf = 'games'): Promise<string[]> {
   try {
     const root = await storeRoot();
     const store = await root.getDirectoryHandle(STORE_ROOT);
-    const games = await store.getDirectoryHandle('games');
+    const games = await store.getDirectoryHandle(shelf);
     const names: string[] = [];
     for await (const [name, handle] of games.entries()) if (handle.kind === 'directory') names.push(name);
     return names.sort();
@@ -270,8 +274,8 @@ export async function storedGames(): Promise<string[]> {
   }
 }
 
-export async function removeInstall(game: GameId): Promise<void> {
-  await call({ op: 'remove', dir: ['games'], name: game });
+export async function removeInstall(game: GameId, shelf: Shelf = 'games'): Promise<void> {
+  await call({ op: 'remove', dir: [shelf], name: game });
 }
 
 export interface StorageStatus {

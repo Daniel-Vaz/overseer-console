@@ -1,3 +1,4 @@
+import type { AddonRecord } from '../addons';
 import type { DatFormat, GameId, ModRecord } from '../games';
 
 /**
@@ -42,6 +43,23 @@ export interface Manifest {
   installConfig?: string;
   /** Set for a mod: what it is, and how its files meet those of the game it is played on. */
   mod?: ModInstall;
+  /** Set for an add-on: what it is, and what it adds to the load order. */
+  addon?: AddonInstall;
+}
+
+/**
+ * An add-on: files laid over a game or a mod, which has no game of its own
+ * and no saves (see storage/addons.ts). Stored apart from the games, under
+ * overseer-console/addons/<id>/, laid out as a game's install is.
+ */
+export interface AddonInstall {
+  record: AddonRecord;
+  /**
+   * For Fallout 2: the archives and folders it puts in mods/, as the load
+   * order (mods/mods_order.txt) names them, the one laid under the others
+   * first. They are added to the load order of whatever it is laid over.
+   */
+  order?: string[];
 }
 
 /** A file of the game underneath that a mod is started with, unchanged. */

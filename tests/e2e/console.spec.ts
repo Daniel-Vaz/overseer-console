@@ -265,8 +265,8 @@ test('imports a game folder into browser storage, and ejects it again', async ({
   await page.keyboard.press('2');
   await expect(page.locator('.menu button').first()).toContainText('Begin simulation');
   // What is done to the game data itself (loading it again, taking it out) is one entry, not four beside the one that plays.
-  await expect(page.locator('.menu button')).toContainText(['Begin simulation', 'Mod', 'Save archives', 'Picture', 'Holodisk', 'Back']);
-  await page.keyboard.press('5');
+  await expect(page.locator('.menu button')).toContainText(['Begin simulation', 'Mod', 'Save archives', 'Picture', 'Add-ons', 'Holodisk', 'Back']);
+  await page.keyboard.press('6');
   await expect(page.locator('.menu button')).toContainText(['Replace holodisk: select the game folder', 'Replace holodisk: select a zip of the game folder', 'Eject holodisk', 'Back']);
   await page.keyboard.press('e');
   await expect(page.getByText('EJECT THE FALLOUT 2 HOLODISK?')).toBeVisible();

@@ -36,7 +36,7 @@
       title: 'Mods',
       icon: 'gamedata',
       summary: 'Fallout Et Tu, the Restoration Project, Sonora and others: loading a mod, and playing it on its game.',
-      topics: ['What a mod is', 'Loading one', 'Installing one it knows', 'Playing it', 'How well they play'],
+      topics: ['What a mod is', 'Loading one', 'Installing one it knows', 'Playing it', 'Add-ons', 'How well they play'],
     },
     {
       id: 'controls',
@@ -272,6 +272,17 @@
             <span class="hot">In deck B</span> (or A), and the deck plays it from then on: its Begin and Continue start
             the mod. The deck's own <span class="hot">Mod</span> entry switches between the mods loaded for it and none:
             the game as it was sold. Each mod starts at the picture its makers meant; Fallout Et Tu at high resolution.
+          </p>
+
+          <h2>Add-ons</h2>
+          <p>
+            An add-on is a small mod with no game of its own: archives for Fallout 2's mods folder (FO2tweaks, Party
+            Orders), loose data, or music. It is loaded once and laid over the game it was made for, or over any of its
+            mods, while it is switched on for it, with no saves of its own. <span class="hot">Add-ons</span>, on a deck
+            or a mod's page, switches them on and off and loads new ones for that game or mod;
+            <span class="hot">Load an add-on</span>, in the Mod library, loads one for either game, and its page lays it
+            over the game and its mods. Several can be laid over one game, each over those switched on before it, and a
+            change takes hold the next time it starts.
           </p>
 
           <h2>How well they play</h2>

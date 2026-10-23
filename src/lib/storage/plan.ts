@@ -1,7 +1,7 @@
 /** What an import is given, and what it works out before anything is copied. */
 import type { DatArchive } from '../dat';
 import type { BaseGameId, DatFormat, GameId } from '../games';
-import type { ModInstall } from './manifest';
+import type { AddonInstall, ModInstall } from './manifest';
 import type { Install, SourceBlob } from './opfs';
 
 export interface SourceFile {
@@ -40,6 +40,8 @@ export interface ImportPlan {
   also: (GameId | 'mod')[];
   /** For a mod: what it is, and how it meets the game it is played on. */
   mod?: ModInstall;
+  /** For an add-on: what it is. `game` is then its id, on the add-ons' shelf. */
+  addon?: AddonInstall;
 }
 
 /** What planning may ask of the games already in this browser. */

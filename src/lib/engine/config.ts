@@ -11,7 +11,7 @@ import { gameDef, type GameId } from '../games';
 import { Ini } from '../ini';
 import type { Picture } from '../settings';
 import { pathKey, type Manifest } from '../storage/manifest';
-import { baseFolder, mountGame, mountedMusic, type Mounted } from '../storage/mount';
+import { addonModsOrder, baseFolder, mountGame, mountedMusic, type Mounted } from '../storage/mount';
 
 export interface ScreenSize {
   width: number;
@@ -88,6 +88,9 @@ const IMPROVEMENTS: readonly (readonly [section: string, key: string, improved: 
   // Asked to run while sneaking, walk on instead of standing up.
   ['qol', 'walk_when_sneaking', 1, 0],
 ];
+
+/** The load order of Fallout 2's mods folder. */
+export const MODS_ORDER = 'mods/mods_order.txt';
 
 /** Where the engine's own script for lighting things up looks for its settings. */
 export const HIGHLIGHTING_FILE = 'mods/sfall-mods.ini';
@@ -199,6 +202,10 @@ export interface ConfigInputs {
   configFile?: string;
   /** The settings the game brought for the high resolution patch (f2_res.ini), if it brought any. */
   highRes?: string;
+  /** The add-ons laid over the game, the one under the others first (see storage/addons.ts). */
+  addons?: readonly Manifest[];
+  /** Fallout 2: its load order (mods/mods_order.txt) as the engine would read it without them, if it has one. */
+  modsOrder?: string;
 }
 
 /**
@@ -261,10 +268,12 @@ export function buildConfigFiles({
   installMods,
   configFile,
   highRes,
+  addons = [],
+  modsOrder,
 }: ConfigInputs): Record<string, string> {
   const def = gameDef(game);
   const settingsFile = configFile ?? def.configFile;
-  const mounted = mountGame(game, manifest, base);
+  const mounted = mountGame(game, manifest, base, addons);
   const mod = mounted.mod;
   // The player's choices: as the engine last saved them, else as the game came. A mod
   // unpacked into a game folder keeps that game's settings file when it brings none.
@@ -327,6 +336,9 @@ export function buildConfigFiles({
       const settings = installMods === undefined ? HIGHLIGHTING : withHighlighting(installMods);
       if (settings !== null) files[HIGHLIGHTING_FILE] = settings;
     }
+    // The add-ons' archives, after the game's own in its load order.
+    const order = addonModsOrder(mounted, modsOrder);
+    if (order !== null) files[MODS_ORDER] = order;
     return { [settingsFile]: ini.toString(), ...files };
   }
 

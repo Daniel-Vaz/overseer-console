@@ -1,4 +1,5 @@
 /** Everything the console's screens share. */
+import { addonRecords, addonsOn, forgetAddon, setAddonOn, type AddonRecord } from '../lib/addons';
 import { lastExport, recordExport, type ExportMark, type ExportedTo } from '../lib/backup';
 import { activeCloud, requireCloud } from '../lib/cloud/clouds';
 import { CloudError, LinkError } from '../lib/cloud/errors';
@@ -9,7 +10,7 @@ import type { CloudFile, CloudId } from '../lib/cloud/provider';
 import { runPut, type PutPlan, type PutProgress } from '../lib/cloud/put';
 import { gameFacts, type Places } from '../lib/gamefacts';
 import { gameDef, gameIds, isBaseGame, isGameId, registerMod, type BaseGameId, type GameId } from '../lib/games';
-import { syncMods } from '../lib/mods/sync';
+import { syncAddons, syncMods } from '../lib/mods/sync';
 import { briefSaves, latestOf, type LatestSave } from '../lib/saves';
 import { deckGame, loadSettings, loadSquashed, pictureOf, saveSettings, saveSquashed, type Picture, type Settings } from '../lib/settings';
 import {
@@ -23,10 +24,12 @@ import {
   type ImportPlan,
   type SourceFile,
 } from '../lib/storage/importer';
+import { planAddon } from '../lib/storage/addons';
 import {
   loadInstall,
   openInstalled,
   probeStorage,
+  removeInstall,
   requestPersistence,
   storageStatus,
   storageSupported,
@@ -45,8 +48,12 @@ export interface InstallInfo {
 export interface ImportJob {
   /** stopped: the player called it off, and the deck is as it was. */
   phase: 'idle' | 'reading' | 'copying' | 'done' | 'failed' | 'stopped';
-  /** What is being loaded: one of the games, or a mod ('mod' until it is known which). */
-  game?: GameId | 'mod';
+  /** What is being loaded: one of the games, or a mod ('mod' until it is known which), or an add-on. */
+  game?: GameId | 'mod' | 'addon';
+  /** For an add-on: which, once that is known. */
+  addon?: string;
+  /** For an add-on: the game or mod it is laid over once it is here, where it was loaded for one. */
+  target?: GameId;
   /** What reading the selection is busy with, when that takes a while. */
   doing?: string;
   /** The files come from the player's cloud (this one: "Dropbox"), not from this device. */
@@ -59,6 +66,24 @@ export interface ImportJob {
 }
 
 const IDLE: ImportJob = { phase: 'idle', doneBytes: 0, totalBytes: 0, path: '' };
+
+/** An add-on's files, as far as the console says what they are. */
+export interface AddonInfo extends InstallInfo {
+  /** What it adds to Fallout 2's load order. */
+  order: string[];
+  /** How many music tracks it brings. */
+  music: number;
+}
+
+/** What loading an add-on is told. */
+export interface AddonLoad {
+  /** The game it is for, where that is known: the console cannot always tell by its files. */
+  base?: BaseGameId;
+  /** The game or mod it is laid over once it is here. */
+  target?: GameId;
+  /** The add-on whose files these are. */
+  replacing?: string;
+}
 
 /** A mod found in what the player just picked, beside the game that was loaded from it. */
 export interface Offer {
@@ -126,6 +151,12 @@ class ConsoleState {
   latest = $state<Record<GameId, LatestSave | null>>(perGame(null));
   /** When each game's saves were last exported, to a zip or to the cloud. */
   exported = $state<Record<GameId, ExportMark | null>>(perGame(null));
+  /** The add-ons loaded here, in the order they were first loaded. */
+  addons = $state<AddonRecord[]>([...addonRecords()]);
+  /** undefined: not looked at yet. null: its files are not here. */
+  addonInstalls = $state<Record<string, AddonInfo | null | undefined>>({});
+  /** The add-ons laid over each game and mod, the one under the others first. */
+  laid = $state<Record<GameId, string[]>>({});
   /** What each game calls its places, as far as its data was ever read here. */
   places = $state.raw<Record<GameId, Places | undefined>>(perGame(undefined));
   storage = $state<StorageStatus | null>(null);
@@ -282,8 +313,9 @@ class ConsoleState {
       return;
     }
     // Mods come and go with their files and saves; one on its way in has neither yet.
-    const loading = this.busy && this.job.game !== 'mod' ? this.job.game : undefined;
+    const loading = this.busy && this.job.game !== 'mod' && this.job.game !== 'addon' ? this.job.game : undefined;
     await syncMods(loading).catch((err: unknown) => console.error('[mods] could not look at the stored mods', err));
+    await syncAddons(this.busy ? this.job.addon : undefined).catch((err: unknown) => console.error('[addons] could not look at the stored add-ons', err));
     const games = gameIds();
     for (const game of games) {
       // A game new to this list is not looked at yet.
@@ -293,6 +325,22 @@ class ConsoleState {
     }
     this.games = games;
     this.refreshCloud();
+    this.refreshAddons();
+    await Promise.all(
+      this.addons.map(async ({ id }) => {
+        const install = await loadInstall(id, 'addons').catch(() => null);
+        const { manifest } = install ?? {};
+        this.addonInstalls[id] = manifest
+          ? {
+              totalBytes: manifest.totalBytes,
+              importedAt: manifest.importedAt,
+              files: manifest.files.length,
+              order: manifest.addon?.order ?? [],
+              music: manifest.files.filter((file) => /(^|\/)sound\/music\/[^/]+\.acm$/i.test(file.path)).length,
+            }
+          : null;
+      }),
+    );
     await Promise.all(
       games.map(async (game) => {
         try {
@@ -316,6 +364,27 @@ class ConsoleState {
       }),
     );
     this.storage = await storageStatus().catch(() => null);
+  }
+
+  /** Looks again at which add-ons there are, and what each game and mod has laid over it. */
+  private refreshAddons(): void {
+    this.addons = [...addonRecords()];
+    this.laid = Object.fromEntries(this.games.map((game) => [game, addonsOn(game)]));
+  }
+
+  /** Lays an add-on over a game or mod, over those already laid there; or takes it off. */
+  switchAddon(game: GameId, id: string, on: boolean): void {
+    setAddonOn(game, id, on);
+    this.refreshAddons();
+  }
+
+  /** Removes an add-on's files from this browser: it is laid over nothing from then on. */
+  async ejectAddon(id: string): Promise<void> {
+    await removeInstall(id, 'addons');
+    forgetAddon(id);
+    if (this.job.addon === id) this.clearJob();
+    delete this.addonInstalls[id];
+    await this.refresh();
   }
 
   /**
@@ -387,6 +456,17 @@ class ConsoleState {
     );
   }
 
+  /** Loads an add-on from what the player picked or dropped: its zip, its folder, or the archive it is. */
+  importAddon(sources: SourceFile[], load: AddonLoad): Promise<GameId | null> {
+    return this.importWith(() => openArchives(sources), 'addon', undefined, undefined, load);
+  }
+
+  /** Loads an add-on from the Mods folder in the player's cloud: `entry` is the zip or folder there that holds it. */
+  importAddonFromCloud(entry: string, load: AddonLoad): Promise<GameId | null> {
+    const cloud = activeCloud();
+    return this.importWith(() => cloudModFiles(entry, cloud ?? requireCloud()), 'addon', cloud?.name ?? 'your cloud', undefined, load);
+  }
+
   /** Installs a known mod's release from the file the player downloaded and handed over. */
   installReleaseFrom(release: ModRelease, sources: SourceFile[], replacing?: GameId): Promise<GameId | null> {
     return this.importWith(() => openArchives(sources), replacing ?? 'mod', undefined, release);
@@ -449,9 +529,10 @@ class ConsoleState {
    */
   private async importWith(
     find: (signal: AbortSignal) => Promise<SourceFile[]>,
-    preferred?: GameId | 'mod',
+    preferred?: GameId | 'mod' | 'addon',
     remote?: string,
     release?: ModRelease,
+    addon?: AddonLoad,
   ): Promise<GameId | null> {
     if (this.busy) return null;
     const stopper = (this.stopper = new AbortController());
@@ -461,13 +542,16 @@ class ConsoleState {
     called.catch(() => undefined);
     const unless = <T>(work: Promise<T>): Promise<T> => Promise.race([work, called]);
 
-    this.job = { ...IDLE, phase: 'reading', game: preferred, remote };
+    this.job = { ...IDLE, phase: 'reading', game: preferred, remote, addon: addon?.replacing, target: addon?.target };
     this.offer = null;
     void this.stayAwake();
     try {
       const sources = await unless(find(signal));
       const survey = await unless(surveySources(sources));
-      const plan = await this.plan(sources, survey, preferred, remote, signal, unless);
+      const plan =
+        preferred === 'addon'
+          ? await unless(planAddon(sources, addon?.base, addon?.replacing))
+          : await this.plan(sources, survey, preferred, remote, signal, unless);
       // Only a zip told by its size is known to be that version.
       if (release && isZip(release) && plan.mod?.record.known === release.mod) plan.mod.record.version = release.version;
       if (remote && preferred && isBaseGame(preferred) && plan.game !== preferred) {
@@ -478,6 +562,8 @@ class ConsoleState {
       // Not awaited: Firefox answers only after the user responds to a prompt.
       void requestPersistence().then(() => this.refresh());
       this.job = { ...this.job, phase: 'done', doneBytes: plan.totalBytes };
+      // Loaded for a game or mod: laid over it, over what is laid there already.
+      if (plan.addon && addon?.target && !addonsOn(addon.target).includes(plan.game)) this.switchAddon(addon.target, plan.game, true);
       // A mod in the folder that was just picked can be loaded from it without a second pick.
       if (!remote && plan.also.includes('mod') && !plan.mod) this.offer = { game: 'mod', title: 'Fallout Et Tu', sources };
       await this.refresh();
@@ -485,7 +571,7 @@ class ConsoleState {
     } catch (err) {
       if (signal.aborted || wasStopped(err)) {
         // Nothing went wrong, and nothing was changed.
-        this.job = { ...IDLE, phase: 'stopped', game: this.job.game ?? preferred, remote };
+        this.job = { ...IDLE, phase: 'stopped', game: this.job.game ?? preferred, remote, addon: this.job.addon, target: this.job.target };
         await this.refresh();
         return null;
       }
@@ -546,7 +632,7 @@ class ConsoleState {
     const status = await storageStatus().catch(() => null);
     if (status && status.quota > 0 && status.quota - status.usage < plan.totalBytes * 1.05) {
       throw new ImportError(
-        `Not enough browser storage is available for ${plan.mod?.record.title ?? gameDef(plan.game).title}. Free some disk space, or eject a game or mod you are not playing.`,
+        `Not enough browser storage is available for ${plan.addon?.record.title ?? plan.mod?.record.title ?? gameDef(plan.game).title}. Free some disk space, or eject a game or mod you are not playing.`,
       );
     }
     // A mod has a page of its own from the moment it is known what it is: the copy is shown there.
@@ -558,7 +644,9 @@ class ConsoleState {
       this.latest[plan.mod.record.id] = null;
       this.games = gameIds();
     }
-    this.job = { phase: 'copying', game: plan.game, remote, plan, doneBytes: 0, totalBytes: plan.totalBytes, path: '' };
+    this.job = plan.addon
+      ? { phase: 'copying', game: 'addon', addon: plan.game, target: this.job.target, remote, plan, doneBytes: 0, totalBytes: plan.totalBytes, path: '' }
+      : { phase: 'copying', game: plan.game, remote, plan, doneBytes: 0, totalBytes: plan.totalBytes, path: '' };
     await runImport(
       plan,
       (progress) => {

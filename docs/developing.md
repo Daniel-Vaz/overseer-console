@@ -58,6 +58,25 @@ load and a save again: the engine's sfall fake traits and perks, played for real
 two films too large for it (`INTRO.MVE`, `MESAVERD.MVE`); the tests do not reach them. `tests/e2e/mods.spec.ts` and `tests/unit/mods.test.ts`
 cover them on made-up files laid out as the real ones are (`tests/mods.ts`).
 
+Add-ons are played from their real files as well:
+
+| Variable | What to give it | Where it is had |
+| --- | --- | --- |
+| `FO2TWEAKS` | `fo2tweaks_v14.7.zip` | its GitHub releases (BGforgeNet/FO2tweaks) |
+| `CASSIDY` | `cassidy_head.dat` | its GitHub releases (BGforgeNet/Fallout2_Cassidy_Head) |
+| `PARTY_ORDERS` | `party_orders_v1.17.zip` | its GitHub releases (BGforgeNet/Fallout2_Party_Orders) |
+| `MUSIC` | `fallout_1_2_lq_ebur128_music_v2.zip` | its GitHub releases (egornovivan/Fallout-1-2-HQ-music) |
+
+```sh
+FO1_DIR=... FO2_DIR=... RPU=... FO2TWEAKS=... CASSIDY=... PARTY_ORDERS=... MUSIC=... npm run test:e2e -- game -g "add-on"
+```
+
+FO2tweaks and Cassidy's head are laid over Fallout 2, whose settings are given `[debug] mode=screen` and
+`show_script_messages=1`: the engine's own log says it opened both, in their order, and FO2tweaks' scripts say they
+started; its keymap moving quick save to F5 is played too. Party Orders goes over the Restoration Project in place of
+the older copy it comes with, last in its load order, and the music over Fallout, whose engine then reads its tracks
+and none of the game's. `tests/e2e/addons.spec.ts` and `tests/unit/addons.test.ts` cover add-ons on made-up files.
+
 `tests/e2e/touch.spec.ts` plays them again with fingers only, on a phone-sized screen.
 
 `tests/e2e/modify-games.spec.ts` changes a quick save with the save editor, loads it in the game, saves again from

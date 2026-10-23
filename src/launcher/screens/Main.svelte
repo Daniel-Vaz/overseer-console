@@ -95,9 +95,17 @@
     {
       key: '3',
       label: 'Mod library',
-      state: sys.job.game === 'mod' && sys.busy ? 'LOADING...' : loadedMods.length ? `${loadedMods.length} ${loadedMods.length === 1 ? 'MOD' : 'MODS'}` : 'EMPTY',
-      note: loadedMods.length
-        ? `${loadedMods.map((game) => gameDef(game).title).join(', ')}. Each is played on its own game, with saves of its own.`
+      state:
+        (sys.job.game === 'mod' || sys.job.game === 'addon') && sys.busy
+          ? 'LOADING...'
+          : [
+              loadedMods.length ? `${loadedMods.length} ${loadedMods.length === 1 ? 'MOD' : 'MODS'}` : '',
+              sys.addons.length ? `${sys.addons.length} ${sys.addons.length === 1 ? 'ADD-ON' : 'ADD-ONS'}` : '',
+            ]
+              .filter(Boolean)
+              .join(', ') || 'EMPTY',
+      note: loadedMods.length || sys.addons.length
+        ? `${[...loadedMods.map((game) => gameDef(game).title), ...sys.addons.map((record) => record.title)].join(', ')}. Each mod is played on its own game, with saves of its own; each add-on is laid over a game or a mod.`
         : 'Mods for Fallout and Fallout 2, from their zips or folders: Fallout Et Tu, the Restoration Project, Sonora and more.',
       icon: 'gamedata',
       action: () => go('mods'),

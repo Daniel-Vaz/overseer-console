@@ -2,7 +2,7 @@
 
 A mod is played on the game it was made for: its own files over that game's, on that game's engine, with saves of
 its own. The game itself stays as it was sold, in its deck. Mods are kept in the **Mod library**, entry 3 of the
-main directory.
+main directory, and so are [add-ons](#add-ons): small mods laid over a game or a mod rather than played as one.
 
 <p align="center"><img src="images/mods.webp" width="800" alt="The console's Mod library: Fallout Et Tu, the Restoration Project and Fallout: Sonora, each for deck B, and the mods the console knows"></p>
 
@@ -73,6 +73,47 @@ game nor another mod sees them.
 would offer as options, such as the Restoration Project's world map or companions' armour, or Fallout Et Tu's
 language packs. The change is kept with the mod's saves, over the file it came with, and *As the mod comes* puts
 it back.
+
+## Add-ons
+
+An add-on is a small mod with no game of its own: on a desktop it is unpacked into a game folder over whatever is
+there, the game or a mod installed in it. Here it is loaded once, kept on its own, and laid over the game it was made
+for, or over any of that game's mods, while it is switched on for it. It has no saves: a game played with it saves as
+that game.
+
+**Add-ons**, on a deck (for what the deck plays) or on a mod's page, lists those for its game: ENTER switches one on
+or off, and *Load an add-on* takes a new one from its zip, its folder, the one archive it is, or your cloud's
+**Mods** folder, and lays it over that game or mod at once. **Load an add-on** in the Mod library does the same for
+either game without laying it anywhere; the add-on's own page then switches it on for the game and its mods one by
+one, loads its files again, or ejects it. A mod handed to *Load a mod* that is nothing but what goes in Fallout 2's
+mods folder is loaded as an add-on.
+
+What it may bring, and where it goes:
+
+- **Archives and folders for Fallout 2's mods folder**, with their settings beside them, as FO2tweaks and Party
+  Orders are downloaded, or one archive handed over on its own, as Cassidy's talking head is. They are added to the
+  load order (`mods/mods_order.txt`) of what it is laid over, after that game's or mod's own, and the engine reads the
+  last above the rest. A load order of its own says which of its parts it switches on, and in what order. An archive
+  the mod has as well (the Restoration Project comes with Party Orders) is the add-on's copy then, read where the
+  add-on's are.
+- **Loose files for the data folder**, in a data folder or in the folders of one (`art`, `text`, `proto`, `scripts`...).
+  For Fallout 2 they are kept as one archive at the bottom of its load order: on a desktop a mod's archives would hide
+  them. Fallout's engine reads only Fallout's own archives, so for Fallout they stay loose files.
+- **Music**, in a music folder or as the tracks alone: it goes where the game or mod keeps its own, in place of its
+  tracks of the same name.
+
+Its sfall settings (`ddraw.ini`) are used only where what it is laid over has none, and sfall itself (`ddraw.dll`) is
+left out: the engine has what add-ons need of it built in.
+
+Several add-ons can be laid over one game or mod: each over those switched on before it, as its place in the list
+says. Switching one off and on again puts it over the others. A change takes hold the next time the game starts, and a
+save made with an add-on may need it, as one made with a mod's part does.
+
+> [!NOTE]
+> FO2tweaks comes with its keymap on: quick save moves to F5, quick load to F8 and the load screen to F9. The
+> console keeps F8 (fast forward) and F9 (its menu) for itself, so with that keymap the game's quick load and load
+> screen have no key. Turn the keymap off (`keymap=0` in `mods/fo2tweaks.ini`) before loading it, or load from the
+> game's options menu.
 
 ## The mods the console knows
 

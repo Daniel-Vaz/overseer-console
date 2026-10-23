@@ -9,6 +9,7 @@
   import { isTyping } from './keys';
   import { screenOf } from './mods';
   import Boot from './screens/Boot.svelte';
+  import Addon from './screens/Addon.svelte';
   import Cloud from './screens/Cloud.svelte';
   import Credits from './screens/Credits.svelte';
   import Game from './screens/Game.svelte';
@@ -47,8 +48,10 @@
   const deck = $derived(isBaseGame(section) ? section : null);
   /** The mod whose own page is on the screen. */
   const modPage = $derived(section === 'mods' && isModId(route[1]) ? route[1] : null);
+  /** The add-on whose own page is on the screen. */
+  const addonPage = $derived(section === 'mods' && route[1] === 'addons' && route[2] ? route[2] : null);
   /** What the Mod library shows, when it is on the screen. */
-  const library = $derived(route[1] === 'load' ? 'load' : route[1] === 'known' ? 'known' : 'library');
+  const library = $derived(route[1] === 'load' ? 'load' : route[1] === 'known' ? 'known' : route[1] === 'addons' ? 'addons' : 'library');
 
   $effect(() => {
     // A mod's page was its deck's while Fallout Et Tu had a deck of its own.
@@ -98,13 +101,17 @@
                 : section === 'mods'
                   ? modPage
                     ? `MOD LIBRARY // ${gameDef(modPage).short}`
-                    : library === 'load'
-                      ? 'MOD LIBRARY // LOAD'
-                      : library === 'known'
-                        ? 'MOD LIBRARY // KNOWN MODS'
-                        : route[1] === 'install'
-                          ? 'MOD LIBRARY // INSTALL'
-                          : 'MOD LIBRARY'
+                    : addonPage
+                      ? `MOD LIBRARY // ${(sys.addons.find((addon) => addon.id === addonPage)?.title ?? 'ADD-ON').toUpperCase()}`
+                      : library === 'addons'
+                        ? 'MOD LIBRARY // ADD-ON'
+                        : library === 'load'
+                          ? 'MOD LIBRARY // LOAD'
+                          : library === 'known'
+                            ? 'MOD LIBRARY // KNOWN MODS'
+                            : route[1] === 'install'
+                              ? 'MOD LIBRARY // INSTALL'
+                              : 'MOD LIBRARY'
                   : deck
                     ? `HOLODISK DECK ${gameDef(deck).deck}`
                     : 'UNKNOWN',
@@ -235,6 +242,11 @@
     // On the Mod library a mod, on a mod's page new files for it; on a deck its game.
     const preferred = section === 'mods' ? (modPage ?? 'mod') : (game ?? undefined);
     const imported = await sys.importFrom(sources, preferred);
+    // An add-on, which "Load a mod" was handed, is shown on its own page.
+    if (sys.job.game === 'addon') {
+      go(sys.job.addon ? `mods/addons/${sys.job.addon}` : 'mods/addons');
+      return;
+    }
     // Show the result on the screen of the game or mod that was found.
     const found = imported ?? (sys.job.game && sys.job.game !== 'mod' && isGameId(sys.job.game) ? sys.job.game : null);
     go(found ? screenOf(found) : preferred && !isBaseGame(preferred) ? (modPage ? `mods/${modPage}` : 'mods/load') : (deck ?? 'fo2'));
@@ -308,6 +320,10 @@
             {:else if modPage}
               {#key modPage}
                 <Mod {go} game={modPage} />
+              {/key}
+            {:else if addonPage}
+              {#key addonPage}
+                <Addon {go} id={addonPage} />
               {/key}
             {:else if section === 'mods' && route[1] === 'install'}
               {#key route.join('/')}

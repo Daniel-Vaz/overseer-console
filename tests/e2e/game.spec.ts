@@ -2,6 +2,7 @@ import { linkSync, mkdirSync, openAsBlob, readFileSync, readdirSync, rmSync, sta
 import { dirname, join } from 'node:path';
 import { unzipSync } from 'fflate';
 import { indexDat, readDatEntry, type DatArchive } from '../../src/lib/dat';
+import { Ini } from '../../src/lib/ini';
 import type { Page } from '@playwright/test';
 import type { FileReads } from '../../src/lib/engine/host';
 import { parseSaveHeader, type SaveHeader } from '../../src/lib/savefile';
@@ -288,11 +289,21 @@ const MODS = [
   { id: 'fixt', title: 'Fallout Fixt', base: 'fo1', env: 'FIXT', menu: 8000, reads: [], usesBase: true, text: ['data/text/english/game/misc.msg', 'Fallout Fixt 0.81alpha'], saved: { map: 'V13ENT', character: 'Max Stone' } },
 ] as const;
 
-/** What the engine has read of its large files, by path: the mod's own, and the game's under it. */
-async function fileReads(page: Page): Promise<{ own: string[]; base: string[] }> {
+/** What the engine has read of its large files, by path: the mod's own, the game's under it, and its add-ons'. */
+async function fileReads(page: Page): Promise<{ own: string[]; base: string[]; addon: string[] }> {
   const reads = await page.evaluate(() => (window as unknown as { overseerEngine: { reads(): Record<string, FileReads> } }).overseerEngine.reads());
   const of = (from: FileReads['from']) => Object.keys(reads).filter((path) => reads[path]!.from === from).sort();
-  return { own: of('own'), base: of('base') };
+  return { own: of('own'), base: of('base'), addon: of('addon') };
+}
+
+/** Links the files of one folder into another, folder by folder: the same files, under another path, nothing copied. */
+function linkInto(from: string, to: string): void {
+  for (const entry of readdirSync(from, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      mkdirSync(join(to, entry.name), { recursive: true });
+      linkInto(join(from, entry.name), join(to, entry.name));
+    } else linkSync(join(from, entry.name), join(to, entry.name));
+  }
 }
 
 /** A file of the game folder the engine plays from, found whatever the case of its path, or null. */
@@ -541,16 +552,8 @@ test('Fallout: a mod whose lists end their lines as Windows writes them plays', 
 
   // The game as it is, linked rather than copied, and its lists out of MASTER.DAT, loose, ending lines in CR LF.
   const folder = join(tempFolder(), 'Fallout Made On Windows');
-  const link = (from: string, to: string) => {
-    for (const entry of readdirSync(from, { withFileTypes: true })) {
-      if (entry.isDirectory()) {
-        mkdirSync(join(to, entry.name), { recursive: true });
-        link(join(from, entry.name), join(to, entry.name));
-      } else linkSync(join(from, entry.name), join(to, entry.name));
-    }
-  };
   mkdirSync(folder, { recursive: true });
-  link(fallout!, folder);
+  linkInto(fallout!, folder);
   const masterName = readdirSync(fallout!).find((name) => name.toLowerCase() === 'master.dat')!;
   const master = (await openAsBlob(join(fallout!, masterName))) as unknown as DatArchive;
   const index = await indexDat(master, 'dat1');
@@ -756,5 +759,198 @@ test("Fallout Fixt: its sfall settings' key lights up what lies on the ground", 
   console.log(`Fallout Fixt: Shift held ${distance(plain, lit).toFixed(2)} from the plain picture`);
   expect(distance(plain, lit)).toBeGreaterThan(0.2);
   expect(distance(plain, await fingerprint(page))).toBeLessThan(0.1);
+  expect(faults).toEqual([]);
+});
+
+/**
+ * Add-ons, from the real things: FO2tweaks (its archive and settings for the
+ * mods folder, and sfall's library) and Cassidy's talking head (one archive)
+ * laid over Fallout 2; Party Orders over the Restoration Project, which has
+ * an older copy of it; the music for both games over Fallout. Shown by what
+ * the engine says it opens, what its scripts say, what it reads, and what it
+ * is handed.
+ *   FO2_DIR=... FO2TWEAKS="/path/to/fo2tweaks_v14.7.zip" CASSIDY="/path/to/cassidy_head.dat"
+ *   RPU=... PARTY_ORDERS="/path/to/party_orders_v1.17.zip" FO1_DIR=... MUSIC="/path/to/fallout_1_2_lq_ebur128_music_v2.zip"
+ */
+test('Fallout 2: add-ons laid over it, their archives opened and their scripts run', async ({ page }) => {
+  const fallout2 = GAMES[1].dir;
+  const [tweaks, cassidy] = [process.env.FO2TWEAKS, process.env.CASSIDY];
+  test.skip(!fallout2 || !tweaks || !cassidy, 'set FO2_DIR, FO2TWEAKS and CASSIDY to run this');
+  test.setTimeout(900_000);
+  const faults: string[] = [];
+  page.on('pageerror', (error) => faults.push(error.message));
+  const log: string[] = [];
+  page.on('console', (message) => {
+    if (message.text().startsWith('[engine]')) log.push(message.text());
+  });
+
+  // The game linked rather than copied, its settings asking the engine to say what it opens and what scripts say.
+  const folder = join(tempFolder(), 'Fallout 2');
+  mkdirSync(folder, { recursive: true });
+  linkInto(fallout2!, folder);
+  const name = readdirSync(folder).find((entry) => entry.toLowerCase() === 'fallout2.cfg') ?? 'fallout2.cfg';
+  const settings = Ini.parse(statSync(join(folder, name), { throwIfNoEntry: false }) ? readFileSync(join(folder, name), 'latin1') : '');
+  settings.set('debug', 'mode', 'screen');
+  settings.set('debug', 'show_script_messages', 1);
+  // A link to the original: put aside, and a file of its own written in its place.
+  rmSync(join(folder, name), { force: true });
+  writeFileSync(join(folder, name), settings.toString(), 'latin1');
+
+  await openConsole(page, 'fo2', { skipIntro: true });
+  await pickFolder(page, folder);
+  await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 300_000 });
+
+  // Loaded from the deck, each laid over the game as it arrives: FO2tweaks from its zip, Cassidy's head as the archive it is.
+  await page.locator('.menu button', { hasText: 'Add-ons' }).click();
+  await page.locator('input[accept*=".dat"]').setInputFiles(tweaks!);
+  await expect(page.locator('.menu li', { hasText: 'Fo2tweaks' })).toContainText('ON', { timeout: 120_000 });
+  await page.locator('input[accept*=".dat"]').setInputFiles(cassidy!);
+  await expect(page.locator('.menu li', { hasText: 'Cassidy head' })).toContainText('ON, 2 OF 2', { timeout: 120_000 });
+  await page.keyboard.press('Escape');
+
+  // A new game with the first ready-made character.
+  await launch(page, 'Begin simulation', '1');
+  await waitForPicture(page, 8000);
+  const mainMenu = await fingerprint(page);
+  await page.keyboard.press('n');
+  await pause(page, 6000);
+  await page.keyboard.press('t');
+  await pause(page, 10000);
+  await page.keyboard.press(' ');
+  await pause(page, 5000);
+  await page.keyboard.press(' ');
+  await expect.poll(() => inProgress(page), { timeout: 120_000, intervals: [1000] }).toBe(true);
+  await pause(page, 10000);
+  expect(distance(await fingerprint(page), mainMenu)).toBeGreaterThan(12);
+
+  // Both opened by the engine, in the order they were switched on; FO2tweaks' scripts started with the game.
+  const opened = log.filter((line) => /Loading mod /.test(line));
+  console.log(`Add-ons on Fallout 2: ${opened.join('; ')}`);
+  expect(opened.some((line) => /Loading mod mods[\\/]fo2tweaks\.dat/i.test(line))).toBe(true);
+  expect(opened.some((line) => /Loading mod mods[\\/]cassidy_head\.dat/i.test(line))).toBe(true);
+  expect(opened.findIndex((line) => /fo2tweaks/i.test(line))).toBeLessThan(opened.findIndex((line) => /cassidy_head/i.test(line)));
+  const started = log.filter((line) => /gl_g_\w+: initialized/.test(line));
+  console.log(`FO2tweaks: ${started.length} lines from its scripts, such as ${started.slice(0, 3).join('; ')}`);
+  expect(started.length).toBeGreaterThan(0);
+  // Cassidy's head, large enough to be read on demand: its archive's directory read from the add-on.
+  expect((await fileReads(page)).addon).toContain('mods/cassidy_head.dat');
+
+  // FO2tweaks' keymap, on as it comes: quick save moved from F6, which does nothing now, to F5.
+  await page.keyboard.press('F6');
+  await pause(page, 3000);
+  await expect(page.locator('#toast')).not.toHaveText('QUICK SAVED IN SLOT 07');
+  await page.keyboard.press('F5');
+  await expect(page.locator('#toast')).toHaveText('QUICK SAVED IN SLOT 07', { timeout: 30_000 });
+  expect(await savedHeader(page, 7)).toMatchObject({ map: 'ARTEMPLE', character: 'Narg' });
+  await page.keyboard.press('F9');
+  await expect(page.getByText('Simulation suspended')).toBeVisible();
+  await page.keyboard.press('x');
+  await page.keyboard.press('y');
+  await expect(page.getByRole('heading', { name: /Fallout 2$/ })).toBeVisible({ timeout: 30_000 });
+  expect(faults).toEqual([]);
+});
+
+test("Restoration Project: an add-on laid over it, in place of its own older copy", async ({ page }) => {
+  const fallout2 = GAMES[1].dir;
+  const [rpu, orders] = [process.env.RPU, process.env.PARTY_ORDERS];
+  test.skip(!fallout2 || !rpu || !orders, 'set FO2_DIR, RPU and PARTY_ORDERS to run this');
+  test.setTimeout(1_800_000);
+  const faults: string[] = [];
+  page.on('pageerror', (error) => faults.push(error.message));
+
+  await openConsole(page, 'fo2', { skipIntro: true });
+  await pickFolder(page, fallout2!);
+  await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 300_000 });
+  await page.goto('#/mods/load');
+  await page.locator('input[accept*="zip"]').setInputFiles(rpu!);
+  await expect(page.getByRole('heading', { name: 'Restoration Project' })).toBeVisible({ timeout: 1_800_000 });
+  await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 1_800_000 });
+
+  await page.locator('.menu button', { hasText: 'Add-ons' }).click();
+  await page.locator('input[accept*=".dat"]').setInputFiles(orders!);
+  await expect(page.locator('.menu li', { hasText: 'Party orders 1.17' })).toContainText('ON', { timeout: 120_000 });
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.readout').first()).toContainText('PARTY ORDERS 1.17');
+
+  await launch(page, 'Begin simulation', '1');
+  await waitForPicture(page, 8000);
+  const mainMenu = await fingerprint(page);
+  await page.keyboard.press('n');
+  await pause(page, 6000);
+  await page.keyboard.press('t');
+  await pause(page, 10000);
+  await page.keyboard.press(' ');
+  await pause(page, 5000);
+  await page.keyboard.press(' ');
+  await expect.poll(() => inProgress(page), { timeout: 120_000, intervals: [1000] }).toBe(true);
+  await pause(page, 10000);
+  expect(distance(await fingerprint(page), mainMenu)).toBeGreaterThan(12);
+
+  // The add-on's archive in place of the mod's own, read where the add-on's are: last in the mod's load order.
+  const zip = unzipSync(new Uint8Array(readFileSync(orders!)));
+  const theirs = Object.entries(zip).find(([path]) => /mods\/party_orders\.dat$/i.test(path))![1];
+  expect(Buffer.from((await engineFile(page, 'mods/party_orders.dat')) ?? []).equals(Buffer.from(theirs))).toBe(true);
+  const order = Buffer.from((await engineFile(page, 'mods/mods_order.txt')) ?? []).toString('latin1');
+  console.log(`Restoration Project with Party Orders: ${order.trim().split(/\r?\n/).join(', ')}`);
+  expect(order.trim().split(/\r?\n/).at(-1)).toBe('party_orders.dat');
+  expect((await fileReads(page)).own.some((path) => /^mods\/rpu\.dat$/i.test(path))).toBe(true);
+
+  await page.keyboard.press('F6');
+  await expect(page.locator('#toast')).toHaveText('QUICK SAVED IN SLOT 07', { timeout: 30_000 });
+  expect(await savedHeader(page, 7)).toMatchObject({ map: 'ARTEMPLE', character: 'Narg' });
+  await page.keyboard.press('F9');
+  await expect(page.getByText('Simulation suspended')).toBeVisible();
+  await page.keyboard.press('x');
+  await page.keyboard.press('y');
+  await expect(page.getByRole('heading', { name: 'Restoration Project' })).toBeVisible({ timeout: 30_000 });
+  expect(faults).toEqual([]);
+});
+
+test("Fallout: an add-on of music laid over it, its tracks played in place of the game's", async ({ page }) => {
+  const fallout = GAMES[0].dir;
+  const music = process.env.MUSIC;
+  test.skip(!fallout || !music, 'set FO1_DIR and MUSIC to run this');
+  test.setTimeout(900_000);
+  const faults: string[] = [];
+  page.on('pageerror', (error) => faults.push(error.message));
+
+  await openConsole(page, 'fo1', { skipIntro: true });
+  await pickFolder(page, fallout!);
+  await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 300_000 });
+
+  // Loaded in the Mod library for Fallout, then laid over it from its page.
+  await page.goto('#/mods/addons');
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('.menu li').first()).toContainText(/FALLOUT$/);
+  await page.locator('input[accept*=".dat"]').setInputFiles(music!);
+  await expect(page.getByRole('heading', { name: /music/ })).toBeVisible({ timeout: 300_000 });
+  await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 300_000 });
+  await page.locator('.menu li', { hasText: /\[1\]\s*Fallout/ }).locator('button').click();
+  await expect(page.locator('.menu li', { hasText: /\[1\]\s*Fallout/ })).toContainText('ON');
+  await page.goto('#/fo1');
+  await expect(page.locator('.menu li', { hasText: 'Add-ons' })).toContainText('1 ON');
+
+  // A new game with the first ready-made character, and a while for its music.
+  await launch(page, 'Begin simulation', '1');
+  await waitForPicture(page, 4000);
+  const mainMenu = await fingerprint(page);
+  await page.keyboard.press('n');
+  await pause(page, 3500);
+  await page.keyboard.press('t');
+  await pause(page, 4500);
+  await page.keyboard.press('Escape');
+  await expect.poll(() => inProgress(page), { timeout: 120_000, intervals: [1000] }).toBe(true);
+  await pause(page, 15000);
+  expect(distance(await fingerprint(page), mainMenu)).toBeGreaterThan(12);
+
+  const reads = await fileReads(page);
+  console.log(`Fallout with the music add-on: the engine read ${reads.addon.join(', ') || 'none'} of the add-on; ${reads.own.filter((path) => /\.acm$/i.test(path)).join(', ') || 'no music'} of the game`);
+  expect(reads.addon.some((path) => /^data\/sound\/music\/[^/]+\.acm$/i.test(path))).toBe(true);
+  expect(reads.own.filter((path) => /\.acm$/i.test(path))).toEqual([]);
+  await page.keyboard.press('F9');
+  await expect(page.getByText('Simulation suspended')).toBeVisible();
+  await page.keyboard.press('x');
+  await page.keyboard.press('y');
+  await expect(page.getByRole('heading', { name: /Fallout$/ })).toBeVisible({ timeout: 30_000 });
   expect(faults).toEqual([]);
 });

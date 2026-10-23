@@ -55,7 +55,7 @@ Bring your own mods: whole new games on the old engines, restorations of what wa
 the game it was made for, with saves of its own, from the console's Mod library. Nine are known by name (Sonora,
 Nevada, Olympus 2207, Resurrection, Fallout Yesterday, the Restoration Project, the Megamod, Fallout Et Tu and Fallout
 Fixt), each installed from its makers' own link at the version the console's tests play; any other loads from its zip
-or its folder. See [Mods](docs/mods.md).
+or its folder. Add-ons, such as FO2tweaks or new music, are laid over a game or a mod. See [Mods](docs/mods.md).
 
 ## Play in three steps
 

@@ -6,6 +6,7 @@
  * ones come from a single packed read, and whatever the engine wrote before
  * (saves, settings) is layered on top from the overlay.
  */
+import { loadAddons } from '../addons';
 import { gameDef, type EngineId, type GameId } from '../games';
 import { isSaveData, slotOf } from '../savefile';
 import { pictureOf, type Settings } from '../settings';
@@ -16,7 +17,7 @@ import { StorageUnavailableError, loadInstall, openBlob, openInstalled, type Ins
 export { StorageUnavailableError };
 import { commitWithHistory } from '../storage/history';
 import { listOverlay, type OverlayEntry } from '../storage/overlay';
-import { HIGHLIGHT_KEY, HIGHLIGHTING_FILE, buildConfigFiles, chooseScreen, settingsFileOf, sfallLightsAtKey, wantsEngineData, type ScreenSize } from './config';
+import { HIGHLIGHT_KEY, HIGHLIGHTING_FILE, MODS_ORDER, buildConfigFiles, chooseScreen, settingsFileOf, sfallLightsAtKey, wantsEngineData, type ScreenSize } from './config';
 import type { EngineFactory, EngineInfo, EngineModule, PersistBatch, QuickKind, QuickOutcome, ScreenRect } from './types';
 
 const GAME_ROOT = '/game';
@@ -28,10 +29,14 @@ export class NoInstallError extends Error {
   override name = 'NoInstallError';
 }
 
-/** What a game is started from: its own install, and that of the game it is played on when it is a mod. */
+/**
+ * What a game is started from: its own install, that of the game it is played on when it is a mod, and those of
+ * the add-ons laid over it.
+ */
 export interface Installed {
   install: Install;
   base?: Install;
+  addons: Install[];
 }
 
 /** Looks up what `game` needs to start. Throws NoInstallError naming what is not in this browser. */
@@ -40,18 +45,24 @@ export async function loadInstalled(game: GameId): Promise<Installed> {
   if (!def) throw new NoInstallError('That game is not known in this browser.');
   const install = await loadInstall(game);
   if (!install) throw new NoInstallError(`${def.title} has not been imported in this browser.`);
-  if (!def.mod) return { install };
+  const addons = await loadAddons(game);
+  if (!def.mod) return { install, addons };
   const base = await loadInstall(def.mod.base);
   if (!base) throw new NoInstallError(`${def.title} is played on ${gameDef(def.mod.base).title}, which has not been imported in this browser.`);
-  return { install, base };
+  return { install, base, addons };
+}
+
+/** The install that holds a file of the folder a game is started in. */
+function holder({ install, base, addons }: Installed, file: MountedFile): Install | undefined {
+  if (file.from === 'addon') return addons.find((addon) => addon.manifest.game === file.addon);
+  return file.from === 'own' ? install : base;
 }
 
 /** A file of the folder a game is started in, wherever it is stored. Null when the folder holds no such file. */
-export async function openMounted({ install, base }: Installed, mounted: Mounted, path: string): Promise<SourceBlob | null> {
+export async function openMounted(installed: Installed, mounted: Mounted, path: string): Promise<SourceBlob | null> {
   const found = mounted.files.get(pathKey(path));
-  if (!found) return null;
-  const from = found.from === 'own' ? install : base;
-  return from ? openInstalled(from, found.file.path) : null;
+  const from = found && holder(installed, found);
+  return found && from ? openInstalled(from, found.file.path) : null;
 }
 
 export interface BootHooks {
@@ -213,7 +224,7 @@ async function place(module: EngineModule, install: Install, files: MountedFile[
 async function populate(
   module: EngineModule,
   game: GameId,
-  { install, base }: Installed,
+  { install, base, addons }: Installed,
   mounted: Mounted,
   overlay: OverlayEntry[],
   configFiles: Record<string, string>,
@@ -230,6 +241,8 @@ async function populate(
   await place(module, install, shown.filter((file) => file.from === 'own'), reads);
   // A mod plays from what it uses of the game underneath.
   if (base) await place(module, base, shown.filter((file) => file.from === 'base'), reads);
+  // And a game or mod from its add-ons, laid over it.
+  for (const addon of addons) await place(module, addon, shown.filter((file) => file.from === 'addon' && file.addon === addon.manifest.game), reads);
 
   // What the engine adds to the games comes with its own pictures and words.
   if (engineData) ov.writeFile(`${GAME_ROOT}/${engineData.name}`, engineData.data);
@@ -259,7 +272,12 @@ export async function bootEngine(
   hooks.status('LOCATING HOLOTAPE');
   const installed = await loadInstalled(game);
   const { install } = installed;
-  const mounted = mountGame(game, install.manifest, installed.base?.manifest);
+  const mounted = mountGame(
+    game,
+    install.manifest,
+    installed.base?.manifest,
+    installed.addons.map((addon) => addon.manifest),
+  );
   if (mounted.missing.length) {
     const under = gameDef(def.mod!.base);
     throw new Error(
@@ -322,6 +340,9 @@ export async function bootEngine(
   // things up is replaced with the console's, the rest of it stands.
   const mods = await openMounted(installed, mounted, HIGHLIGHTING_FILE);
   const highRes = await openMounted(installed, mounted, 'f2_res.ini');
+  // The load order as the player left it, or as the game came, which the add-ons laid over it add to.
+  const savedOrder = overlay.find((entry) => entry.key === MODS_ORDER && !entry.deleted && entry.data);
+  const order = savedOrder ? savedOrder.data : await (await openMounted(installed, mounted, MODS_ORDER))?.arrayBuffer();
   const screen = chooseScreen(pictureOf(settings, game), viewport);
   const configFiles = buildConfigFiles({
     game,
@@ -335,6 +356,8 @@ export async function bootEngine(
     installMods: await mods?.text(),
     configFile,
     highRes: await highRes?.text(),
+    addons: installed.addons.map((addon) => addon.manifest),
+    modsOrder: order ? new TextDecoder('latin1').decode(order) : undefined,
   });
   const reads = new Map<string, FileReads>();
   await populate(module, game, installed, mounted, overlay, configFiles, engineData, reads);

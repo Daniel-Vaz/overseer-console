@@ -8,6 +8,7 @@
  * browser lost its settings, or Fallout Et Tu was loaded before mods were
  * more than one) is remembered again from its files.
  */
+import { addonRecords, forgetAddon, registerAddon } from '../addons';
 import { forgetMod, isBaseGame, modRecords, registerMod, type GameId, type ModRecord } from '../games';
 import { SAVE_PREFIX } from '../savefile';
 import { listErased } from '../storage/history';
@@ -51,6 +52,30 @@ export async function syncMods(loading?: GameId): Promise<boolean> {
     if (record.id === loading || (await loadInstall(record.id).catch(() => null))) continue;
     if (await hasSaves(record.id)) continue;
     forgetMod(record.id);
+    changed = true;
+  }
+  return changed;
+}
+
+/**
+ * Brings the remembered add-ons in line with storage: one whose files are
+ * here is remembered (again), one whose files are not is forgotten. They
+ * have no saves to be kept for. `loading`: one on its way into storage.
+ */
+export async function syncAddons(loading?: string): Promise<boolean> {
+  let changed = false;
+  const stored = await storedGames('addons');
+  const remembered = new Set(addonRecords().map((record) => record.id));
+  for (const id of stored) {
+    if (remembered.has(id)) continue;
+    const record = (await loadInstall(id, 'addons').catch(() => null))?.manifest.addon?.record;
+    if (record?.id !== id) continue;
+    registerAddon(record);
+    changed = true;
+  }
+  for (const record of [...addonRecords()]) {
+    if (record.id === loading || (await loadInstall(record.id, 'addons').catch(() => null))) continue;
+    forgetAddon(record.id);
     changed = true;
   }
   return changed;

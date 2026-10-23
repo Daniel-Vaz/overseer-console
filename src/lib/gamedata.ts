@@ -14,10 +14,10 @@
  */
 import { indexDat, readDatEntry, type DatEntry } from './dat';
 import { namedArchives } from './engine/config';
+import { loadAddons } from './addons';
 import { GAMES, gameDef, type GameId } from './games';
-import { enabledMods } from './storage/ettu';
 import { pathKey } from './storage/manifest';
-import { baseFolder, mountGame, type Mounted } from './storage/mount';
+import { baseFolder, mountGame, openedMods, type Mounted } from './storage/mount';
 import { loadInstall, openInstalled, type Install, type SourceBlob } from './storage/opfs';
 import { listOverlayKeys, readOverlay } from './storage/overlay';
 
@@ -57,10 +57,10 @@ async function chain(game: GameId, mounted: Mounted, open: Opener, plain: (path:
     const named = namedArchives(mounted, installConfig, highRes ? new TextDecoder('latin1').decode(highRes) : undefined);
     if (named.patches && has(named.patches)) names.push(named.patches);
     // Mods are opened in the order their list gives, each above the one before. The list may have been
-    // changed by the player under the mod's Components.
+    // changed by the player under the mod's Components, and the add-ons laid over the game add to it.
     const list = await plain('mods/mods_order.txt');
-    if (list) {
-      for (const mod of enabledMods(new TextDecoder('latin1').decode(list)).reverse()) if (has(`mods/${mod}`)) names.push(`mods/${mod}`);
+    for (const mod of openedMods(mounted, list ? new TextDecoder('latin1').decode(list) : undefined).reverse()) {
+      if (has(`mods/${mod}`)) names.push(`mods/${mod}`);
     }
     // The patch archives, numbered from 000 for as long as there is a next one, the last above the rest.
     const patches: string[] = [];
@@ -87,11 +87,12 @@ async function open(game: GameId): Promise<GameData | null> {
   const base = def.mod ? await loadInstall(def.mod.base) : null;
   if (def.mod && !base) return null;
   const format = def.datFormat;
-  const mounted = mountGame(game, install.manifest, base?.manifest);
+  const addons = await loadAddons(game);
+  const mounted = mountGame(game, install.manifest, base?.manifest, addons.map((addon) => addon.manifest));
   const installs: Record<'own' | 'base', Install | null> = { own: install, base };
   const openMounted: Opener = async (path) => {
     const found = mounted.files.get(pathKey(path));
-    const from = found && installs[found.from];
+    const from = found && (found.from === 'addon' ? addons.find((addon) => addon.manifest.game === found.addon) : installs[found.from]);
     return found && from ? openInstalled(from, found.file.path) : null;
   };
   /** A file the game wrote itself, in place of what came with it. */
@@ -124,7 +125,7 @@ async function open(game: GameId): Promise<GameData | null> {
 
   return {
     game,
-    key: `${install.manifest.install}/${base?.manifest.install ?? ''}`,
+    key: installsKey(install, base, addons),
     async read(path) {
       const key = pathKey(path);
       const own = loose.get(key);
@@ -148,6 +149,11 @@ async function open(game: GameId): Promise<GameData | null> {
   };
 }
 
+/** The installs a game's files are read from, as one key: an import, an eject, an add-on switched on or off changes it. */
+function installsKey(install: Install, base: Install | null, addons: Install[]): string {
+  return [install, base, ...addons].map((each) => (each ? `${each.manifest.game}:${each.manifest.install}` : '')).join('/');
+}
+
 const opened = new Map<GameId, Promise<GameData | null>>();
 
 /**
@@ -161,7 +167,7 @@ export async function openGameData(game: GameId): Promise<GameData | null> {
     const install = await loadInstall(game);
     const mod = GAMES[game]?.mod;
     const base = mod ? await loadInstall(mod.base) : null;
-    if (install && `${install.manifest.install}/${base?.manifest.install ?? ''}` === known.key) return known;
+    if (install && installsKey(install, base, await loadAddons(game)) === known.key) return known;
   }
   const promise = open(game);
   opened.set(game, promise);
