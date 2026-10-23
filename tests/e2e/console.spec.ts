@@ -280,6 +280,43 @@ test('imports a game folder into browser storage, and ejects it again', async ({
   await expect(page.getByText('NOT LOADED')).toBeVisible();
 });
 
+test('leaves the files of a game that runs in another tab where they are', async ({ page, context }) => {
+  await openConsole(page, 'fo2');
+  await pickFolder(page, await fakeFallout2Folder());
+  await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 60_000 });
+
+  // Another tab plays Fallout 2: it holds the game's lock, as the player page does.
+  const other = await context.newPage();
+  await other.goto('./');
+  await other.evaluate(async () => {
+    void navigator.locks.request('overseer-console:play:fo2', () => new Promise<void>((resolve) => Object.assign(window, { endGame: resolve })));
+    while (!(await navigator.locks.query()).held?.length) await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+
+  const running = 'Fallout 2 is running in another tab or window. Close it there first.';
+  await page.keyboard.press('6');
+  await page.keyboard.press('e');
+  await page.keyboard.press('y');
+  await expect(page.getByText('NOT EJECTED')).toBeVisible();
+  await expect(page.getByText(running)).toBeVisible();
+  await expect(page.locator('.menu button').first()).toContainText('Begin simulation');
+
+  await pickFolder(page, await fakeFallout2Folder());
+  await expect(page.getByText('HOLODISK REJECTED')).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByText(running)).toBeVisible();
+
+  // Ended there: out it goes. (WebKit lets go of a closed page's lock only some time after.)
+  await other.evaluate(async () => {
+    (window as unknown as { endGame(): void }).endGame();
+    while ((await navigator.locks.query()).held?.length) await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+  await other.close();
+  await page.keyboard.press('6');
+  await page.keyboard.press('e');
+  await page.keyboard.press('y');
+  await expect(page.getByText('NOT LOADED')).toBeVisible();
+});
+
 test('restores, exports and erases saved games', async ({ page }) => {
   await openConsole(page, 'saves/fo2');
   await expect(page.getByText('NO SAVED GAMES YET')).toBeVisible();

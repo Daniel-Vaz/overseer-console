@@ -98,8 +98,7 @@
 
   async function eject(): Promise<void> {
     view = 'main';
-    await sys.ejectAddon(id);
-    go('mods');
+    if (await sys.ejectAddon(id)) go('mods');
   }
 
   const KEYS = '123456789abcdfghijkmnpqrstuvwxyz';

@@ -15,7 +15,7 @@
   <div class="panel signed bad" role="alert">
     <Glyph name="fault" tone="alert" />
     <div>
-      <p class="alert">HOLODISK REJECTED</p>
+      <p class="alert">{job.heading ?? 'HOLODISK REJECTED'}</p>
       <p>{job.error}</p>
     </div>
   </div>

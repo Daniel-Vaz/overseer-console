@@ -5,7 +5,6 @@
   import { loadGameStats, picturesFor } from '../../lib/settings';
   import { sourcesFromFileList } from '../../lib/storage/importer';
   import { formatBytes } from '../../lib/storage/manifest';
-  import { removeInstall } from '../../lib/storage/opfs';
   import Addons from '../components/Addons.svelte';
   import Deck from '../components/Deck.svelte';
   import Glyph from '../components/Glyph.svelte';
@@ -107,9 +106,7 @@
 
   async function eject(): Promise<void> {
     view = 'main';
-    await removeInstall(game);
-    sys.clearJob();
-    await sys.refresh();
+    await sys.ejectGame(game);
   }
 
   type Entry = Omit<MenuItem, 'key'> & { key?: string };

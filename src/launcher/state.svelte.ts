@@ -63,6 +63,8 @@ export interface ImportJob {
   totalBytes: number;
   path: string;
   error?: string;
+  /** What a failure is called, where it is not a holodisk turned down ("NOT EJECTED"). */
+  heading?: string;
 }
 
 const IDLE: ImportJob = { phase: 'idle', doneBytes: 0, totalBytes: 0, path: '' };
@@ -378,13 +380,61 @@ class ConsoleState {
     this.refreshAddons();
   }
 
-  /** Removes an add-on's files from this browser: it is laid over nothing from then on. */
-  async ejectAddon(id: string): Promise<void> {
+  /**
+   * The game or mod running in another tab or window that plays from the
+   * files of `id`: `id` itself, a mod played on it, or one the add-on `id` is
+   * laid over. Null when none is. Its files must not be taken from under it.
+   */
+  async runningOn(id: string): Promise<GameId | null> {
+    const held = (await navigator.locks?.query().catch(() => null))?.held ?? [];
+    for (const lock of held) {
+      const game = /^overseer-console:play:(.+)$/.exec(lock.name ?? '')?.[1];
+      if (!game || !isGameId(game)) continue;
+      if (game === id || gameDef(game).mod?.base === id || addonsOn(game).includes(id)) return game;
+    }
+    return null;
+  }
+
+  /** Why the files of `id` stay as they are while `running` plays from them. */
+  private inUse(running: GameId, id: string): string {
+    const title = gameDef(running).title;
+    return running === id
+      ? `${title} is running in another tab or window. Close it there first.`
+      : `${title} is running in another tab or window, and plays from these files. Close it there first.`;
+  }
+
+  /**
+   * Removes a game's or mod's files from this browser; its saves stay. Not
+   * while it, or a mod played on it, runs in another tab: that is said on
+   * its page instead, and false returned.
+   */
+  async ejectGame(game: GameId): Promise<boolean> {
+    if (this.busy) return false;
+    const running = await this.runningOn(game);
+    if (running) {
+      this.job = { ...IDLE, phase: 'failed', game, heading: 'NOT EJECTED', error: this.inUse(running, game) };
+      return false;
+    }
+    await removeInstall(game);
+    this.clearJob();
+    await this.refresh();
+    return true;
+  }
+
+  /** Removes an add-on's files from this browser: it is laid over nothing from then on. Not while a game plays from them. */
+  async ejectAddon(id: string): Promise<boolean> {
+    if (this.busy) return false;
+    const running = await this.runningOn(id);
+    if (running) {
+      this.job = { ...IDLE, phase: 'failed', game: 'addon', addon: id, heading: 'NOT EJECTED', error: this.inUse(running, id) };
+      return false;
+    }
     await removeInstall(id, 'addons');
     forgetAddon(id);
     if (this.job.addon === id) this.clearJob();
     delete this.addonInstalls[id];
     await this.refresh();
+    return true;
   }
 
   /**
@@ -629,6 +679,9 @@ class ConsoleState {
 
   /** Copies a planned import into storage, showing its progress. */
   private async copy(plan: ImportPlan, remote: string | undefined, signal: AbortSignal): Promise<void> {
+    // The files a running game reads from are not replaced under it.
+    const running = await this.runningOn(plan.game);
+    if (running) throw new ImportError(this.inUse(running, plan.game));
     const status = await storageStatus().catch(() => null);
     if (status && status.quota > 0 && status.quota - status.usage < plan.totalBytes * 1.05) {
       throw new ImportError(

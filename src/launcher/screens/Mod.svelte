@@ -12,7 +12,6 @@
   import { picturesFor } from '../../lib/settings';
   import { sourcesFromFileList } from '../../lib/storage/importer';
   import { formatBytes } from '../../lib/storage/manifest';
-  import { removeInstall } from '../../lib/storage/opfs';
   import Addons from '../components/Addons.svelte';
   import Glyph from '../components/Glyph.svelte';
   import JobResult from '../components/JobResult.svelte';
@@ -141,10 +140,10 @@
   async function eject(): Promise<void> {
     view = 'main';
     // A deck does not hold on to a mod that is gone.
-    if (sys.deckGame(mod.base) === game) sys.setDeckGame(mod.base, mod.base);
-    await removeInstall(game);
-    sys.clearJob();
-    await sys.refresh();
+    const deck = mod.base;
+    const inDeck = sys.deckGame(deck) === game;
+    if (!(await sys.ejectGame(game))) return;
+    if (inDeck) sys.setDeckGame(deck, deck);
     // Without saves to keep its name for, the mod is forgotten.
     if (!isGameId(game)) go('mods');
   }
