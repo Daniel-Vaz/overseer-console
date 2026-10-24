@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -33,8 +34,23 @@ function serviceWorker(): Plugin {
   };
 }
 
+/** The commit the site is built from, for problem reports: CI names it, a checkout knows it. */
+function buildCommit(): string {
+  if (process.env.GITHUB_SHA) return process.env.GITHUB_SHA.slice(0, 7);
+  try {
+    const commit = execSync('git rev-parse --short=7 HEAD', { cwd: root, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+    const dirty = execSync('git status --porcelain --untracked-files=no', { cwd: root, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+    return dirty ? `${commit}+changes` : commit;
+  } catch {
+    return 'unknown';
+  }
+}
+
 export default defineConfig({
   base,
+  define: {
+    __BUILD__: JSON.stringify({ commit: buildCommit(), date: new Date().toISOString().slice(0, 10) }),
+  },
   plugins: [svelte(), serviceWorker()],
   build: {
     target: 'es2022',

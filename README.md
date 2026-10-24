@@ -74,8 +74,8 @@ Epic). No game data is hosted or distributed here, and nothing is uploaded.
     <td width="55%"><img src="docs/images/archives.webp" alt="The save archives: a Fallout 2 quick save with its screenshot in green phosphor, the character's S.P.E.C.I.A.L., tagged skills and traits"></td>
     <td>
       <h3>Saves that don't get lost</h3>
-      Every save shows its screenshot and character sheet, read from the save file itself. Autosave every ten
-      minutes, quick save on <code>F6</code>, earlier versions of every slot to roll back to, erased saves kept
+      Every save shows its screenshot and character sheet, read from the save file itself. Autosave on every new map
+      and every ten minutes, quick save on <code>F6</code>, earlier versions of every slot to roll back to, erased saves kept
       for a week, zip export, and an optional link to your own <a href="docs/cloud-storage.md">cloud storage</a>
       to carry saves, games and mods between devices.
     </td>

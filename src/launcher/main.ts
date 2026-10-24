@@ -2,9 +2,11 @@ import '@fontsource/vt323/latin-400.css';
 import '../styles/terminal.css';
 
 import { mount } from 'svelte';
+import { keepPageErrors } from '../lib/report';
 import App from './App.svelte';
 import { applyTextures } from './texture';
 
+keepPageErrors();
 applyTextures();
 mount(App, { target: document.getElementById('app')! });
 

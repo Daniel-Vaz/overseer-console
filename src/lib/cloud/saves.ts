@@ -144,7 +144,7 @@ export async function fetchSave(game: GameId, { slot, there }: SlotStanding, clo
   const data = await cloud.download(there.file);
   let archive;
   try {
-    archive = await readSaveArchive(game, new Blob([data]), { only: slot, keepTimes: true, writtenAt: there.savedAt, cause: cloud.cause });
+    archive = await readSaveArchive(game, new Blob([data]), { only: slot, keepTimes: true, writtenAt: there.savedAt, cause: cloud.cause, quick: true });
   } catch (err) {
     throw new Error(`${name} in ${cloud.name} could not be used. ${err instanceof Error ? err.message : String(err)}`);
   }

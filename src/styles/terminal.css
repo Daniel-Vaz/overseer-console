@@ -1039,6 +1039,35 @@ kbd {
   width: 3.4em;
 }
 
+/* A problem report, under the choices of what to do with it. */
+.report-sheet h2 {
+  margin: 0.9em 0 0.2em;
+}
+
+.report-sheet .readout {
+  grid-template-columns: minmax(14ch, max-content) minmax(0, 1fr);
+}
+
+.report-log {
+  margin: 0;
+  font: inherit;
+  font-size: 0.85em;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* What the console found in saves about to be restored, one finding to a line. */
+.import-warnings {
+  margin: 0.2em 0 0.6em;
+  padding: 0;
+  list-style: none;
+}
+
+.import-warnings li::before {
+  content: '! ';
+  color: var(--amber);
+}
+
 /* The picture stored with a save, and the character sheet beside it. */
 .thumb {
   display: block;

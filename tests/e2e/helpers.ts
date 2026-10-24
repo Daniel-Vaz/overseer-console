@@ -197,7 +197,7 @@ export function fakeSaveDat(character: string, description: string, place: { map
 /**
  * A Fallout 2 folder whose MASTER.DAT says what its places are called: the
  * list of maps, the areas they are entered by, and the words for both, laid
- * out as the engine reads them. Three maps; the second and third are in
+ * out as the engine reads them. Four maps; the second and third are in
  * "The Den", and the third has a basement.
  */
 export async function fakeFallout2WithPlaces(): Promise<string> {
@@ -219,6 +219,11 @@ export async function fakeFallout2WithPlaces(): Promise<string> {
         '[Map 002]',
         'lookup_name=Den Business',
         'map_name=denbus2',
+        '',
+        // The map every made-up save is made on (see fakeSaveDat), in no area.
+        '[Map 003]',
+        'lookup_name=Temple of Trials',
+        'map_name=artemple',
         '',
       ),
       packed: true,

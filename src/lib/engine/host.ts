@@ -9,6 +9,7 @@
 import { loadAddons } from '../addons';
 import { gameDef, type EngineId, type GameId } from '../games';
 import { isSaveData, slotOf } from '../savefile';
+import { encodeSaveMeta, saveMetaPath, type SaveAddon } from '../savemeta';
 import { pictureOf, type Settings } from '../settings';
 import { pathKey } from '../storage/manifest';
 import { mountGame, type Mounted, type MountedFile } from '../storage/mount';
@@ -52,6 +53,12 @@ export async function loadInstalled(game: GameId): Promise<Installed> {
   return { install, base, addons };
 }
 
+/** What a save names an add-on by. */
+function addonOf(manifest: Install['manifest']): SaveAddon {
+  const record = manifest.addon?.record;
+  return { id: manifest.game, title: record?.title ?? manifest.game, ...(record?.version ? { version: record.version } : {}) };
+}
+
 /** The install that holds a file of the folder a game is started in. */
 function holder({ install, base, addons }: Installed, file: MountedFile): Install | undefined {
   if (file.from === 'addon') return addons.find((addon) => addon.manifest.game === file.addon);
@@ -78,6 +85,10 @@ export interface BootHooks {
   storageFailed(reason: string): void;
   /** A quick save or quick load (F6, F7: slot 7 alone) was made, found nothing to load, or failed. */
   quick(kind: QuickKind, outcome: QuickOutcome): void;
+  /** The player arrived on a map by going there: not by starting or loading a game. */
+  arrived(map: number): void;
+  /** A game was loaded from the save in this slot. */
+  loaded(slot: number): void;
   exit(code: number): void;
   fatal(message: string): void;
 }
@@ -113,7 +124,30 @@ export interface Engine {
   audioContext(): AudioContext | undefined;
   /** The large files the engine has read from so far, by the path it reads them at. */
   reads(): Record<string, FileReads>;
+  /** What the game was started from, for problem reports. */
+  about: StartedFrom;
 }
+
+/** What a game was started from: its install, the game under it for a mod, its add-ons, and the settings the engine read. */
+export interface StartedFrom {
+  install: InstallSummary;
+  base?: InstallSummary;
+  addons: SaveAddon[];
+  /** The version of sfall a mod came with. */
+  sfall?: string;
+  /** The engine's settings file, as the game names it. */
+  configFile: string;
+  /** Files the folder the game started in holds, from all of its installs. */
+  files: number;
+}
+
+export interface InstallSummary {
+  importedAt: number;
+  files: number;
+  bytes: number;
+}
+
+const summary = ({ manifest }: Install): InstallSummary => ({ importedAt: manifest.importedAt, files: manifest.files.length, bytes: manifest.totalBytes });
 
 /** How much the engine has read of one large file, and whose install it is from (see MountedFile). */
 export interface FileReads {
@@ -315,7 +349,16 @@ export async function bootEngine(
   ov.config.cacheBytes = settings.cacheMb << 20;
   ov.onError((what, err) => hooks.log(`[storage] ${what}: ${err instanceof Error ? err.message : String(err)}`));
   ov.onQuick((kind, outcome) => hooks.quick(kind, outcome));
+  ov.onArrive((map) => hooks.arrived(map));
+  ov.onLoad((slot) => hooks.loaded(slot));
+  // Each save says what it was made with: this game, and the add-ons laid over it (see savemeta.ts).
+  const meta = encodeSaveMeta({ game, addons: installed.addons.map(({ manifest }) => addonOf(manifest)) });
   ov.mount(GAME_ROOT, async (batch: PersistBatch) => {
+    for (const put of batch.puts.filter((put) => isSaveData(put.key))) {
+      const slot = slotOf(put.key)!;
+      if (batch.puts.some((other) => other.key === saveMetaPath(slot).key)) continue;
+      batch.puts.push({ ...saveMetaPath(slot), mode: put.mode, mtime: put.mtime, data: meta });
+    }
     try {
       // A save over a slot first moves the slot's old contents into its history.
       await commitWithHistory(game, batch);
@@ -387,5 +430,13 @@ export async function bootEngine(
     lightsOfItsOwn: def.engine.id === 'fo1' && sfallLightsAtKey(ddrawText),
     audioContext: () => module.SDL2?.audioContext,
     reads: () => Object.fromEntries([...reads].map(([path, read]) => [path, { ...read }])),
+    about: {
+      install: summary(install),
+      ...(installed.base ? { base: summary(installed.base) } : {}),
+      addons: installed.addons.map(({ manifest }) => addonOf(manifest)),
+      ...(install.manifest.mod?.sfall ? { sfall: install.manifest.mod.sfall } : {}),
+      configFile,
+      files: mounted.files.size,
+    },
   };
 }

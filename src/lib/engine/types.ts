@@ -54,6 +54,10 @@ export interface OverseerApi {
   requestSave(slot: number): Promise<boolean>;
   /** Hears how each quick save and quick load went. Both use slot 7 alone. */
   onQuick(handler: (kind: QuickKind, outcome: QuickOutcome) => void): void;
+  /** Hears of each arrival on a map by going there (an exit grid, the world map, an encounter), with the map's number. */
+  onArrive(handler: (map: number) => void): void;
+  /** Hears of each game loaded from a save, with its slot (1-based), however the load was asked for. */
+  onLoad(handler: (slot: number) => void): void;
   /**
    * Holds a key (a DirectInput scan code) down for the game's scripts alone, or
    * lets go of it: Fallout 2's scripts, and what Fallout's engine follows of a

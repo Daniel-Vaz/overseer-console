@@ -66,6 +66,9 @@ addToLibrary({
     saveWanted: null,
     // Told how each quick save and quick load went.
     onQuick: null,
+    // Told when the player arrives on a map by going there, and which slot a game was loaded from.
+    onArrive: null,
+    onLoad: null,
     // It is the player's turn in combat: the one time the key that ends it does anything.
     playerTurn: false,
     // Keys (DirectInput scan codes) the host holds down for the game's scripts,
@@ -224,6 +227,16 @@ addToLibrary({
     // The browser is due its turn after a slice of real time, however fast the engine's clock runs.
     dueForYield() {
       return OVERSEER.real() - OVERSEER.lastYield >= OVERSEER.config.sliceMs;
+    },
+
+    // Tells the page something from inside the engine. The page's mistakes stay the page's.
+    tell(fn, value) {
+      if (!fn) return;
+      try {
+        fn(value);
+      } catch (e) {
+        console.error(e);
+      }
     },
 
     fail(what, err) {
@@ -751,6 +764,16 @@ addToLibrary({
         onQuick(fn) {
           OVERSEER.onQuick = fn;
         },
+        // Hears of each arrival on a map by going there (an exit grid, the
+        // world map, an encounter), with the map's number; starting or
+        // loading a game is none.
+        onArrive(fn) {
+          OVERSEER.onArrive = fn;
+        },
+        // Hears of each game loaded from a save, with its slot (1-based).
+        onLoad(fn) {
+          OVERSEER.onLoad = fn;
+        },
         // Holds a key (a DirectInput scan code) down for the game's scripts
         // alone, or lets go of it: the keyboard handling never sees it.
         holdScriptKey(key, held) {
@@ -870,6 +893,12 @@ addToLibrary({
       console.error(e);
     }
   },
+
+  // The player arrived on a map by going there; a game was loaded from a slot (1-based).
+  overseer_arrived__deps: ['$OVERSEER'],
+  overseer_arrived: (map) => OVERSEER.tell(OVERSEER.onArrive, map),
+  overseer_loaded__deps: ['$OVERSEER'],
+  overseer_loaded: (slot) => OVERSEER.tell(OVERSEER.onLoad, slot),
 
   // read(): waits for lazy blocks when they are not in memory yet, and gives
   // the browser its turn during long loads, which read files but never look

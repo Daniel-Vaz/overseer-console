@@ -1,6 +1,6 @@
 import { linkSync, mkdirSync, openAsBlob, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { unzipSync } from 'fflate';
+import { unzipSync, zipSync } from 'fflate';
 import { indexDat, readDatEntry, type DatArchive } from '../../src/lib/dat';
 import { Ini } from '../../src/lib/ini';
 import type { Page } from '@playwright/test';
@@ -33,6 +33,13 @@ for (const game of GAMES) {
     await openConsole(page, game.id, { skipIntro: true });
     await pickFolder(page, game.dir!);
     await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 300_000 });
+
+    // An add-on of one loose file, which the saves made with it will name.
+    const note = zipSync({ 'data/text/english/dialog/zzovnote.msg': new TextEncoder().encode('{100}{}{Overseer.}\r\n') });
+    await page.locator('.menu button', { hasText: 'Add-ons' }).click();
+    await page.locator('input[accept*=".dat"]').setInputFiles({ name: 'overseer_note.zip', mimeType: 'application/zip', buffer: Buffer.from(note) });
+    await expect(page.locator('.menu li', { hasText: 'Overseer note' })).toContainText('ON', { timeout: 120_000 });
+    await page.keyboard.press('Escape');
 
     // Main menu.
     await launch(page, 'Begin simulation', '1');
@@ -176,14 +183,29 @@ for (const game of GAMES) {
     const names = Object.keys(archive).map((name) => name.toUpperCase());
     expect(names).toContain('SAVEGAME/SLOT01/SAVE.DAT');
     expect(names).toContain('SAVEGAME/SLOT01/AUTOMAP.SAV');
+    // And what the console wrote beside it: the game and the add-on it was made with.
+    expect(JSON.parse(Buffer.from(archive['SAVEGAME/SLOT01/OVERSEER.JSON']!).toString())).toEqual({ game: game.id, addons: [{ id: 'overseer-note', title: 'Overseer note' }] });
     expect(names.some((name) => /SLOT01\/[A-Z0-9_]+\.SAV$/.test(name) && !name.endsWith('AUTOMAP.SAV'))).toBe(true);
     for (const [name, data] of Object.entries(archive)) expect(data.length, name).toBeGreaterThan(0);
     expect(Buffer.from(archive['SAVEGAME/SLOT01/SAVE.DAT']!.subarray(0, 17)).toString('latin1')).toBe('FALLOUT SAVE FILE');
 
+    // The add-on switched off: the save it was made with asks first, and is played without it.
+    await page.goto(`#/${game.id}`);
+    await page.locator('.menu button', { hasText: 'Add-ons' }).click();
+    await page.locator('.menu li', { hasText: 'Overseer note' }).locator('button').click();
+    await expect(page.locator('.menu li', { hasText: 'Overseer note' })).toContainText('OFF');
+
     // Continue: from the main directory straight back to where the latest save, the quick save, was made.
     await page.goto('#/');
     await expect(page.locator('.menu li').first()).toContainText(`Continue: ${game.title}`);
-    await launch(page, 'Continue', 'c');
+    await pause(page, 1500);
+    await page.keyboard.press('c');
+    await page.waitForURL(/play\.html/);
+    await expect(page.getByText('Add-ons missing')).toBeVisible({ timeout: 60_000 });
+    await page.keyboard.press('p');
+    await expect(page.getByText('PRESS ANY KEY')).toBeVisible({ timeout: 60_000 });
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#terminal')).toBeHidden();
     expect(page.url()).toContain('slot=7');
     let closest = 255;
     await expect
@@ -193,6 +215,11 @@ for (const game of GAMES) {
     const before = (await engineStats(page)).sleeps;
     await pause(page, 1000);
     expect((await engineStats(page)).sleeps).toBeGreaterThan(before);
+    // Loaded again from the game itself, the engine says which save it was: the page says what it lacks, this time.
+    await pause(page, 1500);
+    await page.keyboard.press('F7');
+    await expect(page.locator('#toast')).toHaveText('SAVE 07 WAS MADE WITH OVERSEER NOTE ON. F9 TO START IT AGAIN WITH IT.', { timeout: 30_000 });
+    await pause(page, 3000);
 
     // Quitting through the game's own menus: to its main menu, and from there out of the game, back to the console.
     await page.keyboard.press('F10');
@@ -986,6 +1013,103 @@ test('Fallout 2: add-ons laid over it, their archives opened and their scripts r
   expect(await savedHeader(page, 7)).toMatchObject({ map: 'ARTEMPLE', character: 'Narg' });
   await page.keyboard.press('F9');
   await expect(page.getByText('Simulation suspended')).toBeVisible();
+  await page.keyboard.press('x');
+  await page.keyboard.press('y');
+  await expect(page.getByRole('heading', { name: /Fallout 2$/ })).toBeVisible({ timeout: 30_000 });
+  expect(faults).toEqual([]);
+});
+
+test('Fallout 2: autosaved on arriving on another map, its picture changed while playing, and a save that knows its add-ons', async ({ page }) => {
+  const fallout2 = GAMES[1].dir;
+  test.skip(!fallout2, 'set FO2_DIR to your Fallout 2 folder to run this');
+  test.setTimeout(900_000);
+  const faults: string[] = [];
+  page.on('pageerror', (error) => faults.push(error.message));
+
+  await openConsole(page, 'fo2', { skipIntro: true });
+  await pickFolder(page, fallout2!);
+  await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 300_000 });
+
+  // An add-on of one global script, which sends the player on to the Den once the game has begun.
+  const travel = zipSync({ 'data/scripts/gl_ovtravel.int': new Uint8Array(readFileSync(new URL('../sfall/gl_ovtravel.int', import.meta.url))) });
+  await page.locator('.menu button', { hasText: 'Add-ons' }).click();
+  await page.locator('input[accept*=".dat"]').setInputFiles({ name: 'overseer_travel.zip', mimeType: 'application/zip', buffer: Buffer.from(travel) });
+  await expect(page.locator('.menu li', { hasText: 'Overseer travel' })).toContainText('ON', { timeout: 120_000 });
+  await page.keyboard.press('Escape');
+
+  // A new game: the temple, then at once the Den. Arriving there is an autosave; starting the game was not.
+  await launch(page, 'Begin simulation', '1');
+  await waitForPicture(page, 8000);
+  await page.keyboard.press('n');
+  await pause(page, 6000);
+  await page.keyboard.press('t');
+  await pause(page, 10000);
+  await page.keyboard.press(' ');
+  await pause(page, 5000);
+  await page.keyboard.press(' ');
+  await expect(page.locator('#toast')).toHaveText('AUTOSAVED IN SLOT 08', { timeout: 180_000 });
+  expect(await savedHeader(page, 8)).toMatchObject({ map: 'DENBUS1', description: expect.stringMatching(/^AUTOSAVE \d\d:\d\d$/) });
+  // Beside it, what it was made with.
+  const meta = await page.evaluate(
+    () =>
+      new Promise<string>((resolve, reject) => {
+        const open = indexedDB.open('overseer-console');
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const read = open.result.transaction('overlay').objectStore('overlay').get(['fo2', 'data/savegame/slot08/overseer.json']);
+          read.onsuccess = () => resolve(new TextDecoder().decode(read.result.data));
+          read.onerror = () => reject(read.error);
+        };
+      }),
+  );
+  expect(JSON.parse(meta)).toEqual({ game: 'fo2', addons: [{ id: 'overseer-travel', title: 'Overseer travel' }] });
+  await pause(page, 3000);
+
+  // Another picture from the menu: saved where the game can be, and on from that save in the wider picture.
+  await page.keyboard.press('F9');
+  await expect(page.getByText('Simulation suspended')).toBeVisible();
+  await page.keyboard.press('v');
+  await expect(page.locator('.actions.stacked button')).toHaveText(['[1] CLASSIC 4:3  640 x 480  (IN USE)', '[2] WIDE  768 x 480', '[3] HIGH RESOLUTION  1152 x 720']);
+  await page.keyboard.press('2');
+  await page.waitForURL(/play\.html\?game=fo2&slot=9/, { timeout: 120_000 });
+  await expect(page.getByText('CONTINUING FROM SAVE SLOT 09')).toBeVisible({ timeout: 60_000 });
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#terminal')).toBeHidden();
+  await waitForPicture(page, 8000);
+  expect(await page.evaluate(() => (window as unknown as { overseerEngine: { screen: { width: number; height: number } } }).overseerEngine.screen)).toEqual({ width: 768, height: 480 });
+  expect(await savedHeader(page, 9)).toMatchObject({ map: 'DENBUS1' });
+  // Loading that save sent nobody anywhere again: the script remembered, in the save, that it had.
+  await pause(page, 5000);
+  expect(await page.locator('#toast').textContent()).not.toContain('AUTOSAVED');
+  const path = test.info().outputPath('den-wide.png');
+  await page.locator('#canvas').screenshot({ path });
+  await test.info().attach('The Den, carried on in the wide picture', { path, contentType: 'image/png' });
+
+  // With the add-on off, that save asks before it plays, and switches it back on.
+  await page.keyboard.press('F9');
+  await page.keyboard.press('x');
+  await page.keyboard.press('y');
+  await expect(page.getByRole('heading', { name: /Fallout 2$/ })).toBeVisible({ timeout: 30_000 });
+  await page.locator('.menu button', { hasText: 'Add-ons' }).click();
+  await page.locator('.menu li', { hasText: 'Overseer travel' }).locator('button').click();
+  await expect(page.locator('.menu li', { hasText: 'Overseer travel' })).toContainText('OFF');
+  await page.goto('#/saves/fo2/9');
+  await pause(page, 1500);
+  await page.keyboard.press('l');
+  await expect(page.getByText('Add-ons missing')).toBeVisible({ timeout: 60_000 });
+  await page.keyboard.press('a');
+  await expect(page.getByText('CONTINUING FROM SAVE SLOT 09')).toBeVisible({ timeout: 60_000 });
+  await page.keyboard.press('Enter');
+  await waitForPicture(page, 6000);
+
+  // A problem report from the menu names the game, its engine and the add-on.
+  await page.keyboard.press('F9');
+  await page.keyboard.press('d');
+  const report = page.locator('#terminal-body .report');
+  await expect(report).toContainText('Overseer travel');
+  await expect(report).toContainText('WIDE, 768 x 480');
+  await expect(report).toContainText('In a game');
+  await page.keyboard.press('b');
   await page.keyboard.press('x');
   await page.keyboard.press('y');
   await expect(page.getByRole('heading', { name: /Fallout 2$/ })).toBeVisible({ timeout: 30_000 });

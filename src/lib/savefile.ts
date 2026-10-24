@@ -233,6 +233,35 @@ export function locateGlobals(words: Words, start: number, tail: number): { coun
   return null;
 }
 
+/**
+ * The map files a SAVE.DAT says its slot holds ("ARTEMPLE.SAV"...): every
+ * place the player has been, the one the save was made on among them. Null
+ * when the save cannot be read that far.
+ */
+export function saveMapFiles(data: Uint8Array, game: Game): string[] | null {
+  if (!parseSaveHeader(data) || data.length <= HEADER_SIZE) return null;
+  try {
+    const words = new Words(data);
+    const start = HEADER_SIZE + 4;
+    const globals = locateGlobals(words, start, LAYOUT[game].globalsTail);
+    if (!globals) return null;
+    let at = start + 4 * globals.count + LAYOUT[game].globalsTail;
+    const count = words.int(at);
+    at += 4;
+    const names: string[] = [];
+    for (let i = 0; i < count; i++) {
+      let end = at;
+      while (end < data.length && data[end] !== 0) end++;
+      if (end >= data.length) return null;
+      names.push(String.fromCharCode(...data.subarray(at, end)));
+      at = end + 1;
+    }
+    return names;
+  } catch {
+    return null;
+  }
+}
+
 interface Carried {
   pid: number;
   quantity: number;

@@ -12,6 +12,7 @@
   import Addon from './screens/Addon.svelte';
   import Cloud from './screens/Cloud.svelte';
   import Credits from './screens/Credits.svelte';
+  import Report from './screens/Report.svelte';
   import Game from './screens/Game.svelte';
   import Main from './screens/Main.svelte';
   import Manual from './screens/Manual.svelte';
@@ -98,6 +99,8 @@
               ? 'OPERATIONS MANUAL'
               : section === 'credits'
                 ? 'CREDITS AND LEGAL'
+                : section === 'report'
+                  ? 'PROBLEM REPORT'
                 : section === 'mods'
                   ? modPage
                     ? `MOD LIBRARY // ${gameDef(modPage).short}`
@@ -317,6 +320,8 @@
               {/key}
             {:else if section === 'credits'}
               <Credits {go} />
+            {:else if section === 'report'}
+              <Report {go} />
             {:else if modPage}
               {#key modPage}
                 <Mod {go} game={modPage} />

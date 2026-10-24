@@ -14,14 +14,21 @@ import rotateIcon from '../assets/icons/rotate.png';
 import suspendedIcon from '../assets/icons/suspended.png';
 import warningIcon from '../assets/icons/warning.png';
 import { QUICK_SAVE_SLOT } from '../lib/autosave';
-import { wantsEngineData } from '../lib/engine/config';
+import { setAddonOn } from '../lib/addons';
+import { chooseScreen, wantsEngineData } from '../lib/engine/config';
 import { bootEngine, NoInstallError, StorageUnavailableError, type Engine } from '../lib/engine/host';
 import { gameDef, isGameId, type GameId } from '../lib/games';
 import { syncMods } from '../lib/mods/sync';
-import { loadSettings, recordLaunch, saveSettings } from '../lib/settings';
+import { issueUrl, keepPageErrors, rememberFault, reportFileName, reportText } from '../lib/report';
+import { addonList, addonsMissing, addonsToSwitchOn, readSaveMeta, type SaveAddon } from '../lib/savemeta';
+import { loadSettings, pictureOf, picturesFor, recordLaunch, saveSettings, type Picture } from '../lib/settings';
+import { PICTURE_NAMES } from '../launcher/picture';
 import { audioBridgeStats, installAudioBridge } from './audio-bridge';
 import { Autosaver } from './autosave';
+import { playerReport, whereOf } from './report';
 import { TouchControls, fingerFirst } from './touch/controls';
+
+keepPageErrors();
 
 type Phase = 'boot' | 'gate' | 'running' | 'menu' | 'fatal' | 'leaving';
 
@@ -45,6 +52,21 @@ const requested = query.get('game');
 const loadSlot = /^[1-9]\d{0,3}$/.test(query.get('slot') ?? '') ? Number(query.get('slot')) : undefined;
 /** The screen of the console the game was started from, to go back to. */
 const from = query.get('from') ?? '';
+/** The player was told the save is missing add-ons it was made with, and chose to play it as it is. */
+const addonsAsIs = query.get('addons') === 'as-is';
+/** The save asked for was checked against the add-ons on, and the player has heard what it found. */
+let addonsChecked = addonsAsIs;
+/** No game has been loaded from a save yet. */
+let firstLoad = true;
+
+/** This page again, for the same game: from a save, or (no slot) to its main menu. */
+const playUrl = (game: GameId, slot?: number, asIs = false) => {
+  const next = new URLSearchParams({ game });
+  if (slot !== undefined) next.set('slot', String(slot));
+  if (from) next.set('from', from);
+  if (asIs) next.set('addons', 'as-is');
+  return `${location.pathname}?${next.toString().replace(/%2F/g, '/')}`;
+};
 /**
  * The console, at the screen the game was started from, or (`own`) where the
  * game is, which says what it needs: its deck, or the mod's own page.
@@ -69,8 +91,16 @@ let hiddenPause = false;
 /** Fast forward is on: the game's clock runs several times as fast as time. */
 let fast = false;
 let confirmingExit = false;
-/** What the suspended screen shows: the menu itself, or the touch help. */
-let menuView: 'menu' | 'touch' = 'menu';
+/** What the suspended screen shows: the menu itself, the touch help, the pictures or a problem report. */
+let menuView: 'menu' | 'touch' | 'picture' | 'report' = 'menu';
+/** What the fault screen said, for its report. */
+let fault: { message: string; advice?: string } | null = null;
+/** The keys of the screen on show while the game cannot have them (start-up, a report over a fault). */
+let screenKeys: Record<string, () => void> | null = null;
+/** The save last loaded was made with add-ons that are not on now. */
+let missingAddons: { slot: number; addons: SaveAddon[] } | null = null;
+/** A picture is to be changed once the game has been saved for it. */
+let pictureWanted: Picture | null = null;
 const engineLog: string[] = [];
 /** What the engine last put in a message box, and when: its way of saying it cannot go on. */
 let complaint: { text: string; at: number } | null = null;
@@ -403,7 +433,7 @@ function begin(): void {
   }
   fit();
   stayAwake(true);
-  autosaver = new Autosaver(engine.game, engine, settings.autosave, {
+  autosaver = new Autosaver(engine.game, engine, { minutes: settings.autosave, maps: settings.autosaveMaps }, {
     playing: () => phase === 'running' && !document.hidden,
     say: (text, bad) => toast(text, 6000, bad),
   });
@@ -416,6 +446,7 @@ function openTouchHelp(): void {
   if (phase !== 'running' && phase !== 'menu') return;
   phase = 'menu';
   menuView = 'touch';
+  screenKeys = null;
   suspendEngine();
   showTerminal({ centered: true, veil: true, state: 'SUSPENDED' });
   try {
@@ -466,6 +497,7 @@ function openMenu(confirmExit = false): void {
   if (phase !== 'running' && phase !== 'menu') return;
   phase = 'menu';
   menuView = 'menu';
+  screenKeys = null;
   confirmingExit = confirmExit;
   suspendEngine();
   showTerminal({ centered: true, veil: true, state: 'SUSPENDED' });
@@ -501,6 +533,8 @@ function openMenu(confirmExit = false): void {
   }
   keys.style.textAlign = 'left';
 
+  const game = engine?.game;
+  const switchable = game && missingAddons ? addonsToSwitchOn(missingAddons.addons, game) : [];
   body.replaceChildren(
     glyph(suspendedIcon),
     el('p', 'big', 'Simulation suspended'),
@@ -509,6 +543,24 @@ function openMenu(confirmExit = false): void {
       [document.fullscreenElement ? '[F] Leave fullscreen' : '[F] Fullscreen', () => void toggleFullscreen().then(() => openMenu())],
       ['[X] Exit to console', () => openMenu(true)],
     ]),
+    actions([
+      [`[V] Picture: ${game ? PICTURE_NAMES[pictureWanted ?? pictureOf(settings, game)] : '-'}${pictureWanted ? ' (SOON)' : ''}`, openPictures],
+      ['[D] Report a problem', () => void openReport()],
+    ]),
+    // The save last loaded was made with add-ons that are not on.
+    ...(missingAddons
+      ? [
+          el(
+            'p',
+            'gap amber',
+            `The save from slot ${String(missingAddons.slot).padStart(2, '0')} was made with ${addonList(missingAddons.addons)} on. ` +
+              (switchable.length
+                ? `Without ${missingAddons.addons.length > 1 ? 'them, what they' : 'it, what it'} added can be missing or break.`
+                : `${missingAddons.addons.length > 1 ? 'They are' : 'It is'} no longer loaded in this browser.`),
+          ),
+          ...(switchable.length ? [actions([[`[A] Restart from that save with ${switchable.length > 1 ? 'them' : 'it'} on`, restartWithAddons]])] : []),
+        ]
+      : []),
     // Players using the touch controls get their help and their one setting here.
     ...(touch.visible
       ? [
@@ -532,6 +584,132 @@ function closeMenu(): void {
   hideTerminal();
   canvas.focus({ preventScroll: true });
   if (!document.hidden) resumeEngine();
+}
+
+// ---------------------------------------------------------------------
+// Another picture, while the game runs
+// ---------------------------------------------------------------------
+
+/** The room the picture has on the page now, which the touch deck may have narrowed. */
+const room = () => ({ width: stage.clientWidth || window.innerWidth, height: stage.clientHeight || window.innerHeight });
+
+/**
+ * The pictures a game can be played at, each with the size it would have in
+ * this window. The engines draw at one size from start to end, so another
+ * picture (or the same one, reshaped for a window that has changed shape:
+ * a phone turned) means saving the game and starting it again from that
+ * save, which takes a few seconds.
+ */
+function openPictures(): void {
+  if (!engine || phase !== 'menu') return;
+  menuView = 'picture';
+  const { game, screen: now } = engine;
+  const current = pictureOf(settings, game);
+  const inGame = engine.inGame();
+  const choices = picturesFor(game).map((picture, index): [string, () => void] => {
+    const size = chooseScreen(picture, room());
+    const inUse = picture === current;
+    const same = inUse && size.width === now.width && size.height === now.height;
+    const tag = !inUse ? '' : same ? '  (IN USE)' : `  (IN USE AT ${now.width} x ${now.height})`;
+    return [`[${index + 1}] ${PICTURE_NAMES[picture]}  ${size.width} x ${size.height}${tag}`, () => void choosePicture(picture, same)];
+  });
+  const list = actions(choices);
+  list.classList.add('stacked');
+  body.replaceChildren(
+    el('p', 'big', 'Picture'),
+    el(
+      'p',
+      'gap',
+      inGame
+        ? 'The game is saved in slot 08, 09 or 10 at the first moment it can be, and carries on from that save in the new picture.'
+        : 'The game starts again at its main menu in the new picture.',
+    ),
+    list,
+    actions([['[B] Back', () => openMenu()]]),
+  );
+  screenKeys = Object.fromEntries([...choices.map(([, choose], index) => [String(index + 1), choose] as const), ['b', () => openMenu()]]);
+  setHints([
+    ['1-' + choices.length, 'CHOOSE'],
+    ['B', 'BACK'],
+  ]);
+}
+
+/** When each slot last reached the browser's storage, and who waits for one to. */
+const storedAt = new Map<number, number>();
+const storeWaiters = new Set<() => void>();
+
+/** Whether `slot` reached the storage since `since` (performance.now()), waiting up to `ms` for it. */
+function whenStored(slot: number, since: number, ms: number): Promise<boolean> {
+  const done = () => (storedAt.get(slot) ?? -Infinity) >= since;
+  if (done()) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const finish = (stored: boolean) => {
+      clearTimeout(timer);
+      storeWaiters.delete(check);
+      resolve(stored);
+    };
+    const check = () => done() && finish(true);
+    const timer = window.setTimeout(() => finish(false), ms);
+    storeWaiters.add(check);
+  });
+}
+
+/** The picture a game is played at from its next start on. */
+function keepPicture(game: GameId, picture: Picture): void {
+  settings.picture = { ...settings.picture, [game]: picture };
+  saveSettings(settings);
+}
+
+async function choosePicture(picture: Picture, same: boolean): Promise<void> {
+  if (!engine) return;
+  const game = engine.game;
+  if (same) {
+    // The one in use, while another waited for its save: that one is called off.
+    if (pictureWanted) toast(`${PICTURE_NAMES[picture]} STAYS`);
+    pictureWanted = null;
+    openMenu();
+    return;
+  }
+  if (!engine.inGame() || !autosaver) {
+    keepPicture(game, picture);
+    phase = 'leaving';
+    location.replace(playUrl(game));
+    return;
+  }
+  const waiting = pictureWanted !== null;
+  pictureWanted = picture;
+  closeMenu();
+  toast(`${PICTURE_NAMES[picture]} AS SOON AS THE GAME CAN BE SAVED`, 4000);
+  // Asked again while the first was waiting for its save: that save now carries this picture.
+  if (waiting) return;
+  const since = performance.now();
+  const slot = await autosaver.saveForRestart();
+  const wanted = pictureWanted as Picture | null;
+  pictureWanted = null;
+  if (!wanted) return;
+  if (slot === 'full') {
+    keepPicture(game, wanted);
+    toast(`SLOTS 08 TO 10 HOLD YOUR OWN SAVES. ${PICTURE_NAMES[wanted]} FROM THE NEXT START`, 8000, true);
+    return;
+  }
+  if (slot === 'failed' || !(await whenStored(slot, since, 10_000))) {
+    toast('THE PICTURE WAS NOT CHANGED: THE GAME COULD NOT BE SAVED', 8000, true);
+    return;
+  }
+  keepPicture(game, wanted);
+  phase = 'leaving';
+  location.replace(playUrl(game, slot, addonsChecked));
+}
+
+/** Starts again from the save just loaded, with the add-ons it was made with switched on. */
+function restartWithAddons(): void {
+  const game = engine?.game;
+  if (!game || !missingAddons) return;
+  const switchable = addonsToSwitchOn(missingAddons.addons, game);
+  if (!switchable.length) return;
+  for (const addon of switchable) setAddonOn(game, addon.id, true);
+  phase = 'leaving';
+  location.replace(playUrl(game, missingAddons.slot));
 }
 
 function leave(): void {
@@ -605,6 +783,16 @@ function fatal(message: string, advice?: string): void {
   const wasRunning = phase === 'running' || phase === 'menu';
   phase = 'fatal';
   handle.hidden = true;
+  fault = { message, advice };
+  const game = engine?.game ?? (isGameId(requested) ? requested : null);
+  rememberFault({ at: Date.now(), where: whereOf(game), game: game ?? '', message, advice, log: engineLog });
+  showFault(wasRunning);
+}
+
+/** The fault screen: what went wrong, what to do, and the way to report it. */
+function showFault(wasRunning = terminal.classList.contains('veil')): void {
+  if (!fault) return;
+  screenKeys = null;
   showTerminal({ centered: true, veil: wasRunning, state: 'FAULT' });
   const detail = el('p', 'gap dim');
   detail.textContent = engineLog.slice(-4).join('\n');
@@ -612,18 +800,135 @@ function fatal(message: string, advice?: string): void {
   body.replaceChildren(
     glyph(faultIcon, 'alert'),
     el('p', 'big alert', 'System fault'),
-    el('p', 'gap', message),
-    ...(advice ? [el('p', 'gap', advice)] : []),
+    el('p', 'gap', fault.message),
+    ...(fault.advice ? [el('p', 'gap', fault.advice)] : []),
     el('p', 'gap dim', wasRunning ? 'Games you saved before this point are safe.' : ''),
     actions([
       ['[R] Restart', () => location.reload()],
       ['[C] Return to console', leave],
+      ['[D] Report it', () => void openReport()],
     ]),
     detail,
   );
   setHints([
     ['R', 'RESTART'],
     ['C', 'CONSOLE'],
+    ['D', 'REPORT'],
+  ]);
+}
+
+// ---------------------------------------------------------------------
+// Problem reports
+// ---------------------------------------------------------------------
+
+/**
+ * Everything the page knows that could help find what went wrong, written
+ * up as a report to file on GitHub. Nothing is sent: the player opens the
+ * issue, copies the report or saves it, and sees all of it first.
+ */
+async function openReport(): Promise<void> {
+  const overFault = phase === 'fatal';
+  if (!overFault) {
+    if (phase !== 'running' && phase !== 'menu') return;
+    if (phase === 'running') suspendEngine();
+    phase = 'menu';
+    menuView = 'report';
+    showTerminal({ centered: true, veil: true, state: 'SUSPENDED' });
+  }
+  const back = overFault ? () => showFault() : () => openMenu();
+  screenKeys = { b: back };
+  body.replaceChildren(el('p', 'big', 'Problem report'), el('p', 'gap dim', 'GATHERING READINGS...'));
+  setHints([['B', 'BACK']]);
+  const report = await playerReport({
+    game: engine?.game ?? (isGameId(requested) ? requested : null),
+    engine,
+    settings,
+    phase: overFault ? 'fault screen' : 'suspended',
+    playedMs: startedAt ? performance.now() - startedAt : 0,
+    fast,
+    lights: lightsOn,
+    touch: touch.visible,
+    loadSlot,
+    audio: audioBridgeStats(),
+    engineLog,
+    complaint: complaint?.text,
+    fault: fault ?? undefined,
+  });
+  // Gone on to something else while it was being gathered.
+  if (screenKeys?.b !== back) return;
+
+  const readout = el('div', 'report');
+  for (const section of report.sections) {
+    readout.append(el('p', 'hot', section.title.toUpperCase()));
+    const rows = el('dl', 'readout');
+    for (const [name, value] of section.rows) rows.append(el('dt', undefined, name), el('dd', undefined, value));
+    readout.append(rows);
+  }
+  for (const block of report.blocks) {
+    if (!block.lines.length) continue;
+    readout.append(el('p', 'hot', `${block.title.toUpperCase()} (LAST ${Math.min(12, block.lines.length)} OF ${block.lines.length} LINES)`));
+    readout.append(el('pre', 'dim', block.lines.slice(-12).join('\n')));
+  }
+  const status = el('p', 'gap dim report-status', '');
+  const say = (text: string, bad = false) => {
+    status.textContent = text;
+    status.classList.toggle('alert', bad);
+  };
+
+  const copy = async (quiet = false): Promise<boolean> => {
+    try {
+      await navigator.clipboard.writeText(reportText(report));
+      if (!quiet) say('COPIED. PASTE IT INTO AN ISSUE, AN EMAIL OR A FORUM POST.');
+      return true;
+    } catch {
+      if (!quiet) say('THE BROWSER WOULD NOT LET THE PAGE COPY. SAVE IT AS A FILE INSTEAD.', true);
+      return false;
+    }
+  };
+  const open = async () => {
+    const { url, cut } = issueUrl(report);
+    const copied = cut ? await copy(true) : false;
+    // Asked for without "noopener", which would leave no way to tell a tab opened from one kept from opening.
+    const opened = window.open(url, '_blank');
+    if (opened) opened.opener = null;
+    say(
+      !opened && !cut
+        ? 'THE BROWSER KEPT THE NEW TAB FROM OPENING. COPY THE REPORT, OR SAVE IT.'
+        : cut
+          ? copied
+            ? 'THE LOGS WERE SHORTENED TO FIT THE LINK. THE WHOLE REPORT IS COPIED: PASTE IT IN IF YOU CAN.'
+            : 'THE LOGS WERE SHORTENED TO FIT THE LINK. SAVE THE REPORT AND ATTACH IT FOR THE REST.'
+          : 'OPENED ON GITHUB IN A NEW TAB. LOOK IT OVER, SAY WHAT HAPPENED, AND SUBMIT IT THERE.',
+      !opened,
+    );
+  };
+  const save = () => {
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(new Blob([reportText(report)], { type: 'text/markdown' }));
+    link.download = reportFileName(report);
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 10_000);
+    say(`SAVED AS ${link.download.toUpperCase()}.`);
+  };
+
+  body.replaceChildren(
+    el('p', 'big', 'Problem report'),
+    el('p', 'gap report-intro', 'Nothing leaves this page unless you send it. Open it as a new issue on GitHub to look it over and post it, or copy or save it to send another way.'),
+    readout,
+    actions([
+      ['[O] Open on GitHub', () => void open()],
+      ['[C] Copy', () => void copy()],
+      ['[S] Save as file', save],
+      ['[B] Back', back],
+    ]),
+    status,
+  );
+  screenKeys = { o: () => void open(), c: () => void copy(), s: save, b: back };
+  setHints([
+    ['O', 'GITHUB'],
+    ['C', 'COPY'],
+    ['S', 'SAVE'],
+    ['B', 'BACK'],
   ]);
 }
 
@@ -685,7 +990,8 @@ function onKey(event: KeyboardEvent): void {
   const key = event.key.toLowerCase();
 
   if (phase === 'boot') {
-    if (key === 'escape') leave();
+    if (screenKeys?.[key]) screenKeys[key]();
+    else if (key === 'escape') leave();
   } else if (phase === 'gate') {
     if (['shift', 'control', 'alt', 'meta'].includes(key)) return;
     event.preventDefault();
@@ -693,7 +999,11 @@ function onKey(event: KeyboardEvent): void {
     else begin();
   } else if (phase === 'menu') {
     event.preventDefault();
-    if (confirmingExit) {
+    if (menuView === 'picture' || menuView === 'report') {
+      // Their own keys; ESC goes back to the menu, not into the game.
+      if (screenKeys?.[key]) screenKeys[key]();
+      else if (key === 'escape') openMenu();
+    } else if (confirmingExit) {
       if (key === 'y') leave();
       else if (key === 'n' || key === 'escape') openMenu();
     } else if (key === 'r' || key === 'escape' || key === 'f9' || key === 'enter') closeMenu();
@@ -702,9 +1012,17 @@ function onKey(event: KeyboardEvent): void {
     else if (key === 'x') openMenu(true);
     else if (key === 't' && touch.visible) openTouchHelp();
     else if (key === 'p' && touch.visible) togglePointerMode();
+    else if (key === 'v') openPictures();
+    else if (key === 'd') void openReport();
+    else if (key === 'a' && missingAddons) restartWithAddons();
   } else if (phase === 'fatal') {
-    if (key === 'r') location.reload();
+    // The report over the fault screen has keys of its own.
+    if (screenKeys) {
+      if (screenKeys[key]) screenKeys[key]();
+      else if (key === 'escape') showFault();
+    } else if (key === 'r') location.reload();
     else if (key === 'c' || key === 'escape') leave();
+    else if (key === 'd') void openReport();
   }
 }
 
@@ -736,6 +1054,82 @@ function claimGame(game: GameId): Promise<boolean> {
   });
 }
 
+// ---------------------------------------------------------------------
+// Saves and the add-ons they were made with
+// ---------------------------------------------------------------------
+
+const slotName = (slot: number) => String(slot).padStart(2, '0');
+
+/**
+ * A game was loaded from a save. A save made with add-ons that are not on
+ * now can miss what they added, or break on it: the player hears of it, and
+ * the menu offers to start again from it with them on.
+ */
+async function checkLoaded(slot: number): Promise<void> {
+  const game = engine?.game;
+  if (!game) return;
+  // The save the page was asked to start from was checked before the game started.
+  const checked = firstLoad && slot === loadSlot && addonsChecked;
+  firstLoad = false;
+  const missing = addonsMissing(await readSaveMeta(game, slot), game);
+  missingAddons = missing.length ? { slot, addons: missing } : null;
+  if (!missing.length || checked) return;
+  const names = addonList(missing).toUpperCase();
+  toast(
+    addonsToSwitchOn(missing, game).length
+      ? `SAVE ${slotName(slot)} WAS MADE WITH ${names} ON. ${touch.visible ? 'MENU' : 'F9'} TO START IT AGAIN WITH ${missing.length > 1 ? 'THEM' : 'IT'}.`
+      : `SAVE ${slotName(slot)} WAS MADE WITH ${names}, NO LONGER LOADED IN THIS BROWSER.`,
+    9000,
+    true,
+  );
+}
+
+/**
+ * Before a game starts from a save, the save is checked against the add-ons
+ * that will be laid over it. True to go on (with them switched on, or as it
+ * is); the player may also go back to the console instead.
+ */
+function askAboutAddons(game: GameId, slot: number, missing: SaveAddon[]): Promise<boolean> {
+  const switchable = addonsToSwitchOn(missing, game);
+  const them = missing.length > 1 ? 'them' : 'it';
+  return new Promise((resolve) => {
+    const go = (switchOn: boolean) => {
+      screenKeys = null;
+      if (switchOn) for (const addon of switchable) setAddonOn(game, addon.id, true);
+      addonsChecked = true;
+      showTerminal({ state: 'BOOT' });
+      logList.replaceChildren();
+      body.replaceChildren(logList);
+      setHints([['ESC', 'ABORT']]);
+      resolve(true);
+    };
+    showTerminal({ centered: true, state: 'CHECK' });
+    body.replaceChildren(
+      glyph(warningIcon, 'amber'),
+      el('p', 'big amber', 'Add-ons missing'),
+      el('p', 'gap', `The save in slot ${slotName(slot)} was made with ${addonList(missing)} on, and ${missing.length > 1 ? 'they are' : 'it is'} off now.`),
+      el(
+        'p',
+        'gap',
+        switchable.length === missing.length
+          ? `Without ${them}, what ${them === 'it' ? 'it' : 'they'} added to the game can be missing from it, or break.`
+          : `${addonList(missing.filter((addon) => !switchable.includes(addon)))} is no longer loaded in this browser: load it again from its files to play this save as it was made.`,
+      ),
+      actions([
+        ...(switchable.length ? ([[`[A] Switch ${switchable.length < missing.length ? addonList(switchable) : them} on and play`, () => go(true)]] as [string, () => void][]) : []),
+        ['[P] Play without', () => go(false)],
+        ['[ESC] Back to console', leave],
+      ]),
+    );
+    screenKeys = { ...(switchable.length ? { a: () => go(true) } : {}), p: () => go(false) };
+    setHints([
+      ...(switchable.length ? ([['A', 'SWITCH ON']] as [string, string][]) : []),
+      ['P', 'PLAY WITHOUT'],
+      ['ESC', 'BACK'],
+    ]);
+  });
+}
+
 async function main(): Promise<void> {
   // A mod this browser forgot it has (its settings were cleared) is found again from its files.
   if (requested && !isGameId(requested)) await syncMods().catch(() => false);
@@ -760,6 +1154,14 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (loadSlot !== undefined && !addonsChecked) {
+    const missing = addonsMissing(await readSaveMeta(game, loadSlot), game);
+    if (missing.length) {
+      await askAboutAddons(game, loadSlot, missing);
+      logLine(`${def.label}: ${def.title.toUpperCase()}${def.year ? ` (${def.year})` : ''}`);
+    }
+  }
+
   try {
     engine = await bootEngine(
       game,
@@ -777,6 +1179,8 @@ async function main(): Promise<void> {
         },
         saved: (files, slots) => {
           const now = performance.now();
+          for (const slot of slots) storedAt.set(slot, now);
+          for (const check of [...storeWaiters]) check();
           if (slots.includes(QUICK_SAVE_SLOT)) quickStoredAt = now;
           if (autosaver?.saved(slots)) toast(`AUTOSAVED IN SLOT ${String(slots[0]).padStart(2, '0')}`);
           else if (slots.includes(QUICK_SAVE_SLOT) && now - quickMadeAt < QUICK_PAIRING_MS) toast(`QUICK SAVED IN SLOT ${QUICK_SLOT_NAME}`);
@@ -800,6 +1204,8 @@ async function main(): Promise<void> {
             toast(`QUICK LOADED FROM SLOT ${QUICK_SLOT_NAME}`);
           }
         },
+        arrived: () => autosaver?.arrived(),
+        loaded: (slot) => void checkLoaded(slot),
         storageFailed: (reason) => toast(`NOT STORED: ${reason.toUpperCase()}. THIS SAVE WILL BE LOST WHEN YOU LEAVE.`, 20_000, true),
         exit: ended,
         fatal: (message) => fatal(message),

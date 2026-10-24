@@ -1,0 +1,19 @@
+/*
+ * A global script for game.spec.ts: once, in the first game it starts in,
+ * it sends the player to the Den's business district, as an exit grid
+ * would (not to Arroyo's village, which greets a player fresh from the temple
+ * with a movie and the Elder's words, and no autosave is made in those; nor
+ * to a desert encounter, map 0, which the engine takes for no map at all). The
+ * engine counts that as arriving on another map (engines/fallout2/patches
+ * 0018), and the console autosaves there. It notes in an sfall global that it
+ * has, which the save keeps: a game loaded from that save stays where it is.
+ * Compiled with sfall's sslc: see docs/developing.md.
+ */
+procedure start;
+
+procedure start begin
+   if (not(game_loaded)) then return;
+   if (get_sfall_global_int("ovtravel") != 0) then return;
+   set_sfall_global("ovtravel", 1);
+   load_map("denbus1.map", 0);
+end

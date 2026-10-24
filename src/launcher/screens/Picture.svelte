@@ -62,6 +62,6 @@
   </div>
   <aside class="board gap" aria-label="Picture">
     <Glyph name={items[selected]?.icon ?? 'picture'} />
-    <p class="dim">A change takes hold the next time the game is started. The same choice is on each game's deck.</p>
+    <p class="dim">A change takes hold the next time the game is started, or at once from the menu of a game running (F9). The same choice is on each game's deck.</p>
   </aside>
 </div>

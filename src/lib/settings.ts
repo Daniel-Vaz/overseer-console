@@ -47,6 +47,8 @@ export interface Settings {
   fastForward: number;
   /** Minutes of play between autosaves, in the last three save slots. 0: none. */
   autosave: number;
+  /** Autosave, in the same slots, on arriving on another map. */
+  autosaveMaps: boolean;
   /** Scanlines, glow and flicker on the console itself. */
   crt: boolean;
   /** Key clicks and beeps on the console itself. */
@@ -99,6 +101,7 @@ export const DEFAULT_SETTINGS: Settings = {
   improvements: true,
   fastForward: 3,
   autosave: 10,
+  autosaveMaps: true,
   crt: true,
   sound: true,
   vault: true,
@@ -163,6 +166,8 @@ export function loadSettings(): Settings {
     if (merged.touchPointer !== 'direct' && merged.touchPointer !== 'trackpad') merged.touchPointer = DEFAULT_SETTINGS.touchPointer;
     if (!FAST_FORWARD_SPEEDS.includes(merged.fastForward)) merged.fastForward = DEFAULT_SETTINGS.fastForward;
     if (!AUTOSAVE_MINUTES.includes(merged.autosave)) merged.autosave = DEFAULT_SETTINGS.autosave;
+    // Saved before arrivals were a choice: autosaves that were on are on for arrivals too, and off stays off.
+    if (typeof parsed.autosaveMaps !== 'boolean') merged.autosaveMaps = typeof parsed.autosave === 'number' ? merged.autosave > 0 : DEFAULT_SETTINGS.autosaveMaps;
     if (typeof merged.improvements !== 'boolean') merged.improvements = DEFAULT_SETTINGS.improvements;
     if (!Number.isFinite(merged.cacheMb)) merged.cacheMb = DEFAULT_SETTINGS.cacheMb;
     merged.cacheMb = Math.min(1024, Math.max(32, Math.round(merged.cacheMb)));

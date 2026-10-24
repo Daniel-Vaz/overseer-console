@@ -380,7 +380,7 @@
     zipInput!.value = '';
     try {
       pendingImport = await readSaveArchive(game, file);
-      if (pendingImport.conflicts.length) {
+      if (pendingImport.conflicts.length || pendingImport.warnings.length) {
         confirm = 'import';
       } else {
         await commitImport();
@@ -659,7 +659,7 @@
     { key: 'y', label: 'Yes, fetch and replace', tone: 'amber', action: () => pendingFetch && void commitFetch(pendingFetch.items, pendingFetch.left) },
   ];
 
-  const importItems: MenuItem[] = [
+  const importItems = $derived<MenuItem[]>([
     {
       key: 'n',
       label: 'No, cancel',
@@ -668,8 +668,8 @@
         confirm = null;
       },
     },
-    { key: 'y', label: 'Yes, replace them', tone: 'amber', action: () => void commitImport() },
-  ];
+    { key: 'y', label: pendingImport?.conflicts.length ? 'Yes, replace them' : 'Restore them anyway', tone: 'amber', action: () => void commitImport() },
+  ]);
 </script>
 
 <input class="sr-only" type="file" accept=".zip,application/zip" tabindex="-1" aria-hidden="true" bind:this={zipInput} onchange={pickedArchive} />
@@ -708,11 +708,21 @@
     <div class="signed ask gap">
       <Glyph name="warning" tone="amber" />
       <div>
-        <p class="amber">
-          {pendingImport.conflicts.map(slotLabel).join(', ')}
-          {pendingImport.conflicts.length === 1 ? 'ALREADY HOLDS A SAVE' : 'ALREADY HOLD SAVES'}.
-        </p>
-        <p>Restoring the archive replaces them. What they hold now is kept as an earlier version.</p>
+        {#if pendingImport.warnings.length}
+          <p class="amber">{pendingImport.warnings.length === 1 ? 'ONE THING TO KNOW' : `${pendingImport.warnings.length} THINGS TO KNOW`} BEFORE THESE SAVES ARE PLAYED.</p>
+          <ul class="import-warnings">
+            {#each pendingImport.warnings as warning (warning)}
+              <li>{warning}</li>
+            {/each}
+          </ul>
+        {/if}
+        {#if pendingImport.conflicts.length}
+          <p class="amber">
+            {pendingImport.conflicts.map(slotLabel).join(', ')}
+            {pendingImport.conflicts.length === 1 ? 'ALREADY HOLDS A SAVE' : 'ALREADY HOLD SAVES'}.
+          </p>
+          <p>Restoring the archive replaces them. What they hold now is kept as an earlier version.</p>
+        {/if}
       </div>
     </div>
     <Menu items={importItems} label="Confirm import" />

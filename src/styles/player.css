@@ -603,6 +603,67 @@ body.keys-open {
   margin-top: 0.6em;
 }
 
+/* A column of choices, one to a line, their sizes lined up (the pictures). */
+.actions.stacked {
+  flex-direction: column;
+  align-items: stretch;
+  width: min(100%, 52ch);
+}
+
+.actions.stacked button {
+  text-align: left;
+  white-space: pre;
+}
+
+/* A problem report, as it will be filed: kept to a box of its own that scrolls, so that its buttons stay in view. */
+.report {
+  width: min(100%, 96ch);
+  max-height: min(48vh, 26em);
+  margin-top: 0.8em;
+  padding: 0.3em 1.5ch 0.6em;
+  overflow-y: auto;
+  border: 1px solid var(--phosphor-faint);
+  font-size: 0.85em;
+  text-align: left;
+  overscroll-behavior: contain;
+}
+
+.report .hot {
+  margin: 0.6em 0 0.1em;
+}
+
+.report .readout {
+  grid-template-columns: minmax(12ch, max-content) minmax(0, 1fr);
+}
+
+.report pre {
+  margin: 0;
+  font: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.report-status {
+  min-height: 1.2em;
+  max-width: 80ch;
+}
+
+/* A phone held sideways: the report takes what the screen has between its title and its buttons. */
+@media (max-height: 460px) {
+  .report {
+    max-height: calc(100vh - 12.5em);
+    margin-top: 0.4em;
+  }
+
+  .report-intro {
+    font-size: 0.8em;
+  }
+}
+
+#terminal .actions + .readout {
+  margin-top: 1.1em;
+}
+
 @media (prefers-reduced-motion: reduce) {
   #toast,
   #handle {

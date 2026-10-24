@@ -84,8 +84,8 @@
       id: 'faults',
       title: 'If something fails',
       icon: 'warning',
-      summary: 'No sound, a holodisk rejected, a system fault: what each means and what to do.',
-      topics: ['Troubleshooting'],
+      summary: 'No sound, a holodisk rejected, a system fault: what each means and what to do, and how to report it.',
+      topics: ['Troubleshooting', 'Reporting a problem'],
     },
   ];
 
@@ -131,6 +131,7 @@
   ]);
 
   const turns = $derived<MenuItem[]>([
+    ...(current?.id === 'faults' ? [{ key: 'r', label: 'Write a problem report', action: () => go('report') } satisfies MenuItem] : []),
     ...(next ? [{ key: 'n', label: `Next: ${next.title}`, action: () => go(`manual/${next.id}`) }] : []),
     ...(previous ? [{ key: 'p', label: `Previous: ${previous.title}`, action: () => go(`manual/${previous.id}`) }] : []),
     { key: '0', label: 'Contents', action: () => go('manual') },
@@ -327,6 +328,12 @@
             picture at least 600 lines tall, and is played at high resolution only. A change takes hold the next time the
             game is started.
           </p>
+          <p>
+            While a game runs, <span class="hot">Picture</span> on its menu (F9, or MENU on a touch screen) changes it at
+            once, or fits the one in use to a window that changed shape, such as a phone turned sideways. The engines draw
+            at one size from start to end, so the game is saved in slot 08, 09 or 10 at the first moment it can be, and
+            carries on from that save in the new picture a few seconds later.
+          </p>
           <dl class="readout gap">
             <dt>Classic 4:3</dt>
             <dd>The original 640 x 480 picture. The most faithful choice, and the lightest</dd>
@@ -416,6 +423,12 @@
             them to a zip file as a backup, or to move them to another browser or a desktop install. Linking your Dropbox or
             Google Drive (chapter 8) does the moving for you.
           </p>
+          <p>
+            Each save also notes the add-ons that were switched on when it was made (chapter 2). Before a save is played
+            with one of them off, the console says so and offers to switch it back on: what an add-on put into a game can
+            be missing without it, or break. A save loaded from the game's own menu is checked the same way, and the
+            console's menu then offers to start again from it with the add-on on.
+          </p>
 
           <h2>Quick save</h2>
           <p>
@@ -431,15 +444,17 @@
 
           <h2>Autosave</h2>
           <p>
-            Every ten minutes of play the console has the game save itself in slot 08, 09 or 10, in turn, described as
-            AUTOSAVE and the time. Only time spent playing counts: not the game's menus, nor a suspended game. The save is
-            made when you could have made a quick save yourself, so never in combat or in a conversation.
+            On arriving on another map, and every ten minutes of play, the console has the game save itself in slot 08, 09
+            or 10, in turn, described as AUTOSAVE and the time. Arriving is going somewhere: through an exit, from the world
+            map, into an encounter; starting or loading a game is not. Only time spent playing counts: not the game's menus,
+            nor a suspended game. The save is made when you could have made a quick save yourself, so never in combat or in
+            a conversation: on a map that greets you with a fight, once it is over.
           </p>
           <p>
             Slots 01 to 06 are yours alone, and so is every slot from 11 on: both games have a hundred pages of ten, turned
             with the arrow keys left and right (ten pages with SHIFT) or BACK and MORE under the list. A save you make in 08
-            to 10 yourself is yours as well: an autosave never replaces it. How often, or not at all, is under Terminal
-            settings.
+            to 10 yourself is yours as well: an autosave never replaces it. When, or not at all, is under Terminal settings:
+            on new maps alone, on new maps and every 5, 10, 15 or 30 minutes, or off.
           </p>
 
           <h2>Last exported</h2>
@@ -511,6 +526,12 @@
             Clearing this site's data in your browser deletes the game data and the saves. Safari may also clear data of
             sites you have not opened for a week. Exporting your saves to a zip file, or uploading them to your Dropbox or
             Google Drive, is the safe habit.
+          </p>
+          <p>
+            Saves restored from a zip are looked over first. One the game could not load is turned away: no readable
+            SAVE.DAT, a save of the other game, or a map file missing that it names. What may keep the rest from playing
+            as they were made is said before they are put in place: saved in another game or mod, on a map this one does
+            not have, or with add-ons that are off here.
           </p>
         {:else if current.id === 'cloud'}
           <p>
@@ -634,6 +655,16 @@
               The console sees only what it put there itself. Put the game or mod in with Cloud link, Put in Google Drive.
             </dd>
           </dl>
+
+          <h2>Reporting a problem</h2>
+          <p>
+            A <span class="hot">problem report</span> holds what the console knows that helps find a fault: its build, the
+            game or mod and its engine, add-ons, settings, the browser, and the engine's last words. While a game runs it
+            is on the game's menu (F9, or MENU), and on the System fault screen; here, under
+            <span class="hot">Write a problem report</span>. Nothing is sent by itself: open it as a new issue on GitHub
+            to read it over, say what happened and post it there, or copy it or save it as a file. It names no accounts,
+            saves or files of yours.
+          </p>
         {/if}
       </div>
 

@@ -11,6 +11,7 @@ own **Operations manual** (entry 6 of the main directory) explains each of these
 - [Save archives](#save-archives)
 - [Save editor](#save-editor)
 - [The vault](#the-vault)
+- [Problem reports](#problem-reports)
 - [Privacy](#privacy)
 
 ## The games
@@ -76,7 +77,9 @@ own **Operations manual** (entry 6 of the main directory) explains each of these
 - **Continue.** One key takes you from the console straight into your latest save.
 - **A picture for each game.** The original 640 x 480, widened to the shape of the window, or high resolution:
   chosen game by game and mod by mod. The two originals start at the picture they were drawn for, a mod at the one
-  its makers meant: Fallout Et Tu at the high resolution it was laid out for.
+  its makers meant: Fallout Et Tu at the high resolution it was laid out for. While a game runs, its menu (F9)
+  changes it, or fits it to a window that changed shape: the game is autosaved and carries on from there in the
+  new picture a few seconds later.
 - **Fast forward.** F8 runs a game several times as fast, for the long walk across a map and the turns of a
   dozen rats, and back again.
 - **Fallout 2 with what its engine adds, or without.** One setting switches on items that light up on a key,
@@ -112,13 +115,20 @@ swiping finger, as a phone's lists do.
   from zip files.
 - **A thousand save slots.** Both games' save screens have a hundred pages of ten slots, turned with the arrow keys
   left and right (ten pages with Shift) or BACK and MORE under the list. Fallout's own had just the one page.
-- **Autosave.** Every ten minutes of play (or five, fifteen, thirty, or never) a game is saved by itself, in turn
-  in slots 8, 9 and 10. Slots 1 to 6 and every slot from 11 on are the player's own, and so is any save made by
-  hand in 8 to 10.
+- **Autosave.** On arriving on another map, and every ten minutes of play (or five, fifteen, thirty; or on new maps
+  alone, or never), a game is saved by itself, in turn in slots 8, 9 and 10, at the first moment out of a fight or a
+  conversation. Slots 1 to 6 and every slot from 11 on are the player's own, and so is any save made by hand in 8 to
+  10.
 - **Quick save in slot 7.** F6 saves into slot 7 at once and F7 loads it, without asking for a slot: on a touch
   screen they are two buttons beside the picture.
 - **A history for every slot.** Saving over a slot keeps what was in it: every slot has earlier versions to
   roll back to. An erased save is kept for a week, and can be put back.
+- **Saves that know their add-ons.** Each save notes the add-ons that were on when it was made. Played with one of
+  them off, the console says so first and offers to switch it back on; loaded from the game's own menu, it says so
+  and offers to start again from it with them on.
+- **Saves looked over before they are restored.** A zip's saves are checked first: one the game could not load (no
+  readable SAVE.DAT, the other game's, a map file missing) is turned away, and what could keep the rest from playing as
+  made is said before they are put in place (another game or mod, a map this one does not have, add-ons that are off).
 - **A reminder to back up.** Each game's deck and archive say when its saves last left the browser, to a zip file or
   to your cloud, and say it in amber while that has never happened.
 - **A cloud link, if you want one.** Carry saves between devices, and games and mods to any of them, through your own
@@ -163,6 +173,15 @@ when the console's storage is sealed, and a console left alone gets a visitor on
 
 Painted in the browser, one coarse pixel at a time, from nothing but code: no artwork from the games. It holds
 still for those who have asked their system for less motion, and can be switched off in the settings.
+
+## Problem reports
+
+When something goes wrong, the console writes up what it knows the same way every time: its build, the game or mod
+and its engine, add-ons, settings, the browser and the machine, and the engine's last words. It is on a game's menu
+(F9) and its System fault screen, and in the manual's chapter on faults. It can be opened as a new
+[issue on GitHub](https://github.com/Daniel-Vaz/overseer-console/issues) with all of it filled in, under a title that
+starts with the game and the kind of problem, copied, or saved as a file. Nothing is sent by itself, and it names no
+accounts, saves or files of yours.
 
 ## Privacy
 

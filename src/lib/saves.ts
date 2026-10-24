@@ -6,8 +6,11 @@
  * a slot are kept by storage/history.ts.
  */
 import { strFromU8, strToU8, unzipSync, zipSync, type Zippable } from 'fflate';
-import { gameDef, type GameId } from './games';
-import { SAVE_PREFIX, isSaveData, parseCharacter, parseSaveHeader, saveLayoutOf, slotOf, slotPrefix, type Character } from './savefile';
+import { GAMES, gameDef, type GameId } from './games';
+import { openGameData } from './gamedata';
+import { sections } from './gamefacts';
+import { SAVE_PREFIX, isSaveData, parseCharacter, parseSaveHeader, saveLayoutOf, saveMapFiles, slotOf, slotPrefix, type Character } from './savefile';
+import { addonList, addonsMissing, parseSaveMeta, saveMetaPath } from './savemeta';
 import { countVersions, eraseSlot, replaceSlot, type VersionCause } from './storage/history';
 import { pathKey } from './storage/manifest';
 import { isJunk } from './storage/plan';
@@ -228,6 +231,8 @@ export interface SaveImport {
   slots: number[];
   /** Those that would replace a slot that already exists. */
   conflicts: number[];
+  /** What the console found that may keep a save from playing as it was made: one sentence each. */
+  warnings: string[];
   commit(): Promise<void>;
 }
 
@@ -242,6 +247,12 @@ export interface ArchiveOptions {
   writtenAt?: number;
   /** Why a slot's previous contents went into its history. */
   cause?: VersionCause;
+  /**
+   * Leave out what takes reading the game's own files (whether it has the
+   * map a save was made on): for saves fetched back from the player's cloud,
+   * which this console made.
+   */
+  quick?: boolean;
 }
 
 function readInfo(data: Uint8Array | undefined): Record<string, number> {
@@ -252,6 +263,27 @@ function readInfo(data: Uint8Array | undefined): Record<string, number> {
   } catch {
     return {};
   }
+}
+
+/**
+ * The maps a game has, by file name without its extension, lower case: as
+ * Fallout 2's engine lists them (data/maps.txt), or, for Fallout's, the map
+ * files themselves. Null when the game's files cannot say, which is then not
+ * held against a save.
+ */
+async function knownMaps(game: GameId): Promise<Set<string> | null> {
+  const data = await openGameData(game).catch(() => null);
+  if (!data) return null;
+  const list = await data.read('data/maps.txt').catch(() => null);
+  if (list) {
+    const names = new Set<string>();
+    for (const section of sections(list).values()) {
+      const name = section.get('map_name')?.trim().toLowerCase().replace(/\.map$/, '');
+      if (name) names.add(name);
+    }
+    return names.size ? names : null;
+  }
+  return null;
 }
 
 /**
@@ -305,19 +337,54 @@ export async function readSaveArchive(game: GameId, archive: Blob, options: Arch
   }
 
   // A slot is only worth importing with its SAVE.DAT, and of the right game.
-  const engine = gameDef(game).engine.id;
-  for (const slot of slots) {
+  const def = gameDef(game);
+  const engine = def.engine.id;
+  const warnings: string[] = [];
+  let known: Set<string> | null | undefined;
+  for (const slot of [...slots].sort((a, b) => a - b)) {
     const name = `SLOT${String(slot).padStart(2, '0')}`;
-    const main = puts.find((put) => put.key === `${slotPrefix(slot)}save.dat`);
-    if (!main || !parseSaveHeader(main.data)) {
+    const prefix = slotPrefix(slot);
+    const main = puts.find((put) => put.key === `${prefix}save.dat`);
+    const header = main ? parseSaveHeader(main.data) : null;
+    if (!main || !header) {
       throw new Error(`${name} in that archive has no readable SAVE.DAT.`);
     }
     // Saved by the other engine. A save that does not say is let through.
     const layout = saveLayoutOf(main.data);
     if (layout && layout !== engine) {
-      const def = gameDef(game);
       const on = def.mod ? ` (played on ${gameDef(engine).title})` : '';
       throw new Error(`${name} in that archive is a save of ${gameDef(layout).title}. ${def.title}${on} cannot load it.`);
+    }
+
+    // Every place the save says the player has been comes as a file of its own, the one it was made on first of all.
+    const files = new Set(puts.filter((put) => put.key.startsWith(prefix)).map((put) => put.key.slice(prefix.length)));
+    // (Where the console cannot read that far, it says nothing: what it cannot be sure of, it does not hold against a save.)
+    const maps = saveMapFiles(main.data, layout ?? engine);
+    if (maps) {
+      // The engines copy each of them back when they load the save, and give up at the first that is not there.
+      const missing = maps.filter((map) => !files.has(map.toLowerCase()));
+      if (missing.length) {
+        const named = missing.slice(0, 3).map((map) => map.toUpperCase()).join(', ') + (missing.length > 3 ? ` and ${missing.length - 3} more` : '');
+        throw new Error(`${name} in that archive lacks ${missing.length === 1 ? 'a map file' : `${missing.length} of the ${maps.length} map files`} its SAVE.DAT names (${named}). The game cannot load it without ${missing.length === 1 ? 'it' : 'them'}.`);
+      }
+    }
+
+    // What the console wrote beside it, where it came from a console.
+    const meta = parseSaveMeta(puts.find((put) => put.key === saveMetaPath(slot).key)?.data);
+    if (meta && meta.game !== game) {
+      warnings.push(`${name} was saved in ${GAMES[meta.game]?.title ?? meta.game}, not in ${def.title}.`);
+    }
+    const off = addonsMissing(meta, game);
+    if (off.length) {
+      warnings.push(`${name} was made with ${addonList(off)} on, which ${off.length > 1 ? 'are' : 'is'} not on for ${def.title}. The console offers to switch ${off.length > 1 ? 'them' : 'it'} on when the save is played.`);
+    }
+
+    // A save made in another game or mod is on a map this one does not have.
+    if (!options.quick && header.map) {
+      known ??= await knownMaps(game);
+      if (known && !known.has(header.map.toLowerCase())) {
+        warnings.push(`${name} was saved on the map ${header.map.toUpperCase()}, which ${def.title} does not have: it looks like a save of another game or mod, and will not load.`);
+      }
     }
   }
 
@@ -326,6 +393,7 @@ export async function readSaveArchive(game: GameId, archive: Blob, options: Arch
   return {
     slots: found,
     conflicts: found.filter((slot) => existing.has(slot)),
+    warnings,
     async commit() {
       // What a slot held before goes into its history, not into the void.
       for (const slot of found) {

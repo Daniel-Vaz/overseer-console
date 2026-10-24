@@ -1,8 +1,8 @@
 /**
- * Has a running game saved every so many minutes of play, in turn in the
- * last three save slots (see lib/autosave.ts).
+ * Has a running game saved every so many minutes of play, and on arriving on
+ * another map, in turn in the last three save slots (see lib/autosave.ts).
  */
-import { PlayClock, nextAutosaveSlot } from '../lib/autosave';
+import { PlayClock, nextAutosaveSlot, type AutosavePlan } from '../lib/autosave';
 import type { Engine } from '../lib/engine/host';
 import type { GameId } from '../lib/games';
 import { briefSaves } from '../lib/saves';
@@ -27,11 +27,21 @@ export class Autosaver {
   constructor(
     private readonly game: GameId,
     private readonly engine: Engine,
-    minutes: number,
+    private readonly plan: AutosavePlan,
     private readonly hooks: AutosaveHooks,
   ) {
-    this.clock = new PlayClock(minutes * 60_000);
-    if (minutes > 0) this.timer = window.setInterval(() => void this.tick(), 1000);
+    this.clock = new PlayClock(plan.minutes * 60_000);
+    // Also what calls off a save asked for (an arrival's, a new picture's) when the game ends before it could be made.
+    this.timer = window.setInterval(() => void this.tick(), 1000);
+  }
+
+  /**
+   * The player arrived on another map by going there. The save is made at the
+   * next moment the game can make one: at once, or once a fight that greets
+   * the player there is over.
+   */
+  arrived(): void {
+    if (this.plan.maps) void this.request();
   }
 
   stop(): void {
@@ -39,8 +49,18 @@ export class Autosaver {
   }
 
   /** Saves now, however long it has been: for diagnostics and tests. */
-  now(): Promise<boolean> {
-    return this.request();
+  async now(): Promise<boolean> {
+    return typeof (await this.request()) === 'number';
+  }
+
+  /**
+   * Saves at the next moment the game can, whatever the setting says: before
+   * the game is started again in another picture, to carry on from there.
+   * The slot it was saved in; 'full' when slots 08 to 10 all hold saves the
+   * player made there; 'failed' when the save was not made.
+   */
+  saveForRestart(): Promise<number | 'full' | 'failed'> {
+    return this.request(true);
   }
 
   /**
@@ -72,8 +92,14 @@ export class Autosaver {
     await this.request();
   }
 
-  private async request(): Promise<boolean> {
-    if (this.pending !== null || this.choosing) return false;
+  private async request(asked = false): Promise<number | 'full' | 'failed'> {
+    // One waiting for its moment is the one this would have been; asked for, it takes that one's place.
+    if (this.choosing) return 'failed';
+    if (this.pending !== null) {
+      if (!asked) return 'failed';
+      void this.engine.requestSave(0);
+      this.pending = null;
+    }
     this.choosing = true;
     let slot: number | null;
     try {
@@ -84,16 +110,17 @@ export class Autosaver {
       this.choosing = false;
     }
     if (slot === null) {
+      if (asked) return 'full';
       this.clock.reset();
       if (!this.toldFull) this.hooks.say('NO AUTOSAVE: SLOTS 08 TO 10 HOLD SAVES YOU MADE THERE YOURSELF', true);
       this.toldFull = true;
-      return false;
+      return 'full';
     }
     this.pending = slot;
     try {
-      return await this.engine.requestSave(slot);
+      return (await this.engine.requestSave(slot)) ? slot : 'failed';
     } finally {
-      this.pending = null;
+      if (this.pending === slot) this.pending = null;
     }
   }
 }

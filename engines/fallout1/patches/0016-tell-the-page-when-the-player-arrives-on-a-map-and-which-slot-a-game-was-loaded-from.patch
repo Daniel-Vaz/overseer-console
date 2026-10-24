@@ -1,0 +1,91 @@
+Tell the page when the player arrives on a map and which slot a game was loaded from
+
+The page around the engine (engines/lib/overseer.js) autosaves when the
+player arrives on another map, and checks a loaded save against the
+add-ons it was made with. Arriving is going somewhere: an exit grid, the
+world map, an encounter. Starting a new game and loading a save load the
+map by name, and do not count. A load reports its slot (1-based) once it
+is complete, however it was asked for.
+---
+diff --git a/src/game/loadsave.cc b/src/game/loadsave.cc
+index db4be63..fff5ef7 100644
+--- a/src/game/loadsave.cc
++++ b/src/game/loadsave.cc
+@@ -56,6 +56,8 @@
+ // how a quick save (0) or a quick load (1) went: 1 made, 0 nothing to load,
+ // -1 failed.
+ extern "C" void overseer_quick(int load, int outcome);
++// And which slot (1-based) a game was just loaded from, however it was asked for.
++extern "C" void overseer_loaded(int slot);
+ #endif
+ 
+ namespace fallout {
+@@ -1844,6 +1846,10 @@ static int LoadSlot(int slot)
+ 
+     loadingGame = 0;
+ 
++#if defined(__EMSCRIPTEN__)
++    overseer_loaded(slot_cursor + 1);
++#endif
++
+     return 0;
+ }
+ 
+diff --git a/src/game/map.cc b/src/game/map.cc
+index 737c258..eca3695 100644
+--- a/src/game/map.cc
++++ b/src/game/map.cc
+@@ -41,6 +41,13 @@
+ #include "plib/gnw/memory.h"
+ #include "plib/gnw/svga.h"
+ 
++#if defined(__EMSCRIPTEN__)
++// Overseer Console: the page around the engine (engines/lib/overseer.js) hears
++// when the player arrives on a map by going there (an exit grid, the world
++// map, an encounter), not by starting or loading a game.
++extern "C" void overseer_arrived(int map);
++#endif
++
+ namespace fallout {
+ 
+ static int map_age_dead_critters();
+@@ -912,6 +919,12 @@ int map_load_idx(int map)
+ 
+     PlayCityMapMusic();
+ 
++#if defined(__EMSCRIPTEN__)
++    if (rc == 0) {
++        overseer_arrived(map);
++    }
++#endif
++
+     return rc;
+ }
+ 
+diff --git a/src/game/worldmap.cc b/src/game/worldmap.cc
+index 44c5f1a..7addb89 100644
+--- a/src/game/worldmap.cc
++++ b/src/game/worldmap.cc
+@@ -48,6 +48,11 @@
+ #include "plib/gnw/svga.h"
+ #include "plib/gnw/text.h"
+ 
++#if defined(__EMSCRIPTEN__)
++// Overseer Console: the player arrived on a map (see map.cc).
++extern "C" void overseer_arrived(int map);
++#endif
++
+ namespace fallout {
+ 
+ #define WM_WINDOW_WIDTH 640
+@@ -2573,6 +2578,10 @@ static int LoadTownMap(const char* filename, int map_idx)
+ 
+     PlayCityMapMusic();
+ 
++#if defined(__EMSCRIPTEN__)
++    overseer_arrived(map_idx);
++#endif
++
+     obj_turn_on(obj_dude, NULL);
+     tile_refresh_display();
+ 

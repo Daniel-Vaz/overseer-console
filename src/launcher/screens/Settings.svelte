@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { AUTOSAVE_MINUTES } from '../../lib/autosave';
+  import { AUTOSAVE_PLANS, planIndex, planLabel, type AutosavePlan } from '../../lib/autosave';
   import { gameDef } from '../../lib/games';
   import { FAST_FORWARD_SPEEDS, type Settings } from '../../lib/settings';
   import { formatBytes } from '../../lib/storage/manifest';
@@ -59,6 +59,21 @@
   function choice<K extends keyof Settings>(key: K, values: readonly Settings[K][]): Pick<MenuItem, 'action' | 'adjust'> {
     const move = (direction: 1 | -1 = 1) => sys.update({ [key]: step(values, s[key], direction) } as Partial<Settings>);
     return { action: () => move(), adjust: move };
+  }
+
+  const autosavePlan = $derived<AutosavePlan>({ minutes: s.autosave, maps: s.autosaveMaps });
+
+  /** On to the next way of autosaving, or back to the one before. */
+  function stepAutosave(direction: 1 | -1 = 1): void {
+    const count = AUTOSAVE_PLANS.length;
+    const next = AUTOSAVE_PLANS[(Math.max(0, planIndex(autosavePlan)) + direction + count) % count]!;
+    sys.update({ autosave: next.minutes, autosaveMaps: next.maps });
+  }
+
+  /** When a plan saves, as the start of a sentence. */
+  function autosaveWhen(plan: AutosavePlan): string {
+    if (!plan.minutes) return 'On arriving on another map';
+    return plan.maps ? `On arriving on another map and every ${plan.minutes} minutes of play,` : `Every ${plan.minutes} minutes of play`;
   }
 
   // The same picture for every game is named once; otherwise each deck's, in the order of the decks, and
@@ -152,11 +167,13 @@
       group: GAMES_GROUP,
       label: 'Autosave',
       icon: 'save',
-      state: s.autosave ? `EVERY ${s.autosave} MIN` : 'OFF',
-      note: s.autosave
-        ? `Every ${s.autosave} minutes of play the game is saved in slot 08, 09 or 10, in turn. A save you make in 08 to 10 yourself is never saved over. Quick saves go in 07.`
-        : 'Games are saved only when you save them.',
-      ...choice('autosave', AUTOSAVE_MINUTES),
+      state: planLabel(autosavePlan),
+      note:
+        autosavePlan.maps || autosavePlan.minutes
+          ? `${autosaveWhen(autosavePlan)} the game is saved in slot 08, 09 or 10, in turn. A save you make in 08 to 10 yourself is never saved over. Quick saves go in 07.`
+          : 'Games are saved only when you save them.',
+      action: () => stepAutosave(1),
+      adjust: stepAutosave,
     },
     // Only where there is a touch screen to speak of.
     ...(navigator.maxTouchPoints > 0 || 'ontouchstart' in window || matchMedia('(any-pointer: coarse)').matches

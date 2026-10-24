@@ -1,0 +1,64 @@
+Tell the page when the player arrives on a map and which slot a game was loaded from
+
+The page around the engine (engines/lib/overseer.js) autosaves when the
+player arrives on another map, and checks a loaded save against the
+add-ons it was made with. Arriving is going somewhere: an exit grid, the
+world map, an encounter, all of which load the map by its number. Starting
+a new game and loading a save load it by name, and do not count. A load
+reports its slot (1-based) once it is complete, however it was asked for.
+---
+diff --git a/src/loadsave.cc b/src/loadsave.cc
+index 71e643c..cf0c026 100644
+--- a/src/loadsave.cc
++++ b/src/loadsave.cc
+@@ -77,6 +77,8 @@
+ // how a quick save (0) or a quick load (1) went: 1 made, 0 nothing to load,
+ // -1 failed.
+ extern "C" void overseer_quick(int load, int outcome);
++// And which slot (1-based) a game was just loaded from, however it was asked for.
++extern "C" void overseer_loaded(int slot);
+ #endif
+ 
+ namespace fallout {
+@@ -2302,6 +2304,10 @@ static int lsgLoadGameInSlot(int slot)
+     // Overseer Console: and with a load.
+     sfall_kb_page_keys_stale();
+ 
++#if defined(__EMSCRIPTEN__)
++    overseer_loaded(slot + 1);
++#endif
++
+     return 0;
+ }
+ 
+diff --git a/src/map.cc b/src/map.cc
+index 8b078df..557b0d9 100644
+--- a/src/map.cc
++++ b/src/map.cc
+@@ -49,6 +49,13 @@
+ #include "window_manager_private.h"
+ #include "worldmap.h"
+ 
++#if defined(__EMSCRIPTEN__)
++// Overseer Console: the page around the engine (engines/lib/overseer.js) hears
++// when the player arrives on a map by going there (an exit grid, the world
++// map, an encounter), not by starting or loading a game.
++extern "C" void overseer_arrived(int map);
++#endif
++
+ namespace fallout {
+ 
+ const char* mapBuildPath(const char* name);
+@@ -897,6 +904,12 @@ int mapLoadById(Map map)
+ 
+     wmMapMusicStart();
+ 
++#if defined(__EMSCRIPTEN__)
++    if (rc == 0) {
++        overseer_arrived(map);
++    }
++#endif
++
+     return rc;
+ }
+ 
