@@ -107,7 +107,7 @@
       note: loadedMods.length || sys.addons.length
         ? `${[...loadedMods.map((game) => gameDef(game).title), ...sys.addons.map((record) => record.title)].join(', ')}. Each mod is played on its own game, with saves of its own; each add-on is laid over a game or a mod.`
         : 'Mods for Fallout and Fallout 2, from their zips or folders: Fallout Et Tu, the Restoration Project, Sonora and more.',
-      icon: 'gamedata',
+      icon: 'mod',
       action: () => go('mods'),
     },
     {

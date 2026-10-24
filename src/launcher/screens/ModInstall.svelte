@@ -253,7 +253,7 @@
         state: loaded && !older ? 'LOADED' : offer,
         tone: older ? 'amber' : undefined,
         note: `${entry.blurb} ${HOW[wanted.kind]} From ${siteOf(wanted)}.`,
-        icon: 'gamedata',
+        icon: 'mod',
         action: () => go(`mods/install/${id}`),
       };
     }),
@@ -287,7 +287,7 @@
       if (zip && linked && handed && inCloud === false) {
         items.push({
           label: `Put it in your ${linked.name}`,
-          icon: 'uplink',
+          icon: 'cloud',
           note: `Sends ${zip.file} as it is into ${cloudMods} in your ${linked.name}, to load it from there on your other devices.`,
           action: () => void putInCloud(),
         });
@@ -298,7 +298,7 @@
         state: blocked ?? (inCloud ? `IN YOUR ${linked.name.toUpperCase()}` : `VIA ${linked.name.toUpperCase()}`),
         tone: blocked ? 'amber' : undefined,
         disabled: !!missing,
-        icon: 'uplink',
+        icon: here ? 'update' : 'download',
         note:
           blockedNote ||
           (inCloud
@@ -354,7 +354,7 @@
     {
       key: '2',
       label: 'Load it anyway',
-      icon: 'gamedata',
+      icon: 'mod',
       note: 'As any mod is loaded: the console finds out what it is.',
       action: () => odd && install(odd.sources, false),
     },

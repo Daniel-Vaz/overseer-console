@@ -183,7 +183,7 @@
     {
       key: '2',
       label: 'A game: select a zip of its folder',
-      icon: 'gamedata',
+      icon: 'archive',
       disabled: planning,
       note: `One zip of the folder the game is installed in. It goes as it is, into the games folder (${gamesFolder}).`,
       action: () => pick('game', zipInput),
@@ -203,7 +203,7 @@
     {
       key: '4',
       label: 'A mod: select its zip',
-      icon: 'gamedata',
+      icon: 'archive',
       disabled: planning,
       note: `The zip a mod is downloaded as. It goes as it is, into the Mods folder (${modsAt}).`,
       action: () => pick('mod', zipInput),

@@ -166,7 +166,7 @@
       key: 'a',
       group: GAMES_GROUP,
       label: 'Autosave',
-      icon: 'save',
+      icon: 'autosave',
       state: planLabel(autosavePlan),
       note:
         autosavePlan.maps || autosavePlan.minutes
@@ -244,7 +244,7 @@
       key: 'c',
       group: STORAGE_GROUP,
       label: 'Cloud link',
-      icon: 'uplink',
+      icon: 'cloud',
       state: sys.cloud.linked ? sys.cloud.name.toUpperCase() : 'NOT LINKED',
       note: sys.cloud.linked
         ? `Linked to the ${sys.cloud.name} of ${sys.cloud.account}. Open to put games and mods in it, change its folders or unlink.`

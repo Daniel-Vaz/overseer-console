@@ -207,7 +207,7 @@
     {
       key: 'm',
       label: 'Keep changing it',
-      icon: 'terminal',
+      icon: 'editor',
       note: 'Back to the editor, with the save as it now is.',
       action: async () => {
         written = null;

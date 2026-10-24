@@ -497,7 +497,7 @@
               key: 'u',
               label: 'Keep saves in your cloud',
               state: 'NOT LINKED',
-              icon: 'uplink',
+              icon: 'cloud',
               note: 'Optional. Link your own Dropbox or Google Drive to carry saves between devices.',
               action: () => go('settings/cloud'),
             },
@@ -509,7 +509,7 @@
               key: 'r',
               label: 'Erased saves',
               state: `${erased.length} KEPT`,
-              icon: 'save',
+              icon: 'trash',
               note: 'Saves erased within the last week. Any of them can be put back in its slot.',
               action: () => {
                 message = null;
@@ -541,7 +541,7 @@
     {
       key: 'm',
       label: 'Modify this save',
-      icon: 'terminal',
+      icon: 'editor',
       disabled: !open?.valid || !game || !sys.playable(game) || running,
       note: running
         ? 'Close the running simulation first.'
@@ -554,6 +554,7 @@
       key: 'v',
       label: 'Earlier versions',
       state: open?.versions ? `${open.versions} KEPT` : 'NONE YET',
+      icon: 'backup',
       disabled: !open?.versions,
       note: open?.versions
         ? 'What this slot held before it was saved over. Any of them can be put back.'
@@ -565,6 +566,7 @@
       key: 'd',
       label: 'Erase this save',
       danger: !running,
+      icon: 'trash',
       disabled: running,
       note: running
         ? 'Close the running simulation first.'

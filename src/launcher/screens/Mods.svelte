@@ -161,7 +161,7 @@
         label: modName(game),
         ...standing(game),
         note: sys.installs[game] === null ? `Its files were ejected. Its saves are kept: open it to load it again.` : `${def.blurb} ${STATUS_NOTES[def.mod!.status]}`,
-        icon: 'gamedata',
+        icon: 'mod',
         action: () => go(`mods/${game}`),
       };
     }),
@@ -173,7 +173,7 @@
         label: addonName(record),
         ...laidOver(record.id),
         note: `${info ? `${addonHolds(info)}. ` : ''}Laid over ${gameDef(record.base).title} or its mods, where it is switched on.`,
-        icon: 'gamedata',
+        icon: 'addon',
         action: () => go(`mods/addons/${record.id}`),
       };
     }),
@@ -181,21 +181,21 @@
       key: 'i',
       label: 'Install a known mod',
       state: `${INSTALLABLE.length} MODS`,
-      icon: 'uplink',
+      icon: 'download',
       note: `From their makers' own links, at the version the console's tests play: ${INSTALLABLE.filter((id) => isZip(MOD_RELEASES[id]!)).length} taken as they are downloaded, the rest step by step.`,
       action: () => go('mods/install'),
     },
     {
       key: 'l',
       label: 'Load a mod',
-      icon: 'folder',
+      icon: 'mod',
       note: 'From its zip, its folder or your cloud, or from a game folder it was installed in.',
       action: () => go('mods/load'),
     },
     {
       key: 'a',
       label: 'Load an add-on',
-      icon: 'folder',
+      icon: 'addon',
       note: 'A small mod laid over a game or a mod rather than played as one: archives for the load order, scripts, music.',
       action: () => go('mods/addons'),
     },
@@ -214,7 +214,7 @@
     {
       key: '1',
       label: 'Select a zip',
-      icon: 'folder',
+      icon: 'archive',
       note: 'The zip a mod is downloaded as, or a zip of a game folder it was installed in. It is read where it lies, and nothing leaves this device.',
       action: () => zipInput?.click(),
     },
@@ -233,7 +233,7 @@
       key: '3',
       label: sys.cloud.linked ? `From ${sys.cloud.name}` : 'From your cloud',
       state: sys.cloud.linked ? undefined : 'NOT LINKED',
-      icon: 'uplink',
+      icon: 'cloud',
       note: sys.cloud.linked
         ? `The mods in ${cloudMods}, in ${cloudHome} in your ${sys.cloud.name}: each zip or folder there is one.`
         : 'Optional. Link your own Dropbox or Google Drive, put your mods in its Mods folder, and load them from there on any device.',
@@ -242,7 +242,7 @@
     {
       key: 'i',
       label: 'Install a known mod',
-      icon: 'uplink',
+      icon: 'download',
       note: "Each mod the console knows, at the version its tests play, from its makers' own link: downloaded and loaded, or step by step.",
       action: () => go('mods/install'),
     },
@@ -269,7 +269,7 @@
     {
       key: '2',
       label: 'Select a zip',
-      icon: 'folder',
+      icon: 'archive',
       note: 'The zip an add-on is downloaded as, or the one archive it is. It is read where it lies, and nothing leaves this device.',
       action: () => addonZipInput?.click(),
     },
@@ -288,7 +288,7 @@
       key: '4',
       label: sys.cloud.linked ? `From ${sys.cloud.name}` : 'From your cloud',
       state: sys.cloud.linked ? undefined : 'NOT LINKED',
-      icon: 'uplink',
+      icon: 'cloud',
       note: sys.cloud.linked
         ? `From ${cloudMods}, in ${cloudHome} in your ${sys.cloud.name}, where add-ons are kept beside the mods.`
         : 'Optional. Link your own Dropbox or Google Drive and keep your mods and add-ons in its Mods folder.',
@@ -303,7 +303,7 @@
         key: KEYS[index] ?? `d${index}`,
         label: mod.name,
         state: `${mod.zip ? 'ZIP' : `${mod.files} ${mod.files === 1 ? 'FILE' : 'FILES'}`}, ${formatBytes(mod.bytes)}`,
-        icon: mod.zip ? 'folder' : 'gamedata',
+        icon: mod.zip ? 'archive' : 'folder',
         note: view === 'addons' ? `Loads the add-on in ${mod.name}, fetched from your ${sys.cloud.name}.` : `Loads the mod in ${mod.name}, fetched from your ${sys.cloud.name}.`,
         action: () => {
           cloud = null;
@@ -325,7 +325,7 @@
         state: STATUS_NAMES[mod.status],
         tone: mod.status === 'experimental' ? 'amber' : undefined,
         note: mod.blurb,
-        icon: 'gamedata',
+        icon: 'mod',
         action: () => go(`mods/known/${id}`),
       };
     }),
@@ -346,14 +346,14 @@
               ? {
                   label: here ? `Update to version ${pageRelease.version}` : `Install version ${pageRelease.version}`,
                   state: formatBytes(pageRelease.bytes),
-                  icon: 'uplink',
+                  icon: here ? 'update' : 'download',
                   note: `${pageRelease.file} from its makers' own link, ${pageRelease.kind === 'zip' ? 'fetched by your Dropbox or ' : ''}downloaded by this browser, checked and loaded.`,
                   action: () => go(`mods/install/${page.id}`),
                 }
               : {
                   label: 'Install it, step by step',
                   state: pageRelease.kind === 'unpack' ? 'UNPACK FIRST' : 'DESKTOP INSTALLER',
-                  icon: 'uplink',
+                  icon: 'download',
                   note: 'Where to download it, what to do with it on a computer, and what to hand the console then.',
                   action: () => go(`mods/install/${page.id}`),
                 }) satisfies Omit<MenuItem, 'key'>,
