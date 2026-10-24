@@ -37,7 +37,13 @@ async function furnish(page: Page, saves: Record<string, Uint8Array> = { 'SAVEGA
   await pickFolder(page, await fakeFallout2ForEditor());
   await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 60_000 });
   await page.goto('#/saves/fo2');
-  await page.locator('input[accept*="zip"]').setInputFiles({ name: 'saves.zip', mimeType: 'application/zip', buffer: Buffer.from(zipSync(saves)) });
+  // Each save with the map it names (buildSave: the temple), as a game writes it: without it the save is turned away.
+  const withMaps = { ...saves };
+  for (const name of Object.keys(saves)) {
+    const map = name.replace(/SAVE\.DAT$/, 'ARTEMPLE.SAV');
+    if (map !== name && !withMaps[map]) withMaps[map] = gzipSync(buildMap());
+  }
+  await page.locator('input[accept*="zip"]').setInputFiles({ name: 'saves.zip', mimeType: 'application/zip', buffer: Buffer.from(zipSync(withMaps)) });
   await expect(page.getByText(/restored from the archive/)).toBeVisible();
 }
 
