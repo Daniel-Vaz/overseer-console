@@ -1,0 +1,387 @@
+Let party members be told whom to attack, as sfall's metarule3(999) does
+
+In combat a party member's action menu has sfall's order to attack (actioni.frm over talk): the pointer then picks a foe it can see and get to, lit red, and the party member goes for that one on its turns until the fight is over. gl_partycontrol turns it on with CombatControl Mode=3, as Fallout Et Tu and Fallout Yesterday have it.
+---
+diff --git a/src/combat.cc b/src/combat.cc
+index 265bfcd..8ce26dc 100644
+--- a/src/combat.cc
++++ b/src/combat.cc
+@@ -2912,6 +2912,9 @@ void _combat_update_critter_outline_for_los(Object* critter, bool enableOutline)
+ // 0x421EFC
+ static void _combat_over()
+ {
++    // SFALL: the orders party members were given end with the fight.
++    partyOrderAttackReset();
++
+     if (_game_user_wants_to_quit == GAME_QUIT_REQUEST_NONE
+         || _game_user_wants_to_quit == GAME_QUIT_REQUEST_END_COMBAT) {
+         for (int index = 0; index < _list_com; index++) {
+diff --git a/src/combat_ai.cc b/src/combat_ai.cc
+index b1e1fb4..8618cf7 100644
+--- a/src/combat_ai.cc
++++ b/src/combat_ai.cc
+@@ -17,6 +17,7 @@
+ #include "debug.h"
+ #include "display_monitor.h"
+ #include "game.h"
++#include "game_mouse.h"
+ #include "game_sound.h"
+ #include "input.h"
+ #include "interface.h"
+@@ -3358,6 +3359,8 @@ void _combat_ai(Object* a1, Object* a2)
+         _ai_run_away(a1, a2);
+     } else {
+         if (a2 == nullptr) {
++            // SFALL: a party member goes for the one it was told to.
++            partyOrderAttackApply(a1);
+             a2 = _ai_danger_source(a1);
+         }
+ 
+diff --git a/src/game_mouse.cc b/src/game_mouse.cc
+index 16088b6..1c5a3b2 100644
+--- a/src/game_mouse.cc
++++ b/src/game_mouse.cc
+@@ -9,6 +9,7 @@
+ #endif
+ 
+ #include <algorithm>
++#include <vector>
+ 
+ #include "actions.h"
+ #include "animation.h"
+@@ -16,6 +17,7 @@
+ #include "art.h"
+ #include "color.h"
+ #include "combat.h"
++#include "combat_ai.h"
+ #include "content_config.h"
+ #include "critter.h"
+ #include "dinput.h"
+@@ -32,6 +34,7 @@
+ #include "party_member.h"
+ #include "proto.h"
+ #include "proto_instance.h"
++#include "random.h"
+ #include "settings.h"
+ #include "sfall_memory.h"
+ #include "sfall_script_hooks.h"
+@@ -39,6 +42,7 @@
+ #include "skilldex.h"
+ #include "svga.h"
+ #include "text_font.h"
++#include "text_object.h"
+ #include "tile.h"
+ #include "window_manager.h"
+ 
+@@ -238,6 +242,20 @@ static unsigned char* _gmouse_3d_menu_actions_start = nullptr;
+ // 0x518D1C gmouse_3d_menu_current_action_index
+ static unsigned char gGameMouseActionMenuHighlightedItemIndex = 0;
+ 
++// SFALL: metarule3(999), sfall's PartyControl::OrderAttackPatch: in combat,
++// a party member's action menu tells it whom to attack, and it goes for
++// that one on its turns until the fight is over.
++static bool gPartyOrderAttack = false;
++
++typedef struct PartyOrderTarget {
++    int memberId;
++    Object* target;
++} PartyOrderTarget;
++
++static std::vector<PartyOrderTarget> gPartyOrderTargets;
++
++static void partyOrderPickTarget(Object* member);
++
+ // 0x518D1E gmouse_3d_action_nums
+ static constexpr int GAME_MOUSE_ACTION_MENU_ITEM_FRAME_COUNT = 2;
+ static constexpr int GAME_MOUSE_ACTION_MENU_ITEM_FRAME_HIGHLIGHTED = 0;
+@@ -254,8 +272,31 @@ static constexpr InterfaceFrmId kGameMouseActionMenuItemFrmIds[GAME_MOUSE_ACTION
+     { InterfaceFrameId::UnloadHighlighted, InterfaceFrameId::Unload },
+     { InterfaceFrameId::SkillHighlighted, InterfaceFrameId::Skill },
+     { InterfaceFrameId::PushHighlighted, InterfaceFrameId::Push },
++    // SFALL: actioni.frm, which the original no longer used, over talk.
++    { static_cast<InterfaceFrameId>(81), InterfaceFrameId::Talk },
+ };
+ 
++// The picture of an action menu item: sfall's order to attack (actioni.frm)
++// comes with sfall's own data, and where that is not there it is talk's.
++static FrmId gameMouseActionMenuItemFrmId(int menuItem, int frame)
++{
++    static int orderArtFound = -1;
++    if (menuItem == GAME_MOUSE_ACTION_MENU_ITEM_ORDER_ATTACK && frame == GAME_MOUSE_ACTION_MENU_ITEM_FRAME_HIGHLIGHTED) {
++        if (orderArtFound == -1) {
++            CacheEntry* handle;
++            Art* art = artLock(kGameMouseActionMenuItemFrmIds[menuItem][frame], &handle);
++            orderArtFound = art != nullptr ? 1 : 0;
++            if (art != nullptr) {
++                artUnlock(handle);
++            }
++        }
++        if (orderArtFound == 0) {
++            return kGameMouseActionMenuItemFrmIds[GAME_MOUSE_ACTION_MENU_ITEM_TALK][frame];
++        }
++    }
++    return kGameMouseActionMenuItemFrmIds[menuItem][frame];
++}
++
+ // 0x518D34 gmouse_3d_modes_enabled
+ static int _gmouse_3d_modes_enabled = 1;
+ 
+@@ -386,6 +427,10 @@ int gameMouseInit()
+ // 0x44B2E8 gmouse_reset
+ int gameMouseReset()
+ {
++    // SFALL: told again by the scripts of the game loaded next.
++    gPartyOrderAttack = false;
++    partyOrderAttackReset();
++
+     if (!gGameMouseInitialized) {
+         return -1;
+     }
+@@ -1179,6 +1224,8 @@ void _gmouse_handle_event(int mouseX, int mouseY, int mouseState)
+                     if (_obj_action_can_talk_to(targetObj)) {
+                         if (!isInCombat()) {
+                             actionMenuItems[actionMenuItemsCount++] = GAME_MOUSE_ACTION_MENU_ITEM_TALK;
++                        } else if (gPartyOrderAttack && objectIsPartyMember(targetObj)) {
++                            actionMenuItems[actionMenuItemsCount++] = GAME_MOUSE_ACTION_MENU_ITEM_ORDER_ATTACK;
+                         }
+ 
+                         if (gameMouseLongPressUsesLootActionForCritter(targetObj)) {
+@@ -1293,6 +1340,9 @@ void _gmouse_handle_event(int mouseX, int mouseY, int mouseState)
+                     case GAME_MOUSE_ACTION_MENU_ITEM_TALK:
+                         actionTalk(gDude, targetObj);
+                         break;
++                    case GAME_MOUSE_ACTION_MENU_ITEM_ORDER_ATTACK:
++                        partyOrderPickTarget(targetObj);
++                        break;
+                     case GAME_MOUSE_ACTION_MENU_ITEM_USE:
+                         switch (FrmId(targetObj).objectType()) {
+                         case OBJ_TYPE_SCENERY:
+@@ -1766,7 +1816,7 @@ Object* gameMouseGetObjectUnderCursor(ObjectType objectType, bool includeDude, M
+ int gameMouseRenderPrimaryAction(int x, int y, GameMouseActionMenuItem menuItem, int width, int height)
+ {
+     CacheEntry* menuItemFrmHandle;
+-    const FrmId menuItemFrmId = kGameMouseActionMenuItemFrmIds[menuItem][GAME_MOUSE_ACTION_MENU_ITEM_FRAME_NORMAL];
++    const FrmId menuItemFrmId = gameMouseActionMenuItemFrmId(menuItem, GAME_MOUSE_ACTION_MENU_ITEM_FRAME_NORMAL);
+     Art* menuItemFrm = artLock(menuItemFrmId, &menuItemFrmHandle);
+     if (menuItemFrm == nullptr) {
+         return -1;
+@@ -1906,7 +1956,7 @@ int gameMouseRenderActionMenuItems(int x, int y, const GameMouseActionMenuItem*
+             return -1;
+         }
+ 
+-        const FrmId frmId = kGameMouseActionMenuItemFrmIds[menuItems[index]][index ? GAME_MOUSE_ACTION_MENU_ITEM_FRAME_NORMAL : GAME_MOUSE_ACTION_MENU_ITEM_FRAME_HIGHLIGHTED];
++        const FrmId frmId = gameMouseActionMenuItemFrmId(menuItems[index], index ? GAME_MOUSE_ACTION_MENU_ITEM_FRAME_NORMAL : GAME_MOUSE_ACTION_MENU_ITEM_FRAME_HIGHLIGHTED);
+ 
+         menuItemFrms[index] = artLock(frmId, &(menuItemFrmHandles[index]));
+         if (menuItemFrms[index] == nullptr) {
+@@ -2083,7 +2133,7 @@ int gameMouseHighlightActionMenuItemAtIndex(int menuItemIndex)
+         return -1;
+     }
+ 
+-    FrmId frmId = kGameMouseActionMenuItemFrmIds[gGameMouseActionMenuItems[gGameMouseActionMenuHighlightedItemIndex]][GAME_MOUSE_ACTION_MENU_ITEM_FRAME_NORMAL];
++    FrmId frmId = gameMouseActionMenuItemFrmId(gGameMouseActionMenuItems[gGameMouseActionMenuHighlightedItemIndex], GAME_MOUSE_ACTION_MENU_ITEM_FRAME_NORMAL);
+     Art* art = artLock(frmId, &handle);
+     if (art == nullptr) {
+         return -1;
+@@ -2105,7 +2155,7 @@ int gameMouseHighlightActionMenuItemAtIndex(int menuItemIndex)
+         return -1;
+     }
+ 
+-    frmId = kGameMouseActionMenuItemFrmIds[gGameMouseActionMenuItems[menuItemIndex]][GAME_MOUSE_ACTION_MENU_ITEM_FRAME_HIGHLIGHTED];
++    frmId = gameMouseActionMenuItemFrmId(gGameMouseActionMenuItems[menuItemIndex], GAME_MOUSE_ACTION_MENU_ITEM_FRAME_HIGHLIGHTED);
+     art = artLock(frmId, &handle);
+     if (art == nullptr) {
+         return -1;
+@@ -2725,4 +2775,144 @@ SFALL_MEMORY_CALL(0x44C840, [](const ProgramValue* args, int) {
+     return ProgramValue(gameMouseSetCursor(static_cast<MouseCursorType>(args[0].integerValue)));
+ });
+ 
++void partyOrderAttackEnable()
++{
++    gPartyOrderAttack = true;
++}
++
++void partyOrderAttackReset()
++{
++    gPartyOrderTargets.clear();
++}
++
++// Before a party member's turn picks whom to fight: the one it was told to.
++void partyOrderAttackApply(Object* attacker)
++{
++    if (attacker->data.critter.combat.team != 0 || gPartyOrderTargets.empty()) {
++        return;
++    }
++
++    for (auto& order : gPartyOrderTargets) {
++        if (order.memberId == attacker->id) {
++            if (order.target != nullptr && (!objectIsLive(order.target) || critterIsDead(order.target))) {
++                order.target = nullptr;
++            }
++            if (order.target != nullptr) {
++                attacker->data.critter.combat.whoHitMe = order.target;
++            }
++            return;
++        }
++    }
++}
++
++static void partyOrderRefresh(Object* object)
++{
++    Rect rect;
++    objectGetRect(object, &rect);
++    rect.left -= 1;
++    rect.top -= 1;
++    rect.right += 1;
++    rect.bottom += 1;
++    tileWindowRefreshRect(&rect, gElevation);
++}
++
++// sfall's action_attack_to: the pointer picks a foe of the party member's,
++// lit red where it can see it and get to it, grey where not; a left click on
++// one lit red tells it to attack, a right click or ESC takes it all back.
++static void partyOrderPickTarget(Object* member)
++{
++    gameMouseSetCursor(MOUSE_CURSOR_CROSSHAIR);
++    gameMouseSetMode(GAME_MOUSE_MODE_CROSSHAIR);
++
++    Object* hovered = nullptr;
++    OutlineType hoveredOutline = OUTLINE_TYPE_NONE;
++    Object* valid = nullptr;
++    bool chosen = false;
++
++    while (_game_user_wants_to_quit == GAME_QUIT_REQUEST_NONE) {
++        sharedFpsLimiter.mark();
++
++        int keyCode = inputGetInput();
++        int mouseEvent = mouseGetEvent();
++
++        Object* under = gameMouseGetObjectUnderCursor(OBJ_TYPE_CRITTER, false, gElevation);
++        if (hovered != nullptr && hovered != under) {
++            hovered->outline = hoveredOutline;
++            partyOrderRefresh(hovered);
++            hovered = nullptr;
++            valid = nullptr;
++        }
++
++        if (under != nullptr && under != hovered && under != member
++            && under->data.critter.combat.team != member->data.critter.combat.team && !critterIsDead(under)) {
++            hoveredOutline = under->outline;
++            bool reachable = (_combatNumTurns != 0 || under->data.critter.combat.maneuver != CRITTER_MANEUVER_NONE)
++                && isWithinPerception(member, under)
++                && pathfinderFindPath(member, member->tile, under->tile, nullptr, 0, _obj_blocking_at) > 0;
++            under->outline = reachable ? OUTLINE_TYPE_HOSTILE : OUTLINE_TYPE_BODY;
++            valid = reachable ? under : nullptr;
++            hovered = under;
++            partyOrderRefresh(under);
++        }
++
++        if (valid != nullptr && (mouseEvent & MOUSE_EVENT_LEFT_BUTTON_DOWN) != 0) {
++            chosen = true;
++            break;
++        }
++
++        if ((mouseEvent & MOUSE_EVENT_RIGHT_BUTTON_DOWN) != 0 || keyCode == KEY_ESCAPE) {
++            break;
++        }
++
++        renderPresent();
++        sharedFpsLimiter.throttle();
++    }
++
++    if (hovered != nullptr) {
++        hovered->outline = hoveredOutline;
++        partyOrderRefresh(hovered);
++    }
++
++    if (chosen) {
++        bool known = false;
++        for (auto& order : gPartyOrderTargets) {
++            if (order.memberId == member->id) {
++                order.target = valid;
++                known = true;
++            }
++        }
++        if (!known) {
++            gPartyOrderTargets.push_back({ member->id, valid });
++        }
++
++        AiPacket* ai = aiGetPacket(member);
++        if (ai->disposition == DISPOSITION_CUSTOM) {
++            ai->attack_who = ATTACK_WHO_WHOMEVER;
++        }
++
++        // sfall's words for it.
++        static const char* kHuman[] = { "I'll take care of it.", "Okay, I got it." };
++        char message[64];
++        switch (critterGetBodyType(member)) {
++        case BODY_TYPE_QUADRUPED:
++            snprintf(message, sizeof(message), "%s", "::Growl::");
++            break;
++        case BODY_TYPE_ROBOTIC:
++            snprintf(message, sizeof(message), "%s", "::Beep::");
++            break;
++        default:
++            snprintf(message, sizeof(message), "%s", kHuman[randomBetween(0, 1)]);
++            break;
++        }
++
++        Rect rect;
++        if (textObjectAdd(member, message, ai->font, ai->color, ai->outline_color, &rect) == 0) {
++            tileWindowRefreshRect(&rect, member->elevation);
++        }
++    }
++
++    gameMouseSetCursor(MOUSE_CURSOR_NONE);
++    gameMouseSetMode(GAME_MOUSE_MODE_ARROW);
++}
++
+ } // namespace fallout
+diff --git a/src/game_mouse.h b/src/game_mouse.h
+index 3de3b7e..ca76f9f 100644
+--- a/src/game_mouse.h
++++ b/src/game_mouse.h
+@@ -35,6 +35,8 @@ enum GameMouseActionMenuItem : int {
+     GAME_MOUSE_ACTION_MENU_ITEM_UNLOAD = 7,
+     GAME_MOUSE_ACTION_MENU_ITEM_USE_SKILL = 8,
+     GAME_MOUSE_ACTION_MENU_ITEM_PUSH = 9,
++    // SFALL: metarule3(999), a party member told whom to attack, in combat.
++    GAME_MOUSE_ACTION_MENU_ITEM_ORDER_ATTACK = 10,
+     GAME_MOUSE_ACTION_MENU_ITEM_COUNT,
+ };
+ 
+@@ -98,6 +100,11 @@ void _gmouse_handle_event(int mouseX, int mouseY, int mouseState);
+ int gameMouseSetCursor(MouseCursorType cursor);
+ MouseCursorType gameMouseGetCursor();
+ Object* gameMouseGetObjectUnderCursor(ObjectType objectType, bool includeDude, MapElevation elevation);
++
++// SFALL: metarule3(999), party members told whom to attack (see game_mouse.cc).
++void partyOrderAttackEnable();
++void partyOrderAttackReset();
++void partyOrderAttackApply(Object* attacker);
+ void gmouse_set_mapper_mode(int mode);
+ void gameMouseSetMode(GameMouseMode mode);
+ GameMouseMode gameMouseGetMode();
+diff --git a/src/interpreter_extra.cc b/src/interpreter_extra.cc
+index edf0b80..c120f23 100644
+--- a/src/interpreter_extra.cc
++++ b/src/interpreter_extra.cc
+@@ -19,6 +19,7 @@
+ #include "endgame.h"
+ #include "game.h"
+ #include "game_dialog.h"
++#include "game_mouse.h"
+ #include "game_movie.h"
+ #include "game_sound.h"
+ #include "geometry.h"
+@@ -2004,6 +2005,10 @@ static void opMetarule3(Program* program)
+     result.integerValue = 0;
+ 
+     switch (rule) {
++    case 999:
++        // SFALL: party members can be told whom to attack (gl_partycontrol's CombatControl Mode=3).
++        partyOrderAttackEnable();
++        break;
+     case METARULE3_CLR_FIXED_TIMED_EVENTS:
+         if (1) {
+             _scrSetQueueTestVals(static_cast<Object*>(param1.pointerValue), param2.integerValue);
