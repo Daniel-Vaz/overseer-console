@@ -30,7 +30,7 @@ async function nextIssue(page: Page, open: () => Promise<void>): Promise<URL> {
   // Not waited for: Chromium now and then never says such a tab has closed (seen in CI), and its closing is not what
   // is tested here.
   void (await tab).close().catch(() => undefined);
-  await context.unroute('https://github.com/**', { behavior: 'ignoreErrors' });
+  await context.unroute('https://github.com/**');
   return new URL(asked);
 }
 
