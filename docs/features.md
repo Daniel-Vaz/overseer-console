@@ -58,6 +58,8 @@ own **Operations manual** (entry 6 of the main directory) explains each of these
 - **A mod in its deck.** Put a mod in its game's deck and the deck plays it; switch back with one key.
 - **Components.** The parts a mod's load order switches on, as its installer would offer them, switched on and off
   any time.
+- **Settings.** The `.ini` files of a mod or add-on as switches and values (FO2tweaks' components, Inventory Filter's
+  options), with what the file says of each; the engine is handed the files with your changes made in them.
 
 ## Playing
 

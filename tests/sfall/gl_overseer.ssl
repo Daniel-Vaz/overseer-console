@@ -18,9 +18,10 @@
  *     13: one of its functions called (the player's unspent skill points)
  *   bytes 14 to 16: the version of sfall it is told, that of the ddraw.dll the
  *     mod came with (0016)
- *   byte 17: a setting read out of a folder of the mods folder, packed (0019)
- *   byte 18: the sfall settings the engine always acts on read as on (0021)
- *   byte 19: 66, the script got to its end, setting off an explosion for
+ *   bytes 17, 18: two settings of a folder of the mods folder, packed: the
+ *     first as the player changed it, the second as it came (0019)
+ *   byte 19: the sfall settings the engine always acts on read as on (0021)
+ *   byte 20: 66, the script got to its end, setting off an explosion for
  *     hs_onexplosion on the way
  * In a game loaded from a save, which brings that file back, it writes only
  * "overseer/loaded": the style the save brought back.
@@ -39,7 +40,7 @@ procedure start begin
       return;
    end
 
-   id := fs_create("overseer/result", 20);
+   id := fs_create("overseer/result", 21);
    fs_resize(id, -1);
 
    fs_write_short(id, 0x1234);
@@ -116,9 +117,11 @@ procedure start begin
    fs_write_byte(id, sfall_ver_minor);
    fs_write_byte(id, sfall_ver_build);
 
-   // A settings file in a folder of the mods folder, which the console packs into an archive (0019), and the
+   // A settings file in a folder of the mods folder, which the console packs into an archive (0019): one setting
+   // as the player changed it on the mod's page, in the copy the console writes, the other as it came. Then the
    // settings the engine always acts on, read as on (0019, 0021).
-   if (get_ini_setting("mods\\OvTest.dat\\ovtest.ini|Test|Value") == 42) then fs_write_byte(id, 1); else fs_write_byte(id, 0);
+   fs_write_byte(id, get_ini_setting("mods\\OvTest.dat\\ovtest.ini|Test|Value"));
+   fs_write_byte(id, get_ini_setting("mods\\OvTest.dat\\ovtest.ini|Test|Other"));
    if (get_ini_setting("ddraw.ini|Debugging|AllowUnsafeScripting") == 1 and get_ini_setting("ddraw.ini|Misc|UseFileSystemOverride") == 1) then fs_write_byte(id, 1); else fs_write_byte(id, 0);
 
    // An explosion of no damage three tiles away, for hs_onexplosion (0022).

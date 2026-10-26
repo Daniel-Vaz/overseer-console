@@ -1,5 +1,6 @@
 /** Everything the console's screens share. */
 import { addonRecords, addonsOn, forgetAddon, setAddonOn, type AddonRecord } from '../lib/addons';
+import { forgetSettings } from '../lib/mods/settings';
 import { lastExport, recordExport, type ExportMark, type ExportedTo } from '../lib/backup';
 import { activeCloud, requireCloud } from '../lib/cloud/clouds';
 import { CloudError, LinkError } from '../lib/cloud/errors';
@@ -431,6 +432,7 @@ class ConsoleState {
     }
     await removeInstall(id, 'addons');
     forgetAddon(id);
+    forgetSettings(id);
     if (this.job.addon === id) this.clearJob();
     delete this.addonInstalls[id];
     await this.refresh();

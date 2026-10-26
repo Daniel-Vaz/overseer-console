@@ -6,9 +6,12 @@
   import { showFolder } from '../../lib/cloud/folders';
   import { listCloudMods, modsFolder, type CloudMod } from '../../lib/cloud/games';
   import { gameDef, type GameId } from '../../lib/games';
+  import { changedSettings, installOpener, settingsFilesOf } from '../../lib/mods/settings';
   import { sourcesFromFileList } from '../../lib/storage/importer';
+  import { loadInstall } from '../../lib/storage/opfs';
   import { formatBytes } from '../../lib/storage/manifest';
   import Glyph from '../components/Glyph.svelte';
+  import IniSettings from '../components/IniSettings.svelte';
   import JobResult from '../components/JobResult.svelte';
   import Loading from '../components/Loading.svelte';
   import Menu from '../components/Menu.svelte';
@@ -28,8 +31,22 @@
   let folderInput: HTMLInputElement | undefined = $state();
   let zipInput: HTMLInputElement | undefined = $state();
 
-  /** main: the add-on. holodisk: its files loaded again, or taken out. eject: asked first. */
-  let view = $state<'main' | 'holodisk' | 'eject'>('main');
+  /** main: the add-on. settings: its settings files. holodisk: its files loaded again, or taken out. eject: asked first. */
+  let view = $state<'main' | 'settings' | 'holodisk' | 'eject'>('main');
+  let settingsView: IniSettings | undefined = $state();
+  /** How many settings files it brings, and how many of them the player changed. */
+  let settingsFiles = $state<{ files: number; changed: number } | null>(null);
+
+  async function countSettings(): Promise<void> {
+    const install = await loadInstall(id, 'addons').catch(() => null);
+    const files = install ? await settingsFilesOf(install.manifest.files, installOpener(install)).catch(() => []) : [];
+    settingsFiles = { files: files.length, changed: changedSettings(id).size };
+  }
+
+  $effect(() => {
+    void info;
+    if (view === 'main') void countSettings();
+  });
   let cloud = $state<{ mods: CloudMod[] | null; error: string | null } | null>(null);
   const linked = $derived.by(() => {
     void sys.cloud;
@@ -60,8 +77,11 @@
     sys.dropTarget = { take: replace, label: 'Release to load the add-on again', blocked: () => sys.busy || !sys.supported };
     const onKey = (event: KeyboardEvent) => {
       if ((event.key === 'Escape' || event.key === 'Backspace') && (cloud || view !== 'main')) {
+        // Typing a value: Backspace is the field's.
+        if (event.key === 'Backspace' && view === 'settings' && (event.target as HTMLElement | null)?.tagName === 'INPUT') return;
         event.preventDefault();
         if (cloud) cloud = null;
+        else if (view === 'settings' && settingsView?.stepBack()) return;
         else view = view === 'eject' ? 'holodisk' : 'main';
         sfx.back();
       }
@@ -101,7 +121,8 @@
     if (await sys.ejectAddon(id)) go('mods');
   }
 
-  const KEYS = '123456789abcdfghijkmnpqrstuvwxyz';
+  // Not E (Holodisk), S (Settings) or 0 (Back).
+  const KEYS = '123456789abcdfghijkmnpqrtuvwxyz';
 
   const mainItems = $derived.by((): MenuItem[] => {
     if (!record || !base) return [];
@@ -123,6 +144,18 @@
           adjust: () => sys.switchAddon(game, id, !on),
         };
       }),
+      ...(settingsFiles?.files
+        ? [
+            {
+              key: 's',
+              label: 'Settings',
+              state: settingsFiles.changed ? `${settingsFiles.changed} ${settingsFiles.changed === 1 ? 'FILE' : 'FILES'} CHANGED` : 'AS THEY CAME',
+              tone: settingsFiles.changed ? ('amber' as const) : undefined,
+              note: `What its ${settingsFiles.files === 1 ? 'settings file says' : `${settingsFiles.files} settings files say`}, as its scripts read it: parts of it switched on and off, values changed, as on a desktop you would edit the file.`,
+              action: () => (view = 'settings'),
+            } satisfies MenuItem,
+          ]
+        : []),
       {
         key: 'e',
         label: 'Holodisk',
@@ -230,6 +263,8 @@
         {#if cloud.mods !== null}
           <Menu items={cloudItems} label={`Mods folder in your ${sys.cloud.name}`} />
         {/if}
+      {:else if view === 'settings'}
+        <IniSettings owner={id} shelf="addons" title={record.title} back={() => (view = 'main')} bind:this={settingsView} />
       {:else if view === 'eject'}
         <div class="signed ask gap">
           <Glyph name="warning" tone="amber" />

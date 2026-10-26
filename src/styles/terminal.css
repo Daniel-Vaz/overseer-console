@@ -722,7 +722,7 @@ kbd {
 
 .menu button {
   display: grid;
-  grid-template-columns: 4ch minmax(0, auto) minmax(1ch, 1fr) auto;
+  grid-template-columns: var(--key-width, 4ch) minmax(0, auto) minmax(1ch, 1fr) auto;
   align-items: baseline;
   width: 100%;
   padding: 0.08em 1ch 0.08em 0;
@@ -1890,7 +1890,7 @@ kbd {
   }
 
   .menu button {
-    grid-template-columns: 4ch minmax(0, 1fr) auto;
+    grid-template-columns: var(--key-width, 4ch) minmax(0, 1fr) auto;
   }
 
   .menu button .leader {

@@ -8,6 +8,10 @@
   let { items, label = 'Options', selected = $bindable(0) }: { items: MenuItem[]; label?: string; selected?: number } = $props();
 
   let list: HTMLUListElement | undefined = $state();
+  const keyWidth = $derived.by(() => {
+    const longest = Math.max(1, ...items.map((item) => item.key.length));
+    return longest > 1 ? `${longest + 3}ch` : undefined;
+  });
 
   $effect(() => {
     // Keep the selection on something that can be chosen as the list changes.
@@ -97,7 +101,8 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<ul class="menu" aria-label={label} bind:this={list}>
+<!-- Keys longer than one character ([12], [K3]) widen the column they stand in, for the whole list. -->
+<ul class="menu" aria-label={label} bind:this={list} style:--key-width={keyWidth}>
   {#each items as item, index (item.key)}
     {#if item.group !== items[index - 1]?.group}
       {#if item.group}

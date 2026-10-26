@@ -9,11 +9,14 @@
   import { KNOWN_MODS } from '../../lib/mods/catalog';
   import { readComponents, resetComponents, setComponent, type Components } from '../../lib/mods/components';
   import { isOlder, isZip, releaseOf } from '../../lib/mods/releases';
+  import { changedSettings, installOpener, settingsFilesOf } from '../../lib/mods/settings';
   import { picturesFor } from '../../lib/settings';
   import { sourcesFromFileList } from '../../lib/storage/importer';
+  import { loadInstall } from '../../lib/storage/opfs';
   import { formatBytes } from '../../lib/storage/manifest';
   import Addons from '../components/Addons.svelte';
   import Glyph from '../components/Glyph.svelte';
+  import IniSettings from '../components/IniSettings.svelte';
   import JobResult from '../components/JobResult.svelte';
   import Loading from '../components/Loading.svelte';
   import Menu from '../components/Menu.svelte';
@@ -42,11 +45,25 @@
   const canPickFolder = 'webkitdirectory' in HTMLInputElement.prototype;
 
   /**
-   * main: the mod. components: its parts switched on and off. addons: those laid over it. holodisk: its files
-   * loaded again, or taken out. eject: asked first.
+   * main: the mod. components: its parts switched on and off. settings: its settings files. addons: those laid
+   * over it. holodisk: its files loaded again, or taken out. eject: asked first.
    */
-  let view = $state<'main' | 'components' | 'addons' | 'holodisk' | 'eject'>('main');
+  let view = $state<'main' | 'components' | 'settings' | 'addons' | 'holodisk' | 'eject'>('main');
   let addonsView: Addons | undefined = $state();
+  let settingsView: IniSettings | undefined = $state();
+  /** How many settings files it brings, and how many of them the player changed. */
+  let settingsFiles = $state<{ files: number; changed: number } | null>(null);
+
+  async function countSettings(): Promise<void> {
+    const found = await loadInstall(game).catch(() => null);
+    const files = found ? await settingsFilesOf(found.manifest.files, installOpener(found)).catch(() => []) : [];
+    settingsFiles = { files: files.length, changed: changedSettings(game).size };
+  }
+
+  $effect(() => {
+    void install;
+    if (view === 'main') void countSettings();
+  });
   /** Its parts, once read. */
   let components = $state<Components | null>(null);
   let componentSelected = $state(0);
@@ -73,6 +90,8 @@
       ['ESC', 'BACK'],
     ];
     const onKey = (event: KeyboardEvent) => {
+      // Typing a value: Backspace is the field's.
+      if (event.key === 'Backspace' && (event.target as HTMLElement | null)?.tagName === 'INPUT') return;
       if ((event.key === 'Escape' || event.key === 'Backspace') && stepBack()) {
         event.preventDefault();
         sfx.back();
@@ -85,6 +104,7 @@
   function stepBack(): boolean {
     if (cloud) cloud = null;
     else if (view === 'addons' && addonsView?.stepBack()) return true;
+    else if (view === 'settings' && settingsView?.stepBack()) return true;
     else if (view !== 'main') view = view === 'eject' ? 'holodisk' : 'main';
     else return false;
     return true;
@@ -278,6 +298,17 @@
             },
           ]
         : []),
+      ...(settingsFiles?.files
+        ? [
+            {
+              label: 'Settings',
+              state: settingsFiles.changed ? `${settingsFiles.changed} ${settingsFiles.changed === 1 ? 'FILE' : 'FILES'} CHANGED` : 'AS THEY CAME',
+              tone: settingsFiles.changed ? ('amber' as const) : undefined,
+              note: `What its ${settingsFiles.files === 1 ? 'settings file says' : `${settingsFiles.files} settings files say`}, as its scripts read it: parts of it switched on and off, values changed, as on a desktop you would edit the file.`,
+              action: () => (view = 'settings'),
+            },
+          ]
+        : []),
       {
         label: 'Add-ons',
         state: laid.length ? `${laid.length} ON` : addonsFor ? 'NONE ON' : 'NONE',
@@ -426,6 +457,8 @@
         {/if}
       {:else if view === 'addons' && install}
         <Addons {game} {go} back={() => (view = 'main')} bind:this={addonsView} />
+      {:else if view === 'settings' && install}
+        <IniSettings owner={game} shelf="games" title={def.title} back={() => (view = 'main')} bind:this={settingsView} />
       {:else if view === 'components' && components}
         <p class="gap">COMPONENTS OF {def.title.toUpperCase()}</p>
         <p class="dim prose">

@@ -74,6 +74,13 @@ would offer as options, such as the Restoration Project's world map or companion
 language packs. The change is kept with the mod's saves, over the file it came with, and *As the mod comes* puts
 it back.
 
+**Settings** shows the settings files a mod brings (the `.ini` files its scripts read, such as the Restoration
+Project's copy of FO2tweaks' `fo2tweaks.ini`) as lists: a setting of 0 or 1 is a switch, a number is stepped with the
+arrows, anything else is typed, and what the file's comments say of a setting is its note. That is what on a desktop
+you would do by editing the file. The file itself stays as it came: the console keeps your changes and hands the
+engine the file with them made, also where the file is inside an archive (a folder of the mods folder, such as
+`mods/InventoryFilter.dat/`, is packed into one here). *As it came* puts a file back.
+
 ## Add-ons
 
 An add-on is a small mod with no game of its own: on a desktop it is unpacked into a game folder over whatever is
@@ -103,7 +110,14 @@ What it may bring, and where it goes:
   tracks of the same name.
 
 Its sfall settings (`ddraw.ini`) are used only where what it is laid over has none, and sfall itself (`ddraw.dll`) is
-left out: the engine has what add-ons need of it built in.
+left out: the engine has what add-ons need of it built in. Its scripts find in `ddraw.ini` what they would where sfall
+is installed: a setting it lacks reads as in the `ddraw.ini` sfall comes with, and those the engine always acts on
+(its file system override, its scripts' access to the original program's memory) read as on, so FO2tweaks does not
+ask for the game to be started again and Inventory Filter does not warn.
+
+Its **Settings**, on its page, are those of a mod (see [Playing one](#playing-one)): FO2tweaks' components switched on
+and off in `fo2tweaks.ini`, Inventory Filter's in `InvenFilter.ini`. A change is the add-on's, for every game and mod
+it is laid over, and is kept when its files are loaded again.
 
 Several add-ons can be laid over one game or mod: each over those switched on before it, as its place in the list
 says. Switching one off and on again puts it over the others. A change takes hold the next time the game starts, and a

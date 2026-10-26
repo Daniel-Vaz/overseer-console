@@ -660,7 +660,7 @@ test('Fallout 2: sfall virtual files, hook scripts and the calls the mods make, 
   }
   // A folder of the mods folder with a settings file in it, as Inventory Filter's is: packed into an archive here.
   mkdirSync(join(folder, 'mods', 'OvTest.dat'), { recursive: true });
-  writeFileSync(join(folder, 'mods', 'OvTest.dat', 'ovtest.ini'), '[Test]\r\nValue=42\r\n');
+  writeFileSync(join(folder, 'mods', 'OvTest.dat', 'ovtest.ini'), '[Test]\r\n; What the player changes on the mod\'s page\r\nValue=42\r\nOther=7\r\n');
   mkdirSync(join(folder, 'data', 'sound', 'sfx'), { recursive: true });
   writeFileSync(join(folder, 'data', 'sound', 'sfx', 'overseer.mp3'), readFileSync(new URL('../sfall/overseer.mp3', import.meta.url)));
   // Hero Appearance on, with a style of its own: the first ready-made character, standing, in a robe (Fallout 2's
@@ -681,6 +681,13 @@ test('Fallout 2: sfall virtual files, hook scripts and the calls the mods make, 
   await pickFolder(page, folder);
   await expect(page.getByRole('heading', { name: 'Overseer sfall test' })).toBeVisible({ timeout: 300_000 });
   await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 300_000 });
+  // One of its settings changed on its page, as a player would.
+  await page.locator('.menu li', { hasText: 'Settings' }).locator('button').click();
+  await page.locator('.menu li', { hasText: /^\[1\]\s*Value/ }).locator('button').click();
+  await page.getByRole('textbox').fill('43');
+  await page.getByRole('textbox').press('Enter');
+  await expect(page.locator('.menu li', { hasText: /^\[1\]\s*Value/ })).toContainText('43');
+  await page.keyboard.press('Escape');
 
   // A new game with the first ready-made character.
   await launch(page, 'Begin simulation', '1');
@@ -721,9 +728,9 @@ test('Fallout 2: sfall virtual files, hook scripts and the calls the mods make, 
   console.log(`sfall test: kept ${[...files].map(([name, bytes]) => `${name} [${[...bytes].join(' ')}]`).join(', ')}`);
   // Read back high byte first; copied from a virtual file; two traits; the world map's view; the knockback and
   // heave-ho calls; an MP3 played; the Hero Appearance style kept for scripts; six reads, writes and a call into the
-  // original program's memory; the version of the mod's sfall; a setting out of a packed folder of the mods folder;
-  // the settings the engine always acts on; and the end of the script.
-  expect([...files.get('overseer/result')!]).toEqual([1, 1, 1, 5, 7, 1, 1, 1, 1, 1, 1, 1, 1, 1, 4, 4, 5, 1, 1, 66]);
+  // original program's memory; the version of the mod's sfall; two settings of a packed folder of the mods folder, the
+  // first as changed on the mod's page; the settings the engine always acts on; and the end of the script.
+  expect([...files.get('overseer/result')!]).toEqual([1, 1, 1, 5, 7, 1, 1, 1, 1, 1, 1, 1, 1, 1, 4, 4, 5, 43, 7, 1, 66]);
   // The player in the style's robe.
   const path = test.info().outputPath('hero-appearance.png');
   await page.locator('#canvas').screenshot({ path });

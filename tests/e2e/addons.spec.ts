@@ -79,6 +79,85 @@ test('loads an add-on on a deck, lays it over the game, and starts the game with
   expect(without.text['mods/mods_order.txt']).toBeNull();
 });
 
+test("changes an add-on's settings on its page, and starts the game with them", async ({ page }) => {
+  // FO2tweaks' settings beside its archive, and Inventory Filter's in a folder of the mods folder, as each comes.
+  const tweaks = [
+    '; set to 1/0 in main section to enable/disable the components',
+    '[main]',
+    '; set to 0 to disable',
+    'worldmap_key=W',
+    '; Automatically open/walk through unlocked doors when not in combat',
+    'autodoors=1',
+    'keymap=1',
+    '[keymap]',
+    'F5=F6',
+    'J=Home',
+    '',
+  ].join('\r\n');
+  const files = {
+    ...fo2tweaksFiles(),
+    'mods/fo2tweaks.ini': tweaks,
+    'mods/InventoryFilter.dat/InvenFilter.ini': '[InventoryFilter]\r\n;Set 1 show information about weight and trader caps.\r\nShowWeight=1\r\n',
+    'mods/InventoryFilter.dat/scripts/gl_InvenFilter.int': 'script',
+  };
+  await openConsole(page, 'fo2');
+  await pickFolder(page, await fakeFallout2Folder(true));
+  await loaded(page);
+  await entry(page, 'Add-ons').locator('button').click();
+  await page.locator('input[accept*=".dat"]').setInputFiles(await zipOf(files, 'fo2tweaks_v14.7.zip'));
+  await loaded(page);
+
+  await page.goto('#/mods/addons/fo2tweaks');
+  await expect(entry(page, 'Settings')).toContainText('AS THEY CAME');
+  await entry(page, 'Settings').locator('button').click();
+  await expect(page.getByText('SETTINGS OF FO2TWEAKS')).toBeVisible();
+  await expect(entry(page, 'fo2tweaks.ini')).toContainText('AS IT CAME');
+  await expect(entry(page, 'invenfilter.ini')).toContainText('AS IT CAME');
+
+  // A switch, and a value typed, in FO2tweaks' file: what its comments say of each is its note.
+  await entry(page, 'fo2tweaks.ini').locator('button').click();
+  await expect(page.locator('.readout')).toContainText('MODS/FO2TWEAKS.INI');
+  await expect(entry(page, 'autodoors')).toContainText('ON');
+  await entry(page, 'autodoors').locator('button').hover();
+  await expect(page.locator('.menu-note')).toContainText('Automatically open/walk through unlocked doors when not in combat');
+  await entry(page, 'autodoors').locator('button').click();
+  await expect(entry(page, 'autodoors')).toContainText('OFF');
+  await entry(page, 'worldmap_key').locator('button').click();
+  await page.getByRole('textbox').fill('M');
+  await page.getByRole('textbox').press('Enter');
+  await expect(entry(page, 'worldmap_key')).toContainText('M');
+  await page.keyboard.press('Escape');
+  await expect(entry(page, 'fo2tweaks.ini')).toContainText('2 CHANGED');
+
+  // One in Inventory Filter's, which is in the archive its folder was packed into.
+  await entry(page, 'invenfilter.ini').locator('button').click();
+  await entry(page, 'ShowWeight').locator('button').click();
+  await expect(entry(page, 'ShowWeight')).toContainText('OFF');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await expect(entry(page, 'Settings')).toContainText('2 FILES CHANGED');
+
+  // The engine is handed both whole, changed, where it reads them in place of the files as they came; FO2tweaks'
+  // keymap off the console's keys there as well.
+  await page.goto('#/fo2');
+  await begin(page, 'fo2');
+  const game = await engineFiles(page, [], ['overseer/settings/mods/fo2tweaks.ini', 'overseer/settings/mods/InventoryFilter.dat/invenfilter.ini']);
+  expect(game.text['overseer/settings/mods/fo2tweaks.ini']).toBe(tweaks.replace('worldmap_key=W', 'worldmap_key=M').replace('autodoors=1', 'autodoors=0').replace('F5=F6\r\n', ''));
+  expect(game.text['overseer/settings/mods/InventoryFilter.dat/invenfilter.ini']).toBe('[InventoryFilter]\r\n;Set 1 show information about weight and trader caps.\r\nShowWeight=0\r\n');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('heading', { name: 'SIMULATION 02: Fallout 2' })).toBeVisible({ timeout: 30_000 });
+
+  // Put back as they came, the engine reads the files themselves.
+  await page.goto('#/mods/addons/fo2tweaks');
+  await entry(page, 'Settings').locator('button').click();
+  await entry(page, 'All as they came').locator('button').click();
+  await expect(entry(page, 'fo2tweaks.ini')).toContainText('AS IT CAME');
+  await page.goto('#/fo2');
+  await begin(page, 'fo2');
+  const after = await engineFiles(page, ['overseer/settings/mods/fo2tweaks.ini'], []);
+  expect(after.exists['overseer/settings/mods/fo2tweaks.ini']).toBe(false);
+});
+
 test('loads an add-on of Fallout in the Mod library, and lays its music over the game from its page', async ({ page }) => {
   await openConsole(page, 'fo1');
   await pickFolder(page, await fakeFallout1Folder());

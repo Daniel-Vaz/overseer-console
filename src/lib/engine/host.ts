@@ -7,18 +7,19 @@
  * (saves, settings) is layered on top from the overlay.
  */
 import { loadAddons } from '../addons';
+import { COPIES, latin1, latin1Bytes, settingsCopies } from '../mods/settings';
 import { gameDef, type EngineId, type GameId } from '../games';
 import { isSaveData, slotOf } from '../savefile';
 import { encodeSaveMeta, saveMetaPath, type SaveAddon } from '../savemeta';
 import { pictureOf, type Settings } from '../settings';
-import { pathKey } from '../storage/manifest';
+import { dirname, pathKey } from '../storage/manifest';
 import { mountGame, type Mounted, type MountedFile } from '../storage/mount';
 import { StorageUnavailableError, loadInstall, openBlob, openInstalled, type Install, type SourceBlob } from '../storage/opfs';
 
 export { StorageUnavailableError };
 import { commitWithHistory } from '../storage/history';
 import { listOverlay, type OverlayEntry } from '../storage/overlay';
-import { HIGHLIGHT_KEY, HIGHLIGHTING_FILE, MODS_ORDER, TWEAKS_FILE, buildConfigFiles, chooseScreen, settingsFileOf, sfallLightsAtKey, wantsEngineData, type ScreenSize } from './config';
+import { HIGHLIGHT_KEY, HIGHLIGHTING_FILE, MODS_ORDER, TWEAKS_FILE, buildConfigFiles, chooseScreen, settingsFileOf, sfallLightsAtKey, wantsEngineData, withConsoleKeys, type ScreenSize } from './config';
 import type { EngineFactory, EngineInfo, EngineModule, PersistBatch, QuickKind, QuickOutcome, ScreenRect } from './types';
 
 const GAME_ROOT = '/game';
@@ -261,7 +262,7 @@ async function populate(
   { install, base, addons }: Installed,
   mounted: Mounted,
   overlay: OverlayEntry[],
-  configFiles: Record<string, string>,
+  configFiles: Record<string, string | Uint8Array>,
   engineData: { name: string; data: Uint8Array } | null,
   reads: Map<string, FileReads>,
 ): Promise<void> {
@@ -289,7 +290,11 @@ async function populate(
 
   const encoder = new TextEncoder();
   for (const [name, text] of Object.entries(configFiles)) {
-    ov.writeFile(`${GAME_ROOT}/${name}`, encoder.encode(text));
+    // The player's copies of settings files go in folders of their own (see mods/settings.ts).
+    const folders: string[] = [];
+    for (let dir = dirname(name); dir; dir = dirname(dir)) folders.unshift(dir);
+    for (const dir of folders) ov.mkdir(`${GAME_ROOT}/${dir}`);
+    ov.writeFile(`${GAME_ROOT}/${name}`, typeof text === 'string' ? encoder.encode(text) : text);
   }
 }
 
@@ -404,8 +409,16 @@ export async function bootEngine(
     modsOrder: order ? new TextDecoder('latin1').decode(order) : undefined,
     tweaks: tweaks ? new TextDecoder('latin1').decode(new Uint8Array(await tweaks.arrayBuffer())) : undefined,
   });
+  // The settings files of the game, its mod and its add-ons as the player changed them, read in place of the files
+  // as they came; FO2tweaks' keymap in such a copy kept off the console's keys as well.
+  const copies: Record<string, string | Uint8Array> = await settingsCopies(game, mounted, (path) => openMounted(installed, mounted, path));
+  const tweaksCopy = Object.keys(copies).find((name) => pathKey(name) === pathKey(`${COPIES}/${TWEAKS_FILE}`));
+  if (tweaksCopy) {
+    const keymap = withConsoleKeys(latin1(copies[tweaksCopy] as Uint8Array));
+    if (keymap !== null) copies[tweaksCopy] = latin1Bytes(keymap);
+  }
   const reads = new Map<string, FileReads>();
-  await populate(module, game, installed, mounted, overlay, configFiles, engineData, reads);
+  await populate(module, game, installed, mounted, overlay, { ...configFiles, ...copies }, engineData, reads);
   module.FS.chdir(GAME_ROOT);
   hooks.status('SIMULATION READY');
 
