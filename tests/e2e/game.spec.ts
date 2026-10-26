@@ -1019,6 +1019,83 @@ test('Fallout 2: add-ons laid over it, their archives opened and their scripts r
   expect(faults).toEqual([]);
 });
 
+/**
+ * Inventory Filter, from the real thing, laid over Fallout 2 as its readme
+ * says to unpack it: a folder named InventoryFilter.dat in the mods folder,
+ * whose settings it reads by that path (the console packs the folder into an
+ * archive: engines/fallout2/patches 0019), and which shows what it filtered
+ * by pressing Home (0020). tests/sfall's gl_ovgive gives the player things of
+ * each kind to filter. Its buttons are at the inventory's left edge.
+ *   FO2_DIR=... INVENTORY_FILTER="/path/to/a zip or folder holding mods/InventoryFilter.dat/"
+ */
+test('Fallout 2: Inventory Filter as an add-on reads its settings and filters the inventory', async ({ page }) => {
+  const fallout2 = GAMES[1].dir;
+  const filter = process.env.INVENTORY_FILTER;
+  test.skip(!fallout2 || !filter, 'set FO2_DIR and INVENTORY_FILTER to run this');
+  test.setTimeout(900_000);
+  const faults: string[] = [];
+  page.on('pageerror', (error) => faults.push(error.message));
+
+  await openConsole(page, 'fo2', { skipIntro: true });
+  await pickFolder(page, fallout2!);
+  await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 300_000 });
+  await page.locator('.menu button', { hasText: 'Add-ons' }).click();
+  await page.locator('input[accept*=".dat"]').setInputFiles(filter!);
+  await expect(page.locator('.menu li', { hasText: /Inventory ?filter/i })).toContainText('ON', { timeout: 120_000 });
+  const give = join(tempFolder(), 'gl_ovgive.int');
+  writeFileSync(give, readFileSync(new URL('../sfall/gl_ovgive.int', import.meta.url)));
+  await page.locator('input[accept*=".dat"]').setInputFiles(give);
+  await expect(page.locator('.menu li', { hasText: 'Gl ovgive' })).toContainText('ON', { timeout: 120_000 });
+  await page.keyboard.press('Escape');
+
+  await launch(page, 'Begin simulation', '1');
+  await waitForPicture(page, 8000);
+  await page.keyboard.press('n');
+  await pause(page, 6000);
+  await page.keyboard.press('t');
+  await pause(page, 10000);
+  await page.keyboard.press(' ');
+  await pause(page, 5000);
+  await page.keyboard.press(' ');
+  await expect.poll(() => inProgress(page), { timeout: 120_000, intervals: [1000] }).toBe(true);
+  await pause(page, 8000);
+
+  // Where a point of the game's picture is on the page, and a picture of the inventory's list.
+  const box = (await page.locator('#canvas').boundingBox())!;
+  const size = await page.evaluate(() => (window as unknown as { overseerEngine: { screen: { width: number; height: number } } }).overseerEngine.screen);
+  const at = (x: number, y: number) => ({ x: box.x + (x * box.width) / size.width, y: box.y + (y * box.height) / size.height });
+  const corner = at(75, 40);
+  const end = at(215, 335);
+  const list = () => page.screenshot({ clip: { x: corner.x, y: corner.y, width: end.x - corner.x, height: end.y - corner.y } });
+  const press = async (x: number, y: number) => {
+    const point = at(x, y);
+    await page.mouse.move(point.x, point.y);
+    await pause(page, 500);
+    await page.mouse.down();
+    await pause(page, 150);
+    await page.mouse.up();
+    await pause(page, 2000);
+  };
+
+  await page.keyboard.press('i');
+  await pause(page, 3000);
+  const all = await list();
+  // Weapons only: fewer things in the list, and the weight of what is shown under it, from its settings.
+  await press(26, 71);
+  const weapons = await list();
+  expect(weapons.equals(all)).toBe(false);
+  expect(weapons.length).toBeLessThan(all.length * 0.8);
+  // Ammunition: another few.
+  await press(26, 94);
+  const ammo = await list();
+  expect(ammo.equals(weapons)).toBe(false);
+  // Everything again.
+  await press(26, 25);
+  expect((await list()).length).toBeGreaterThan(weapons.length);
+  await page.keyboard.press('Escape');
+  expect(faults).toEqual([]);
+});
+
 test('Fallout 2: autosaved on arriving on another map, its picture changed while playing, and a save that knows its add-ons', async ({ page }) => {
   const fallout2 = GAMES[1].dir;
   test.skip(!fallout2, 'set FO2_DIR to your Fallout 2 folder to run this');

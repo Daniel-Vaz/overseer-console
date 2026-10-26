@@ -1,0 +1,207 @@
+Read the settings files scripts ask for out of archives, and the player's copies first
+
+Mods ship folders of their mods folder packed (mods\Foo.dat\foo.ini): sfall's ini calls now read such a file out of the archive on its path. The page's copies of settings files, under overseer\settings, are read in place of the game's, and a script's change to a file in an archive goes into such a copy. Scripts asking ddraw.ini whether unsafe scripting is on are told it is: the engine answers for the memory it knows whatever it says.
+---
+diff --git a/src/config.cc b/src/config.cc
+index a88f3f6..98ffd22 100644
+--- a/src/config.cc
++++ b/src/config.cc
+@@ -13,6 +13,7 @@
+ #include <vector>
+ 
+ #include "db.h"
++#include "dfile.h"
+ #include "memory.h"
+ #include "platform_compat.h"
+ 
+@@ -411,6 +412,54 @@ bool configRead(Config* config, const char* filePath, bool isDb)
+     return true;
+ }
+ 
++// A settings file inside an archive: the part of the path up to a .dat that is
++// a file, and not a folder, is opened as one, and the rest is read out of it.
++bool configReadArchived(Config* config, const char* filePath)
++{
++    if (config == nullptr || filePath == nullptr) {
++        return false;
++    }
++
++    char path[COMPAT_MAX_PATH];
++    snprintf(path, sizeof(path), "%s", filePath);
++    for (char* pch = path; *pch != '\0'; pch++) {
++        if (*pch == '/') {
++            *pch = '\\';
++        }
++    }
++
++    for (char* sep = strchr(path, '\\'); sep != nullptr; sep = strchr(sep + 1, '\\')) {
++        size_t length = sep - path;
++        if (length < 4 || compat_strnicmp(sep - 4, ".dat", 4) != 0) {
++            continue;
++        }
++
++        *sep = '\0';
++        bool archive = compat_file_exists(path) && !compat_is_dir(path);
++        DBase* dbase = archive ? dbaseOpen(path) : nullptr;
++        *sep = '\\';
++        if (dbase == nullptr) {
++            continue;
++        }
++
++        DFile* stream = dfileOpen(dbase, sep + 1, "rt");
++        if (stream == nullptr) {
++            dbaseClose(dbase);
++            continue;
++        }
++
++        char string[CONFIG_FILE_MAX_LINE_LENGTH];
++        while (dfileReadString(string, sizeof(string), stream) != nullptr) {
++            configParseLine(config, string);
++        }
++        dfileClose(stream);
++        dbaseClose(dbase);
++        return true;
++    }
++
++    return false;
++}
++
+ // Writes config into .INI file.
+ //
+ // 0x42C324
+diff --git a/src/config.h b/src/config.h
+index f1269a1..758e42d 100644
+--- a/src/config.h
++++ b/src/config.h
+@@ -76,6 +76,10 @@ inline bool configGetEnum(Config* config, const char* sectionKey, const char* ke
+ bool configGetIntList(Config* config, const char* section, const char* key, int* arr, int count);
+ bool configSetInt(Config* config, const char* sectionKey, const char* key, int value);
+ bool configRead(Config* config, const char* filePath, bool isDb);
++// Reads a settings file whose path goes through an archive file, as mods ship
++// their folders packed (mods\\Foo.dat\\foo.ini): `false` where no archive on
++// the path holds it.
++bool configReadArchived(Config* config, const char* filePath);
+ bool configWrite(Config* config, const char* filePath, bool isDb);
+ bool configWriteEx(Config* config, const char* filePath, int flags);
+ bool configGetDouble(Config* config, const char* sectionKey, const char* key, double* valuePtr);
+diff --git a/src/sfall_ini.cc b/src/sfall_ini.cc
+index b9f8e29..8786110 100644
+--- a/src/sfall_ini.cc
++++ b/src/sfall_ini.cc
+@@ -120,6 +120,53 @@ static std::string sfall_normalize_ini_cache_key(const char* iniFileName)
+     return std::string(".\\") + fileName;
+ }
+ 
++// The player's own copies of settings files, put here by the page under the
++// path each has in the game folder, are read in place of the game's.
++static constexpr const char* kPlayerCopiesFolder = "overseer\\settings";
++
++static void sfall_player_copy_path(const char* path, char* copy, size_t size)
++{
++    snprintf(copy, size, "%s\\%s", kPlayerCopiesFolder, sfall_strip_ini_path_prefix(path));
++}
++
++// Reads the file at `path`: the player's copy of it, else the file itself,
++// else out of the archive a mod's folder on its path was packed into.
++static bool sfall_read_ini_at(const char* path, Config* config)
++{
++    char copy[COMPAT_MAX_PATH];
++    sfall_player_copy_path(path, copy, sizeof(copy));
++    return configRead(config, copy, false) || configRead(config, path, false) || configReadArchived(config, path);
++}
++
++// Reads the file at `path` (COMPAT_MAX_PATH long) to change it, and points
++// `path` at where the change goes: the player's copy where there is one, or
++// where the file is in an archive, which is not written to.
++static bool sfall_read_ini_for_change(char* path, Config* config)
++{
++    char copy[COMPAT_MAX_PATH];
++    sfall_player_copy_path(path, copy, sizeof(copy));
++    if (configRead(config, copy, false)) {
++        snprintf(path, COMPAT_MAX_PATH, "%s", copy);
++        return true;
++    }
++
++    if (configRead(config, path, false)) {
++        return true;
++    }
++
++    if (configReadArchived(config, path)) {
++        snprintf(path, COMPAT_MAX_PATH, "%s", copy);
++        char* sep = strrchr(copy, '\\');
++        if (sep != nullptr) {
++            *sep = '\0';
++            compat_mkdir_recursive(copy);
++        }
++        return true;
++    }
++
++    return false;
++}
++
+ // Reads the INI file into `config`, trying the base directory first for
+ // non-system files and falling back to the working directory on failure.
+ static bool sfall_read_named_ini(const char* iniFileName, Config* config)
+@@ -127,14 +174,14 @@ static bool sfall_read_named_ini(const char* iniFileName, Config* config)
+     if (basePath[0] != '\0' && !is_system_file_name(iniFileName)) {
+         char path[COMPAT_MAX_PATH];
+         snprintf(path, sizeof(path), "%s\\%s", basePath, iniFileName);
+-        if (configRead(config, path, false)) {
++        if (sfall_read_ini_at(path, config)) {
+             return true;
+         }
+     }
+ 
+     char path[COMPAT_MAX_PATH];
+     sfall_build_relative_ini_path(iniFileName, path, sizeof(path));
+-    return configRead(config, path, false);
++    return sfall_read_ini_at(path, config);
+ }
+ 
+ void sfall_ini_set_base_path(const char* path)
+@@ -223,12 +270,25 @@ static bool sfall_ini_get_string_internal(const char* triplet, char* value, size
+         return false;
+     }
+ 
+-    Config* config = sfall_get_ini_config(fileName);
+-
+     // NOTE: Sfall's `GetIniSetting` returns error code (-1) only when it cannot
+     // parse triplet. Otherwise the default for string settings is empty string.
+     value[0] = '\0';
+ 
++    // The engine answers for the original program's memory whatever sfall's
++    // settings say (see sfall_memory.cc): scripts that ask whether they may
++    // use it, as Inventory Filter does, are told so.
++    if (compat_stricmp(sfall_strip_ini_path_prefix(fileName), "ddraw.ini") == 0
++        && compat_stricmp(section, "Debugging") == 0
++        && compat_stricmp(key, "AllowUnsafeScripting") == 0) {
++        snprintf(value, size, "%s", "1");
++        if (found != nullptr) {
++            *found = true;
++        }
++        return true;
++    }
++
++    Config* config = sfall_get_ini_config(fileName);
++
+     if (config != nullptr) {
+         char* stringValue;
+         if (configGetString(config, section, key, &stringValue)) {
+@@ -305,7 +365,7 @@ bool sfall_ini_set_string(const char* triplet, const char* value)
+     if (basePath[0] != '\0' && !is_system_file_name(fileName)) {
+         // Attempt to load requested file in base directory.
+         snprintf(path, sizeof(path), "%s\\%s", basePath, fileName);
+-        loaded = configRead(config.get(), path, false);
++        loaded = sfall_read_ini_for_change(path, config.get());
+     }
+ 
+     if (!loaded) {
+@@ -313,7 +373,7 @@ bool sfall_ini_set_string(const char* triplet, const char* value)
+         // non-system config file was not found the base path - attempt to load
+         // from current working directory.
+         sfall_build_relative_ini_path(fileName, path, sizeof(path));
+-        loaded = configRead(config.get(), path, false);
++        loaded = sfall_read_ini_for_change(path, config.get());
+     }
+ 
+     configSetString(config.get(), section, key, value);

@@ -1,0 +1,36 @@
+Redraw the inventory list on Home even at its top, as the original did
+
+Inventory Filter moves items out of the list and presses Home to show what is left.
+---
+diff --git a/src/inventory.cc b/src/inventory.cc
+index f8e0c85..29060bf 100644
+--- a/src/inventory.cc
++++ b/src/inventory.cc
+@@ -1117,14 +1117,16 @@ static void inventoryScrollerRedrawBarterTables(const InventoryScroller& scrolle
+     barterDisplayTables(barterContext->win, barterContext->playerTable, barterContext->bartererTable, -1);
+ }
+ 
+-static void inventoryScrollerJumpTo(const InventoryScroller& scroller, int offset)
++// `always`: redrawn where the list is there already, as the original did for
++// Home: Inventory Filter presses it to show the list it has just filtered.
++static void inventoryScrollerJumpTo(const InventoryScroller& scroller, int offset, bool always = false)
+ {
+     assert(scroller.offsetPtr != nullptr);
+     assert(scroller.redraw != nullptr);
+ 
+     int maxOffset = inventoryComputeAlignedMaxOffset(scroller.totalItems, scroller.visibleSlots, scroller.step);
+     int nextOffset = std::clamp(offset, 0, maxOffset);
+-    if (nextOffset == *scroller.offsetPtr) {
++    if (nextOffset == *scroller.offsetPtr && !always) {
+         return;
+     }
+ 
+@@ -1183,7 +1185,7 @@ static void inventoryScrollerHandleInput(const InventoryScroller& scroller, int
+     } else if (scroller.keyPageDown != -1 && keyCode == scroller.keyPageDown) {
+         inventoryScrollerPage(scroller, 1);
+     } else if (scroller.keyHome != -1 && keyCode == scroller.keyHome) {
+-        inventoryScrollerJumpTo(scroller, 0);
++        inventoryScrollerJumpTo(scroller, 0, true);
+     } else if (scroller.keyEnd != -1 && keyCode == scroller.keyEnd) {
+         inventoryScrollerJumpTo(scroller, scroller.totalItems - scroller.visibleSlots);
+     }

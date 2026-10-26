@@ -1,0 +1,30 @@
+/*
+ * A global script for game.spec.ts: once, in the first game it starts in, it
+ * puts a few things of each kind in the player's inventory (armour, weapons,
+ * ammunition, drugs, other things and money), for Inventory Filter to sort.
+ * Compiled with sfall's sslc: see docs/developing.md.
+ */
+procedure start;
+procedure give(variable pid, variable count);
+
+procedure give(variable pid, variable count) begin
+   add_mult_objs_to_inven(dude_obj, create_object_sid(pid, 0, 0, -1), count);
+end
+
+procedure start begin
+   if (not(game_loaded)) then return;
+   if (get_sfall_global_int("ovgive") != 0) then return;
+   set_sfall_global("ovgive", 1);
+   call give(1, 1);
+   call give(2, 1);
+   call give(4, 1);
+   call give(8, 1);
+   call give(10, 1);
+   call give(29, 50);
+   call give(30, 20);
+   call give(40, 5);
+   call give(47, 1);
+   call give(48, 2);
+   call give(53, 3);
+   call give(41, 500);
+end
