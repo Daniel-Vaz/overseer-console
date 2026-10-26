@@ -1,0 +1,274 @@
+Read a setting the game's ddraw.ini lacks as in the one sfall comes with
+
+Scripts read ddraw.ini as it is where sfall is installed, with every setting in it. FO2tweaks took the -1 of a missing DamageFormula for a wrong one, wrote a ddraw.ini of its own and asked for the game to be started again, its damage changes off until then. sfall_ddraw_defaults.h holds sfall 4.5.1.1's artifacts/ddraw.ini.
+---
+diff --git a/src/sfall_ddraw_defaults.h b/src/sfall_ddraw_defaults.h
+new file mode 100644
+index 0000000..31f0eb7
+--- /dev/null
++++ b/src/sfall_ddraw_defaults.h
+@@ -0,0 +1,228 @@
++// Generated from sfall's artifacts/ddraw.ini (sfall 4.5.1.1, sfall-team/sfall 3cb7652): the
++// settings a script finds in ddraw.ini where sfall is installed, before a mod
++// changes any of them.
++
++#ifndef SFALL_DDRAW_DEFAULTS_H
++#define SFALL_DDRAW_DEFAULTS_H
++
++namespace fallout {
++
++struct SfallDdrawDefault {
++    const char* section;
++    const char* key;
++    const char* value;
++};
++
++static constexpr SfallDdrawDefault kSfallDdrawDefaults[] = {
++    { "Main", "HiResMode", "1" },
++    { "Main", "UseCommandLine", "0" },
++    { "Speed", "Enable", "1" },
++    { "Speed", "SpeedMulti0", "50" },
++    { "Speed", "SpeedMulti1", "100" },
++    { "Speed", "SpeedMulti2", "200" },
++    { "Speed", "SpeedMulti3", "300" },
++    { "Speed", "SpeedMulti4", "400" },
++    { "Speed", "SpeedMulti5", "500" },
++    { "Speed", "SpeedMulti6", "600" },
++    { "Speed", "SpeedMulti7", "700" },
++    { "Speed", "SpeedMulti8", "800" },
++    { "Speed", "SpeedMulti9", "900" },
++    { "Speed", "SpeedMultiInitial", "100" },
++    { "Graphics", "Mode", "0" },
++    { "Graphics", "GraphicsWidth", "0" },
++    { "Graphics", "GraphicsHeight", "0" },
++    { "Graphics", "WindowData", "-1" },
++    { "Graphics", "TextureFilter", "1" },
++    { "Graphics", "GPUBlt", "0" },
++    { "Graphics", "Use32BitHeadGraphics", "0" },
++    { "Graphics", "AllowDShowMovies", "0" },
++    { "Graphics", "FadeMultiplier", "100" },
++    { "Interface", "ActionPointsBar", "0" },
++    { "Interface", "ExpandBarter", "0" },
++    { "Interface", "ExpandInventory", "0" },
++    { "Interface", "ExpandWorldMap", "0" },
++    { "Interface", "WorldMapTravelMarkers", "0" },
++    { "Interface", "WorldMapTerrainInfo", "0" },
++    { "Sound", "NumSoundBuffers", "8" },
++    { "Sound", "AllowSoundForFloats", "0" },
++    { "Sound", "AllowDShowSound", "0" },
++    { "Sound", "OverrideMusicDir", "1" },
++    { "Sound", "AutoSearchSFX", "1" },
++    { "Input", "UseScrollWheel", "1" },
++    { "Input", "ScrollMod", "0" },
++    { "Input", "MouseSensitivity", "100" },
++    { "Input", "MiddleMouse", "48" },
++    { "Input", "ReverseMouseButtons", "0" },
++    { "Input", "BackgroundKeyboard", "0" },
++    { "Input", "BackgroundMouse", "0" },
++    { "Input", "SpeedModKey", "-1" },
++    { "Input", "SpeedToggleKey", "0" },
++    { "Input", "SpeedKey0", "0x52" },
++    { "Input", "SpeedKey1", "0x4f" },
++    { "Input", "SpeedKey2", "0x50" },
++    { "Input", "SpeedKey3", "0x51" },
++    { "Input", "SpeedKey4", "0x4b" },
++    { "Input", "SpeedKey5", "0x4c" },
++    { "Input", "SpeedKey6", "0x4d" },
++    { "Input", "SpeedKey7", "0x00" },
++    { "Input", "SpeedKey8", "0x00" },
++    { "Input", "SpeedKey9", "0x00" },
++    { "Input", "WindowScrollKey", "0" },
++    { "Input", "ReloadWeaponKey", "0" },
++    { "Input", "ItemFastMoveKey", "42" },
++    { "Input", "FastMoveFromContainer", "0" },
++    { "Input", "ItemMoveSkipDragKey", "29" },
++    { "Input", "DebugEditorKey", "0" },
++    { "Input", "XltKey", "0" },
++    { "Misc", "Fallout1Behavior", "0" },
++    { "Misc", "TimeLimit", "13" },
++    { "Misc", "WorldMapTimeMod", "100" },
++    { "Misc", "WorldMapFPSPatch", "1" },
++    { "Misc", "WorldMapDelay2", "66" },
++    { "Misc", "WorldMapEncounterFix", "0" },
++    { "Misc", "WorldMapEncounterRate", "5" },
++    { "Misc", "WorldMapSlots", "0" },
++    { "Misc", "UseFileSystemOverride", "0" },
++    { "Misc", "DataLoadOrderPatch", "1" },
++    { "Misc", "FemaleDialogMsgs", "0" },
++    { "Misc", "DialogGenderWords", "0" },
++    { "Misc", "Movie1", "iplogo.mve" },
++    { "Misc", "Movie2", "intro.mve" },
++    { "Misc", "Movie3", "elder.mve" },
++    { "Misc", "Movie4", "vsuit.mve" },
++    { "Misc", "Movie5", "afailed.mve" },
++    { "Misc", "Movie6", "adestroy.mve" },
++    { "Misc", "Movie7", "car.mve" },
++    { "Misc", "Movie8", "cartucci.mve" },
++    { "Misc", "Movie9", "timeout.mve" },
++    { "Misc", "Movie10", "tanker.mve" },
++    { "Misc", "Movie11", "enclave.mve" },
++    { "Misc", "Movie12", "derrick.mve" },
++    { "Misc", "Movie13", "artimer1.mve" },
++    { "Misc", "Movie14", "artimer2.mve" },
++    { "Misc", "Movie15", "artimer3.mve" },
++    { "Misc", "Movie16", "artimer4.mve" },
++    { "Misc", "Movie17", "credits.mve" },
++    { "Misc", "PipBoyAvailableAtGameStart", "0" },
++    { "Misc", "ExtraKillTypes", "0" },
++    { "Misc", "DamageFormula", "0" },
++    { "Misc", "DialogueFix", "1" },
++    { "Misc", "TownMapHotkeysFix", "1" },
++    { "Misc", "DisableHorrigan", "0" },
++    { "Misc", "PartyMemberNonRandomLevelUp", "0" },
++    { "Misc", "StartXPos", "-1" },
++    { "Misc", "StartYPos", "-1" },
++    { "Misc", "ViewXPos", "-1" },
++    { "Misc", "ViewYPos", "-1" },
++    { "Misc", "SingleCore", "0" },
++    { "Misc", "OverrideArtCacheSize", "0" },
++    { "Misc", "SaveInCombatFix", "1" },
++    { "Misc", "AdditionalWeaponAnims", "1" },
++    { "Misc", "OverrideCriticalTable", "2" },
++    { "Misc", "DisplayKarmaChanges", "0" },
++    { "Misc", "AlwaysReloadMsgs", "0" },
++    { "Misc", "PlayIdleAnimOnReload", "0" },
++    { "Misc", "CorpseDeleteTime", "6" },
++    { "Misc", "ProcessorIdle", "1" },
++    { "Misc", "EnableHeroAppearanceMod", "0" },
++    { "Misc", "SkipOpeningMovies", "0" },
++    { "Misc", "NPCsTryToSpendExtraAP", "0" },
++    { "Misc", "MoreTiles", "1" },
++    { "Misc", "Lockpick", "293" },
++    { "Misc", "Steal", "293" },
++    { "Misc", "Traps", "293" },
++    { "Misc", "FirstAid", "293" },
++    { "Misc", "Doctor", "293" },
++    { "Misc", "Science", "293" },
++    { "Misc", "Repair", "293" },
++    { "Misc", "UseScrollingQuestsList", "1" },
++    { "Misc", "ExtraSaveSlots", "1" },
++    { "Misc", "AutoQuickSave", "0" },
++    { "Misc", "AutoQuickSavePage", "1" },
++    { "Misc", "SpeedInterfaceCounterAnims", "0" },
++    { "Misc", "ScienceOnCritters", "0" },
++    { "Misc", "SpeedInventoryPCRotation", "166" },
++    { "Misc", "BoxBarCount", "5" },
++    { "Misc", "BonusHtHDamageFix", "1" },
++    { "Misc", "DisplayBonusDamage", "0" },
++    { "Misc", "AnimationsAtOnceLimit", "64" },
++    { "Misc", "RemoveCriticalTimelimits", "0" },
++    { "Misc", "FastShotFix", "0" },
++    { "Misc", "SmallFrameFix", "0" },
++    { "Misc", "BoostScriptDialogLimit", "0" },
++    { "Misc", "CritterInvSizeLimitMode", "0" },
++    { "Misc", "CritterInvSizeLimit", "200" },
++    { "Misc", "MotionScannerFlags", "1" },
++    { "Misc", "EncounterTableSize", "0" },
++    { "Misc", "DisablePipboyAlarm", "0" },
++    { "Misc", "SuperStimExploitFix", "0" },
++    { "Misc", "InventoryApCost", "4" },
++    { "Misc", "QuickPocketsApCostReduction", "2" },
++    { "Misc", "ComputeSpray_CenterMult", "1" },
++    { "Misc", "ComputeSpray_CenterDiv", "3" },
++    { "Misc", "ComputeSpray_TargetMult", "1" },
++    { "Misc", "ComputeSpray_TargetDiv", "2" },
++    { "Misc", "ExplosionsEmitLight", "0" },
++    { "Misc", "CheckWeaponAmmoCost", "1" },
++    { "Misc", "CombatPanelAnimDelay", "1000" },
++    { "Misc", "DialogPanelAnimDelay", "33" },
++    { "Misc", "PipboyTimeAnimDelay", "50" },
++    { "Misc", "ReloadReserve", "-1" },
++    { "Misc", "ItemCounterDefaultMax", "0" },
++    { "Misc", "ItemCounterAutoCaps", "0" },
++    { "Misc", "EnableMusicInDialogue", "0" },
++    { "Misc", "DontTurnOffSneakIfYouRun", "0" },
++    { "Misc", "UseWalkDistance", "3" },
++    { "Misc", "RadEffectsRemovalMsg", "3003" },
++    { "Misc", "ActiveGeigerMsgs", "1" },
++    { "Misc", "CanSellUsedGeiger", "1" },
++    { "Misc", "InstantWeaponEquip", "0" },
++    { "Misc", "NumbersInDialogue", "0" },
++    { "Misc", "WorldMapFontPatch", "0" },
++    { "Misc", "DeathScreenFontPatch", "0" },
++    { "Misc", "FullItemDescInBarter", "0" },
++    { "Misc", "PartyMemberExtraInfo", "0" },
++    { "Misc", "SkipLoadingGameSettings", "0" },
++    { "Misc", "KnockoutTime", "35" },
++    { "Misc", "CarChargingFix", "1" },
++    { "Misc", "CarPlacedTileFix", "1" },
++    { "Misc", "ObjCanSeeObj_ShootThru_Fix", "0" },
++    { "Misc", "ObjCanHearObjFix", "0" },
++    { "Misc", "StartGDialogFix", "0" },
++    { "Misc", "AttackComplexFix", "0" },
++    { "Misc", "CreateObjectSidFix", "0" },
++    { "Misc", "GraveContainersFix", "0" },
++    { "Misc", "AIBestWeaponFix", "1" },
++    { "Misc", "AIDrugUsePerfFix", "1" },
++    { "Misc", "PartyMemberSkillFix", "0" },
++    { "Misc", "SpecialDeathGVAR", "491" },
++    { "Misc", "DisableSpecialMapIDs", "0" },
++    { "Misc", "DisableSpecialAreas", "0" },
++    { "Misc", "DisableArroyoEvents", "0" },
++    { "Misc", "DivisionOperatorFix", "1" },
++    { "Debugging", "Enable", "0" },
++    { "Debugging", "AllowUnsafeScripting", "0" },
++    { "Debugging", "SkipCompatModeCheck", "0" },
++    { "Debugging", "DebugMode", "0" },
++    { "Debugging", "DebugWindowFont", "0" },
++    { "Debugging", "DebugWindowWidth", "300" },
++    { "Debugging", "DebugWindowHeight", "192" },
++    { "Debugging", "HideObjIsNullMsg", "0" },
++    { "Debugging", "MapGridToggleKey", "0" },
++    { "Debugging", "DontDeleteProtos", "0" },
++    { "Debugging", "InjectAllGameHooks", "0" },
++    { "Debugging", "AlwaysFindScripts", "0" },
++    { "Debugging", "Test_ForceFloats", "0" },
++    { "Debugging", "Init", "1" },
++    { "Debugging", "Hook", "0" },
++    { "Debugging", "Script", "0" },
++    { "Debugging", "Criticals", "1" },
++    { "Debugging", "Fixes", "1" },
++    { "Debugging", "ConsoleWindow", "0b0000" },
++    { "Debugging", "ConsoleWindowData", "" },
++    { "Debugging", "ConsoleCodePage", "0" },
++};
++
++} // namespace fallout
++
++#endif /* SFALL_DDRAW_DEFAULTS_H */
+diff --git a/src/sfall_ini.cc b/src/sfall_ini.cc
+index 4fdf794..e0f8487 100644
+--- a/src/sfall_ini.cc
++++ b/src/sfall_ini.cc
+@@ -13,6 +13,7 @@
+ #include "opcode_context.h"
+ #include "platform_compat.h"
+ #include "sfall_arrays.h"
++#include "sfall_ddraw_defaults.h"
+ 
+ namespace fallout {
+ 
+@@ -310,6 +311,23 @@ static bool sfall_ini_get_string_internal(const char* triplet, char* value, size
+             if (found != nullptr) {
+                 *found = true;
+             }
++            return true;
++        }
++    }
++
++    // Where sfall is installed, its ddraw.ini holds every setting, and mods
++    // read them: FO2tweaks takes a DamageFormula of -1 for one a player set,
++    // puts it back to 0 and asks for the game to be started again. A setting
++    // the game's ddraw.ini (if any) lacks reads as in the one sfall comes with.
++    if (compat_stricmp(sfall_strip_ini_path_prefix(fileName), "ddraw.ini") == 0) {
++        for (auto& setting : kSfallDdrawDefaults) {
++            if (compat_stricmp(section, setting.section) == 0 && compat_stricmp(key, setting.key) == 0) {
++                snprintf(value, size, "%s", setting.value);
++                if (found != nullptr) {
++                    *found = true;
++                }
++                break;
++            }
+         }
+     }
+ 

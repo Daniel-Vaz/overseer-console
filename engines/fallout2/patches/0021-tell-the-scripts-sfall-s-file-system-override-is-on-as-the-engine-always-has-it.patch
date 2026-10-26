@@ -1,0 +1,56 @@
+Tell the scripts sfall's file system override is on, as the engine always has it
+
+FO2tweaks turns UseFileSystemOverride on in ddraw.ini where it reads 0, and asks for the game to be started again. The settings the engine always acts on are now a list, AllowUnsafeScripting with it.
+---
+diff --git a/src/sfall_ini.cc b/src/sfall_ini.cc
+index 8786110..4fdf794 100644
+--- a/src/sfall_ini.cc
++++ b/src/sfall_ini.cc
+@@ -28,6 +28,17 @@ static constexpr const char* kSystemConfigFileNames[] = {
+     "f2_res.ini",
+ };
+ 
++// sfall's settings for what the engine always does: it answers for the
++// original program's memory it knows (sfall_memory.cc), and reads a virtual
++// file wherever it opens the game file of that name (db.cc).
++static constexpr struct {
++    const char* section;
++    const char* key;
++} kAlwaysOnSettings[] = {
++    { "Debugging", "AllowUnsafeScripting" },
++    { "Misc", "UseFileSystemOverride" },
++};
++
+ static char basePath[COMPAT_MAX_PATH];
+ 
+ // Sfall-style INI paths can be prefixed with ".\", "./", "\" or "/".
+@@ -274,17 +285,19 @@ static bool sfall_ini_get_string_internal(const char* triplet, char* value, size
+     // parse triplet. Otherwise the default for string settings is empty string.
+     value[0] = '\0';
+ 
+-    // The engine answers for the original program's memory whatever sfall's
+-    // settings say (see sfall_memory.cc): scripts that ask whether they may
+-    // use it, as Inventory Filter does, are told so.
+-    if (compat_stricmp(sfall_strip_ini_path_prefix(fileName), "ddraw.ini") == 0
+-        && compat_stricmp(section, "Debugging") == 0
+-        && compat_stricmp(key, "AllowUnsafeScripting") == 0) {
+-        snprintf(value, size, "%s", "1");
+-        if (found != nullptr) {
+-            *found = true;
++    // What the engine always does, whatever ddraw.ini says, scripts that ask
++    // are told is on: Inventory Filter warns otherwise, and FO2tweaks turns
++    // the setting on and asks for the game to be started again.
++    if (compat_stricmp(sfall_strip_ini_path_prefix(fileName), "ddraw.ini") == 0) {
++        for (auto& setting : kAlwaysOnSettings) {
++            if (compat_stricmp(section, setting.section) == 0 && compat_stricmp(key, setting.key) == 0) {
++                snprintf(value, size, "%s", "1");
++                if (found != nullptr) {
++                    *found = true;
++                }
++                return true;
++            }
+         }
+-        return true;
+     }
+ 
+     Config* config = sfall_get_ini_config(fileName);

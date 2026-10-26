@@ -655,9 +655,12 @@ test('Fallout 2: sfall virtual files, hook scripts and the calls the mods make, 
 
   const folder = join(tempFolder(), 'Overseer sfall test');
   mkdirSync(join(folder, 'data', 'scripts'), { recursive: true });
-  for (const script of ['gl_overseer.int', 'hs_gamemodechange.int', 'hs_setglobalvar.int']) {
+  for (const script of ['gl_overseer.int', 'hs_gamemodechange.int', 'hs_setglobalvar.int', 'hs_onexplosion.int']) {
     writeFileSync(join(folder, 'data', 'scripts', script), readFileSync(new URL(`../sfall/${script}`, import.meta.url)));
   }
+  // A folder of the mods folder with a settings file in it, as Inventory Filter's is: packed into an archive here.
+  mkdirSync(join(folder, 'mods', 'OvTest.dat'), { recursive: true });
+  writeFileSync(join(folder, 'mods', 'OvTest.dat', 'ovtest.ini'), '[Test]\r\nValue=42\r\n');
   mkdirSync(join(folder, 'data', 'sound', 'sfx'), { recursive: true });
   writeFileSync(join(folder, 'data', 'sound', 'sfx', 'overseer.mp3'), readFileSync(new URL('../sfall/overseer.mp3', import.meta.url)));
   // Hero Appearance on, with a style of its own: the first ready-made character, standing, in a robe (Fallout 2's
@@ -718,8 +721,9 @@ test('Fallout 2: sfall virtual files, hook scripts and the calls the mods make, 
   console.log(`sfall test: kept ${[...files].map(([name, bytes]) => `${name} [${[...bytes].join(' ')}]`).join(', ')}`);
   // Read back high byte first; copied from a virtual file; two traits; the world map's view; the knockback and
   // heave-ho calls; an MP3 played; the Hero Appearance style kept for scripts; six reads, writes and a call into the
-  // original program's memory; the version of the mod's sfall; and the end of the script.
-  expect([...files.get('overseer/result')!]).toEqual([1, 1, 1, 5, 7, 1, 1, 1, 1, 1, 1, 1, 1, 1, 4, 4, 5, 66]);
+  // original program's memory; the version of the mod's sfall; a setting out of a packed folder of the mods folder;
+  // the settings the engine always acts on; and the end of the script.
+  expect([...files.get('overseer/result')!]).toEqual([1, 1, 1, 5, 7, 1, 1, 1, 1, 1, 1, 1, 1, 1, 4, 4, 5, 1, 1, 66]);
   // The player in the style's robe.
   const path = test.info().outputPath('hero-appearance.png');
   await page.locator('#canvas').screenshot({ path });
@@ -729,8 +733,12 @@ test('Fallout 2: sfall virtual files, hook scripts and the calls the mods make, 
   // Global variable 0 set to 7, read back as 8: the SetGlobalVar hook, by a hook script of its own, once the game
   // is up (the first run of the game mode hook script is before).
   expect([...files.get('overseer/globalvar')!]).toEqual([8]);
+  // The explosion the script set off: tiles in its radius looked at, each run told of it as it was.
+  const explosion = files.get('overseer/explosion')!;
+  expect(explosion.readInt32BE(0)).toBeGreaterThan(0);
+  expect(explosion[4]).toBe(1);
   // Only the files the scripts asked to keep.
-  expect([...files.keys()].sort()).toEqual(['overseer/globalvar', 'overseer/hooks', 'overseer/result']);
+  expect([...files.keys()].sort()).toEqual(['overseer/explosion', 'overseer/globalvar', 'overseer/hooks', 'overseer/result']);
 
   // Loaded and saved again: the style came back with the save (the script only says which it found), and the
   // player is drawn in it.
@@ -1003,6 +1011,9 @@ test('Fallout 2: add-ons laid over it, their archives opened and their scripts r
   expect(started.length).toBeGreaterThan(0);
   // Cassidy's head, large enough to be read on demand: its archive's directory read from the add-on.
   expect((await fileReads(page)).addon).toContain('mods/cassidy_head.dat');
+  // Told the engine's file system override is on (0021), FO2tweaks does not turn it on in a ddraw.ini of its own
+  // and ask for the game to be started again.
+  expect(await engineFile(page, 'ddraw.ini')).toBeNull();
 
   // FO2tweaks' keymap, on as it comes, without what it would move onto or off the console's keys: quick save on F6 still.
   const keymap = Buffer.from((await engineFile(page, 'mods/fo2tweaks.ini')) ?? []).toString('latin1');

@@ -1,0 +1,36 @@
+/*
+ * A hook script, found by its file name: run for each tile in the radius of
+ * the explosion gl_overseer.ssl sets off (engines/fallout2/patches 0022). It
+ * keeps in "overseer/explosion" the number of tiles, and 1 where each run was
+ * told of an explosion and not a check, the tile it is on, and no throw. Its
+ * run when it is loaded, outside of any hook, is not counted.
+ */
+procedure start;
+
+procedure start begin
+   variable id, count, right, check, attacker, tile, checked, object, target, thrown;
+   check := get_sfall_arg;
+   attacker := get_sfall_arg;
+   tile := get_sfall_arg;
+   checked := get_sfall_arg;
+   object := get_sfall_arg;
+   target := get_sfall_arg;
+   thrown := get_sfall_arg;
+   if (tile == 0) then return;
+   id := fs_find("overseer/explosion");
+   if (id == -1) then begin
+      id := fs_create("overseer/explosion", 5);
+      fs_resize(id, -1);
+      fs_seek(id, 4);
+      fs_write_byte(id, 1);
+   end
+   fs_seek(id, 0);
+   count := fs_read_int(id);
+   fs_seek(id, 0);
+   fs_write_int(id, count + 1);
+   fs_seek(id, 4);
+   right := fs_read_byte(id);
+   if (check != 0 or thrown != 0 or tile != tile_num_in_direction(tile_num(dude_obj), 2, 3) or checked <= 0) then right := 0;
+   fs_seek(id, 4);
+   fs_write_byte(id, right);
+end

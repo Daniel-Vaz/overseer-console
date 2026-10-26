@@ -1,0 +1,132 @@
+Run sfall's OnExplosion hook
+
+For each tile looked at in an explosion's radius, but for the AI's weighing of its weapons, as sfall does; the object found there may be replaced, or left out. FO2tweaks' grenades thrown at the ground use it to have those caught in the blast turn on the thrower.
+---
+diff --git a/src/actions.cc b/src/actions.cc
+index d946248..3da7c2b 100644
+--- a/src/actions.cc
++++ b/src/actions.cc
+@@ -1717,7 +1717,7 @@ int actionExplode(int tile, MapElevation elevation, int minDamage, int maxDamage
+         attack->defenderDamage = _compute_explosion_damage(minDamage, maxDamage, critter, &(attack->defenderKnockback));
+     }
+ 
+-    _compute_explosion_on_extras(attack, 0, 0, 1);
++    _compute_explosion_on_extras(attack, 0, 0, 1, true);
+ 
+     for (int index = 0; index < attack->extrasLength; index++) {
+         Object* critter = attack->extras[index];
+diff --git a/src/combat.cc b/src/combat.cc
+index 5bfb6c5..265bfcd 100644
+--- a/src/combat.cc
++++ b/src/combat.cc
+@@ -4290,7 +4290,7 @@ static int attackCompute(Attack* attack)
+ 
+ // compute_explosion_on_extras
+ // 0x423C10
+-void _compute_explosion_on_extras(Attack* attack, bool isFromAttacker, bool isGrenade, bool noDamage)
++void _compute_explosion_on_extras(Attack* attack, bool isFromAttacker, bool isGrenade, bool noDamage, bool exploding, bool assessing)
+ {
+     Object* targetObj;
+ 
+@@ -4354,6 +4354,9 @@ void _compute_explosion_on_extras(Attack* attack, bool isFromAttacker, bool isGr
+         }
+ 
+         Object* obstacle = _obj_blocking_at(targetObj, tile, attack->attacker->elevation);
++        if (!assessing) {
++            obstacle = scriptHooks_OnExplosion(noDamage && !exploding, attack->attacker, attack->tile, tile, obstacle, targetObj, isGrenade);
++        }
+         if (obstacle != nullptr
+             && FrmId(obstacle).objectType() == OBJ_TYPE_CRITTER
+             && (obstacle->data.critter.combat.results & DAM_DEAD) == DAM_NONE
+diff --git a/src/combat.h b/src/combat.h
+index 96706a0..c07bbf2 100644
+--- a/src/combat.h
++++ b/src/combat.h
+@@ -37,7 +37,10 @@ void _combat(CombatStartData* csd);
+ void attackInit(Attack* attack, Object* attacker, Object* defender, HitMode hitMode, HitLocation hitLocation);
+ int _combat_attack(Object* attacker, Object* defender, HitMode hitMode, HitLocation hitLocation);
+ int _combat_bullet_start(const Object* attacker, const Object* target);
+-void _compute_explosion_on_extras(Attack* attack, bool isFromAttacker, bool isGrenade, bool noDamage);
++// SFALL: HOOK_ONEXPLOSION runs for each tile looked at, but for the AI's
++// weighing of its weapons (`assessing`); an explosive going off (`exploding`)
++// is not a check, though it does no damage here.
++void _compute_explosion_on_extras(Attack* attack, bool isFromAttacker, bool isGrenade, bool noDamage, bool exploding = false, bool assessing = false);
+ int _determine_to_hit(Object* a1, Object* a2, HitLocation hitLocation, HitMode hitMode);
+ int _determine_to_hit_no_range(Object* attacker, Object* defender, HitLocation hitLocation, HitMode hitMode, unsigned char* a5);
+ int _determine_to_hit_from_tile(Object* attacker, int tile, Object* defender, HitLocation hitLocation, HitMode hitMode);
+diff --git a/src/combat_ai.cc b/src/combat_ai.cc
+index 03c72a3..b1e1fb4 100644
+--- a/src/combat_ai.cc
++++ b/src/combat_ai.cc
+@@ -2018,7 +2018,7 @@ static Object* _ai_best_weapon(Object* attacker, Object* weapon1, Object* weapon
+         avgDamage1 = (maxDamage + minDamage) / 2;
+         if (weaponGetDamageRadius(weapon1, HIT_MODE_RIGHT_WEAPON_PRIMARY) > 0 && defender != nullptr) {
+             attack.weapon = weapon1;
+-            _compute_explosion_on_extras(&attack, 0, weaponIsGrenade(weapon1), 1);
++            _compute_explosion_on_extras(&attack, 0, weaponIsGrenade(weapon1), 1, false, true);
+             avgDamage1 *= attack.extrasLength + 1;
+         }
+ 
+@@ -2063,7 +2063,7 @@ static Object* _ai_best_weapon(Object* attacker, Object* weapon1, Object* weapon
+         avgDamage2 = (maxDamage + minDamage) / 2;
+         if (weaponGetDamageRadius(weapon2, HIT_MODE_RIGHT_WEAPON_PRIMARY) > 0 && defender != nullptr) {
+             attack.weapon = weapon2;
+-            _compute_explosion_on_extras(&attack, 0, weaponIsGrenade(weapon2), 1);
++            _compute_explosion_on_extras(&attack, 0, weaponIsGrenade(weapon2), 1, false, true);
+             avgDamage2 *= attack.extrasLength + 1;
+         }
+ 
+diff --git a/src/sfall_script_hooks.cc b/src/sfall_script_hooks.cc
+index 2eaecd7..45ce6c1 100644
+--- a/src/sfall_script_hooks.cc
++++ b/src/sfall_script_hooks.cc
+@@ -85,6 +85,7 @@ static const struct {
+     { HOOK_SNEAK, "hs_sneak" },
+     { HOOK_STDPROCEDURE, "hs_stdprocedure" },
+     { HOOK_STDPROCEDURE_END, "hs_stdprocedure" },
++    { HOOK_ONEXPLOSION, "hs_onexplosion" },
+     { HOOK_TARGETOBJECT, "hs_targetobject" },
+     { HOOK_ENCOUNTER, "hs_encounter" },
+     { HOOK_ADJUSTPOISON, "hs_adjustpoison" },
+@@ -1177,6 +1178,18 @@ mixed   ret0 - Overrides the target object, or pass -1 to prevent the player fro
+ Returns the object to target, or null for none. What a script said on hovering
+ holds for the click that follows, as in sfall.
+ */
++// sfall's ComputeExplosionOnExtrasHook_Script: what is found on a tile in the
++// radius may be replaced, or left out with 0.
++Object* scriptHooks_OnExplosion(bool isCheck, Object* attacker, int explosionTile, int checkedTile, Object* object, Object* target, bool isThrowing)
++{
++    ScriptHookCall hook(HOOK_ONEXPLOSION, 1, { isCheck ? 1 : 0, attacker, explosionTile, checkedTile, object, target, isThrowing ? 1 : 0 });
++    hook.call();
++    if (hook.numReturnValues() > 0) {
++        return hook.getReturnValueAt(0).asObject();
++    }
++    return object;
++}
++
+ Object* scriptHooks_TargetObject(int type, bool valid, Object* object)
+ {
+     // What the last hover's script said: null for nothing, the object to target, or -1 for none.
+diff --git a/src/sfall_script_hooks.h b/src/sfall_script_hooks.h
+index fddbb3c..1c72da2 100644
+--- a/src/sfall_script_hooks.h
++++ b/src/sfall_script_hooks.h
+@@ -127,7 +127,9 @@ typedef enum {
+     // TODO: maybe combine with USESKILL?
+     HOOK_USESKILLON = 35,
+ 
+-    //    HOOK_ONEXPLOSION = 36,
++    // Tiles in an explosion's radius are looked at for targets. Allows to
++    // override the object found on one.
++    HOOK_ONEXPLOSION = 36,
+     //    HOOK_SUBCOMBATDAMAGE = 37,
+     HOOK_SETLIGHTING = 38,
+ 
+@@ -390,6 +392,7 @@ int scriptHooks_SetGlobalVar(int index, int value);
+ void scriptHooks_CarTravel(int* speedPtr, int* consumptionPtr);
+ void scriptHooks_SetLighting(Object* object, int* intensityPtr, int* radiusPtr);
+ Object* scriptHooks_TargetObject(int type, bool valid, Object* object);
++Object* scriptHooks_OnExplosion(bool isCheck, Object* attacker, int explosionTile, int checkedTile, Object* object, Object* target, bool isThrowing);
+ void scriptHooks_Sneak(Object* critter, bool* successPtr, int* timePtr);
+ int scriptHooks_AdjustPoison(Object* critter, int amount, int* damagePtr);
+ void scriptHooks_AddInventoryObject(Object* owner, Object* item, int quantity);
