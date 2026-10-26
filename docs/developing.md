@@ -148,7 +148,9 @@ with `SFALL_MEMORY`, see `sfall_memory.h`), hooks it never calls, hook scripts (
 not find, and ddraw.ini settings it does not read. An address a script works out as it runs (from an object, say)
 cannot be told. What each engine
 has is read from its patched source (the tree `patches.sh import` makes, else the one `build.sh` made), so the list
-follows the patches. Run it on the real mods after an engine change that adds any of these.
+follows the patches. Run it on the real mods after an engine change that adds any of these, and run
+`npm run sfall-scan -- --support` to write what the Fallout 2 engine has into `src/lib/sfall/support-fo2.json`: the
+console's own Check of a mod or add-on (`src/lib/sfall/check.ts`) reads that.
 
 `tests/sfall` holds the scripts game.spec.ts plays over the real Fallout 2 to check what the engine was given of
 sfall, compiled. After changing one, compile it again with [sslc](https://github.com/sfall-team/sslc), sfall's script

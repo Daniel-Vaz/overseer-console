@@ -60,6 +60,8 @@ own **Operations manual** (entry 6 of the main directory) explains each of these
   any time.
 - **Settings.** The `.ini` files of a mod or add-on as switches and values (FO2tweaks' components, Inventory Filter's
   options), with what the file says of each; the engine is handed the files with your changes made in them.
+- **Check.** Whether a Fallout 2 mod or add-on will work on the engine, as far as its scripts tell: said when an
+  add-on is loaded, and in full on its page.
 
 ## Playing
 

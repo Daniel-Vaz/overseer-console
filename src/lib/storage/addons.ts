@@ -24,6 +24,7 @@
 import { addonRecord, newAddonId, type AddonRecord } from '../addons';
 import { packDat2, type PackMember } from '../datpack';
 import { gameDef, type BaseGameId } from '../games';
+import { checkFiles, summary } from '../sfall/check';
 import { enabledMods } from './ettu';
 import { detectDatFormat } from './importer';
 import { basename, dirname, pathKey } from './manifest';
@@ -281,6 +282,11 @@ export async function planAddon(sources: SourceFile[], base: BaseGameId | undefi
   if (order.length) notes.push(`It adds ${order.join(', ')} to the load order of whatever it is laid over.`);
   if (music.length) notes.push(`${count(music.length, 'music track')}: played in place of the game's own ${music.length === 1 ? 'track' : 'tracks'} of the same name, and beside them.`);
   if (entries.some((entry) => /^ddraw\.ini$/i.test(entry.path))) notes.push('Its sfall settings (ddraw.ini) are used only where what it is laid over has none of its own.');
+  // Whether its scripts will work: what they ask of sfall that the engine lacks, and settings files not there.
+  if (game === 'fo2') {
+    const check = await checkFiles(entries.map((entry) => ({ path: entry.path, size: entry.file.size, open: async () => entry.file })));
+    if (check.scripts) (check.findings.length ? warnings : notes).push(summary(check));
+  }
 
   const dirs = new Set<string>();
   for (const { path } of entries) for (let dir = dirname(path); dir; dir = dirname(dir)) dirs.add(dir);

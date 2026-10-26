@@ -1,0 +1,18 @@
+/*
+ * A global script for addons.spec.ts, never played: what the console's check
+ * of an add-on finds missing (src/lib/sfall/check.ts). It waits for sfall's
+ * SUBCOMBATDAMAGE hook (37), which the engine never runs, and reads a settings
+ * file the add-on does not bring.
+ * Compiled with sfall's sslc: see docs/developing.md.
+ */
+procedure start;
+procedure damage;
+
+procedure damage begin
+end
+
+procedure start begin
+   if (not(game_loaded)) then return;
+   register_hook_proc(37, damage);
+   display_msg("" + get_ini_setting("mods\\ovcheck.ini|Main|Enabled"));
+end

@@ -1,0 +1,112 @@
+Give the scripts sfall's exec_map_update_scripts, get_current_inven_size and intface_hide/show/is_hidden
+
+Inventory Filter counts a container's room with get_current_inven_size, FO2tweaks' light level reruns the map's scripts, and sfall's own gl_sfall-mods hides and shows the interface bar. Each called a metarule the engine did not have, which gave 0 and did nothing.
+---
+diff --git a/src/interface.cc b/src/interface.cc
+index 7639eef..f757558 100644
+--- a/src/interface.cc
++++ b/src/interface.cc
+@@ -851,6 +851,12 @@ void interfaceBarHide()
+     indicatorBarRefresh();
+ }
+ 
++// SFALL: intface_is_hidden
++bool interfaceBarIsHidden()
++{
++    return gInterfaceBarHidden;
++}
++
+ // 0x45EA10 intface_show
+ void interfaceBarShow()
+ {
+diff --git a/src/interface.h b/src/interface.h
+index 86d790f..9fe2476 100644
+--- a/src/interface.h
++++ b/src/interface.h
+@@ -51,6 +51,8 @@ int interfaceLoad(File* stream);
+ int interfaceSave(File* stream);
+ void interfaceBarHide();
+ void interfaceBarShow();
++// SFALL: intface_is_hidden.
++bool interfaceBarIsHidden();
+ void interfaceBarEnable();
+ void interfaceBarDisable();
+ bool interfaceBarEnabled();
+diff --git a/src/sfall_metarules.cc b/src/sfall_metarules.cc
+index a4b2c77..00f9361 100644
+--- a/src/sfall_metarules.cc
++++ b/src/sfall_metarules.cc
+@@ -776,6 +776,11 @@ static void mf_critter_inven_obj2(OpcodeContext& ctx);
+ static void mf_dialog_obj(OpcodeContext& ctx);
+ static void mf_dialog_message(OpcodeContext& ctx);
+ static void mf_display_stats(OpcodeContext& ctx);
++static void mf_exec_map_update_scripts(OpcodeContext& ctx);
++static void mf_get_current_inven_size(OpcodeContext& ctx);
++static void mf_intface_hide(OpcodeContext& ctx);
++static void mf_intface_is_hidden(OpcodeContext& ctx);
++static void mf_intface_show(OpcodeContext& ctx);
+ static void mf_draw_image(OpcodeContext& ctx);
+ static void mf_draw_image_scaled(OpcodeContext& ctx);
+ static void mf_encounter_detection(OpcodeContext& ctx);
+@@ -873,11 +878,11 @@ const MetaruleInfo kMetarules[] = {
+     { "draw_image", mf_draw_image, 1, 5, -1, { ARG_INTSTR, ARG_INT, ARG_INT, ARG_INT, ARG_INT } },
+     { "draw_image_scaled", mf_draw_image_scaled, 1, 6, -1, { ARG_INTSTR, ARG_INT, ARG_INT, ARG_INT, ARG_INT, ARG_INT } },
+     { "encounter_detection", mf_encounter_detection, 1, 1, -1, { ARG_INT } },
+-    // {"exec_map_update_scripts",   mf_exec_map_update_scripts,   0, 0},
++    { "exec_map_update_scripts", mf_exec_map_update_scripts, 0, 0 },
+     { "floor2", mf_floor2, 1, 1, 0, { ARG_NUMBER } },
+     // {"get_can_rest_on_map",       mf_get_rest_on_map,           2, 2, -1, {ARG_INT, ARG_INT}},
+     { "get_combat_free_move", mf_get_combat_free_move, 0, 0 },
+-    // {"get_current_inven_size",    mf_get_current_inven_size,    1, 1,  0, {ARG_OBJECT}},
++    { "get_current_inven_size", mf_get_current_inven_size, 1, 1, 0, { ARG_OBJECT } },
+     { "get_cursor_mode", mf_get_cursor_mode, 0, 0 },
+     { "get_flags", mf_get_flags, 1, 1, 0, { ARG_OBJECT } },
+     { "get_ini_config", mf_get_ini_config, 2, 2, 0, { ARG_STRING, ARG_INT } },
+@@ -902,10 +907,10 @@ const MetaruleInfo kMetarules[] = {
+     { "interface_art_draw", mf_interface_art_draw, 4, 6, -1, { ARG_INT, ARG_INTSTR, ARG_INT, ARG_INT, ARG_INT, ARG_INT } },
+     // {"interface_overlay",         mf_interface_overlay,         2, 6, -1, {ARG_INT, ARG_INT, ARG_INT, ARG_INT, ARG_INT, ARG_INT}},
+     // {"interface_print",           mf_interface_print,           5, 6, -1, {ARG_STRING, ARG_INT, ARG_INT, ARG_INT, ARG_INT, ARG_INT}},
+-    // {"intface_hide",              mf_intface_hide,              0, 0},
+-    // {"intface_is_hidden",         mf_intface_is_hidden,         0, 0},
++    { "intface_hide", mf_intface_hide, 0, 0 },
++    { "intface_is_hidden", mf_intface_is_hidden, 0, 0 },
+     { "intface_redraw", mf_intface_redraw, 0, 1 },
+-    // {"intface_show",              mf_intface_show,              0, 0},
++    { "intface_show", mf_intface_show, 0, 0 },
+     { "inventory_redraw", mf_inventory_redraw, 0, 1, -1, { ARG_INT } },
+     // {"item_make_explosive",       mf_item_make_explosive,       3, 4, -1, {ARG_INT, ARG_INT, ARG_INT, ARG_INT}},
+     { "item_weight", mf_item_weight, 1, 1, 0, { ARG_OBJECT } },
+@@ -1167,6 +1172,33 @@ void mf_create_win(OpcodeContext& ctx)
+     }
+ }
+ 
++// exec_map_update_scripts: every script's map_update_p_proc, as when the map is updated.
++void mf_exec_map_update_scripts(OpcodeContext& ctx)
++{
++    scriptsExecMapUpdateProc();
++}
++
++// get_current_inven_size: the size of what an object carries, as a container's room is counted.
++void mf_get_current_inven_size(OpcodeContext& ctx)
++{
++    ctx.setReturn(containerGetTotalSize(ctx.arg(0).asObject()));
++}
++
++void mf_intface_hide(OpcodeContext& ctx)
++{
++    interfaceBarHide();
++}
++
++void mf_intface_is_hidden(OpcodeContext& ctx)
++{
++    ctx.setReturn(interfaceBarIsHidden() ? 1 : 0);
++}
++
++void mf_intface_show(OpcodeContext& ctx)
++{
++    interfaceBarShow();
++}
++
+ void mf_display_stats(OpcodeContext& ctx)
+ {
+     if (GameMode::isInGameMode(GameMode::kInventory)) {

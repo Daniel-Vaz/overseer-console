@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import type { Page } from '@playwright/test';
 import { cassidyHeadFiles, fo2tweaksFiles, musicFiles, partyOrdersFiles, rpuFiles } from '../mods';
 import { expect, test } from './fixtures';
@@ -156,6 +157,32 @@ test("changes an add-on's settings on its page, and starts the game with them", 
   await begin(page, 'fo2');
   const after = await engineFiles(page, ['overseer/settings/mods/fo2tweaks.ini'], []);
   expect(after.exists['overseer/settings/mods/fo2tweaks.ini']).toBe(false);
+});
+
+test('says, as an add-on is loaded and on its page, what its scripts ask for that the engine lacks', async ({ page }) => {
+  // tests/sfall/gl_ovcheck.ssl: it waits for a hook the engine never runs, and reads a settings file it does not bring.
+  const script = readFileSync(new URL('../sfall/gl_ovcheck.int', import.meta.url));
+  await openConsole(page, 'fo2');
+  await pickFolder(page, await fakeFallout2Folder(true));
+  await loaded(page);
+  await entry(page, 'Add-ons').locator('button').click();
+  await page.locator('input[accept*=".dat"]').setInputFiles({ name: 'gl_ovcheck.int', mimeType: 'application/octet-stream', buffer: script });
+  await loaded(page);
+  await expect(page.getByRole('status').locator('.amber')).toContainText(
+    "Checked its 1 script: 2 things the engine lacks, such as: gl_ovcheck.int waits for sfall's SUBCOMBATDAMAGE hook, which the engine never runs",
+  );
+
+  await page.goto('#/mods/addons/gl-ovcheck');
+  await entry(page, 'Check').locator('button').click();
+  await expect(page.getByText('CHECK OF GL OVCHECK')).toBeVisible();
+  await expect(page.locator('.readout')).toContainText('2 THINGS MISSING');
+  const findings = page.locator('.findings li');
+  await expect(findings).toHaveText([
+    "gl_ovcheck.int waits for sfall's SUBCOMBATDAMAGE hook, which the engine never runs: what it does then does not happen.",
+    'gl_ovcheck.int reads mods\\ovcheck.ini, which is not there: it gets the values it falls back on.',
+  ]);
+  await page.keyboard.press('Escape');
+  await expect(entry(page, 'Check')).toBeVisible();
 });
 
 test('loads an add-on of Fallout in the Mod library, and lays its music over the game from its page', async ({ page }) => {

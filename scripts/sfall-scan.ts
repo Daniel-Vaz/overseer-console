@@ -8,10 +8,15 @@
 //
 // What each engine has is read from its source as patched here: the dev tree of engines/patches.sh import if there is
 // one, else the tree engines/build.sh built. Fallout 2 CE's own source names every sfall opcode in its comments.
+//
+//   npm run sfall-scan -- --support
+//
+// writes what the Fallout 2 engine has into src/lib/sfall/support-fo2.json, which the console checks add-ons and mods
+// against (src/lib/sfall/scan.ts). Run it after each engine patch that adds any of these.
 import { openAsBlob } from 'node:fs';
-import { readFile, readdir, stat } from 'node:fs/promises';
+import { readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
-import { indexDat, readDatEntry, type DatArchive } from '../src/lib/dat.ts';
+import { addArchive, addScript, checkScripts, datFormat, emptyScripts, type Finding, type Scripts, type Support } from '../src/lib/sfall/scan.ts';
 import type { SourceBlob } from '../src/lib/storage/opfs.ts';
 import { readZip } from '../src/lib/zip.ts';
 
@@ -145,109 +150,8 @@ async function readEngine(id: EngineId): Promise<Engine> {
 
 // --- What a mod asks for ------------------------------------------------------------------------------------------
 
-/** What one compiled script calls. */
-interface ScriptUse {
-  opcodes: Set<number>;
-  /** Its strings, among which the names of the metarules it calls. */
-  strings: Set<string>;
-  /** Hooks it registers (register_hook, register_hook_proc[_spec]) by a constant id. */
-  hooks: Set<number>;
-  /** The addresses its memory opcodes are given, as "opcode:address". */
-  memory: Set<string>;
-}
-
-const PUSH = new Set([0xc001, 0xa001, 0x9001]);
-const REGISTER_HOOK = 0x8207;
-const REGISTER_HOOK_PROC = new Set([0x8262, 0x827d]);
-
-/** read_byte .. read_string, write_byte .. write_int, call_offset_v0 .. r4, write_string; and how many values each takes. */
-const MEMORY_OPCODES = new Map<number, number>([
-  [0x8156, 1], [0x8157, 1], [0x8158, 1], [0x8159, 1], [0x81cf, 2], [0x81d0, 2], [0x81d1, 2],
-  ...[0, 1, 2, 3, 4].flatMap((args) => [[0x81d2 + args, args + 1], [0x81d7 + args, args + 1]] as [number, number][]),
-  [0x821b, 2],
-]);
-/** add, sub, mul. */
-const ARITHMETIC = new Map<number, (a: number, b: number) => number>([
-  [0x8039, (a, b) => a + b],
-  [0x803a, (a, b) => a - b],
-  [0x803b, (a, b) => a * b],
-]);
-/** Where the original Fallout 2 and Fallout keep their code and data. */
-const isAddress = (value: number) => value >= 0x400000 && value < 0x700000;
-
-/**
- * Reads a compiled script (.int): after a 42-byte start, its procedure table (24 bytes each, the body's offset at 16),
- * names and strings, then its code: two-byte opcodes, those that push a value followed by four bytes of it.
- */
-function readScript(data: Uint8Array): ScriptUse | null {
-  if (data.length < 46) return null;
-  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-  const count = view.getUint32(42);
-  if (46 + count * 24 > data.length) return null;
-  let start = data.length;
-  for (let i = 0; i < count; i++) {
-    const body = view.getUint32(46 + i * 24 + 16);
-    if (body > 0) start = Math.min(start, body);
-  }
-  const strings = new Set<string>();
-  for (const text of new TextDecoder('latin1').decode(data.subarray(46 + count * 24, start)).split('\0')) {
-    if (/^\w+$/.test(text)) strings.add(text.toLowerCase());
-  }
-  const opcodes = new Set<number>();
-  const hooks = new Set<number>();
-  const memory = new Set<string>();
-  const pushed: number[] = [];
-  // The constants pushed lately, and sums of them (an address and an offset), for the address a memory opcode is given
-  // where its values are worked out.
-  const recent: { value: number; step: number }[] = [];
-  const sums: number[] = [];
-  let step = 0;
-  let at = start;
-  while (at + 2 <= data.length) {
-    const opcode = view.getUint16(at);
-    at += 2;
-    if (opcode < 0x8000) return null;
-    if (PUSH.has(opcode)) {
-      if (at + 4 > data.length) return null;
-      pushed.push(opcode === 0xc001 ? view.getInt32(at) : NaN);
-      if (opcode === 0xc001) recent.push({ value: view.getInt32(at), step });
-      if (recent.length > 32) recent.shift();
-      sums.push(opcode === 0xc001 ? view.getInt32(at) : NaN);
-      at += 4;
-      step++;
-      continue;
-    }
-    step++;
-    const arithmetic = ARITHMETIC.get(opcode);
-    if (arithmetic && sums.length >= 2) {
-      const b = sums.pop()!;
-      const sum = arithmetic(sums.pop()!, b);
-      sums.push(sum);
-      if (isAddress(sum)) recent.push({ value: sum, step });
-    } else sums.length = 0;
-    const takes = MEMORY_OPCODES.get(opcode);
-    if (takes !== undefined) {
-      // All its values pushed as they are: the first is the address. Else the last address-like one, not long ago.
-      let address = pushed.length >= takes ? pushed[pushed.length - takes]! : NaN;
-      if (!isAddress(address)) address = recent.findLast((push) => isAddress(push.value) && step - push.step < 24)?.value ?? NaN;
-      memory.add(`${opcode}:${Number.isNaN(address) ? '?' : address}`);
-    }
-    if (opcode === REGISTER_HOOK && pushed.length >= 1) hooks.add(pushed[pushed.length - 1]!);
-    if (REGISTER_HOOK_PROC.has(opcode) && pushed.length >= 2) hooks.add(pushed[pushed.length - 2]!);
-    pushed.length = 0;
-    opcodes.add(opcode);
-  }
-  hooks.delete(NaN);
-  return { opcodes, strings, hooks, memory };
-}
-
-interface Mod {
+interface Mod extends Scripts {
   name: string;
-  /** Scripts by lower-cased file name: what every copy of it calls. */
-  scripts: Map<string, ScriptUse>;
-  /** Global scripts (gl*.int) kept elsewhere than scripts/, where the engines look for them. */
-  strayGlobals: Set<string>;
-  unreadable: Set<string>;
   /** ddraw.ini files by where they are. */
   settings: Map<string, string>;
   /** A MASTER.DAT says which game this is played on. */
@@ -264,44 +168,14 @@ function fileSource(blob: Blob): SourceBlob {
   };
 }
 
-/** Fallout 2's archives end with their own size; Fallout 1's do not. */
-async function datFormat(archive: DatArchive): Promise<'dat1' | 'dat2'> {
-  const tail = new DataView(await archive.slice(archive.size - 4, archive.size).arrayBuffer());
-  return tail.getUint32(0, true) === archive.size ? 'dat2' : 'dat1';
-}
-
-function addScript(mod: Mod, path: string, data: Uint8Array) {
-  const name = basename(path.replace(/\\/g, '/')).toLowerCase();
-  if (name.startsWith('gl') && !/(^|\/)scripts\/gl[^/]*$/i.test(path.replace(/\\/g, '/'))) mod.strayGlobals.add(path);
-  const use = readScript(data);
-  if (!use) {
-    mod.unreadable.add(name);
-    return;
-  }
-  const known = mod.scripts.get(name);
-  if (!known) return void mod.scripts.set(name, use);
-  for (const opcode of use.opcodes) known.opcodes.add(opcode);
-  for (const text of use.strings) known.strings.add(text);
-  for (const hook of use.hooks) known.hooks.add(hook);
-  for (const access of use.memory) known.memory.add(access);
-}
-
-async function readArchive(mod: Mod, path: string, archive: DatArchive) {
-  const format = await datFormat(archive);
-  if (/(^|\/)master\.dat$/i.test(path)) mod.base ??= format === 'dat1' ? 'fo1' : 'fo2';
-  const entries = [...(await indexDat(archive, format)).values()].filter((entry) => entry.name.endsWith('.int'));
-  // In the order they lie, so that one packed in a zip is read through once.
-  entries.sort((a, b) => a.offset - b.offset);
-  for (const entry of entries) addScript(mod, entry.name, await readDatEntry(archive, format, entry));
-}
-
 async function readFileOf(mod: Mod, path: string, file: SourceBlob) {
   const lower = path.toLowerCase();
   // What macOS adds to a zip made on it.
   if (lower.includes('__macosx/')) return;
   if (lower.endsWith('.int')) addScript(mod, path, new Uint8Array(await file.arrayBuffer()));
   else if (lower.endsWith('.dat') && file.size > 16) {
-    await readArchive(mod, path, file).catch((err: unknown) => console.warn(`  ${path}: not read (${String(err)})`));
+    if (/(^|\/)master\.dat$/i.test(path)) mod.base ??= (await datFormat(file)) === 'dat1' ? 'fo1' : 'fo2';
+    await addArchive(mod, path, file).catch((err: unknown) => console.warn(`  ${path}: not read (${String(err)})`));
   } else if (lower.endsWith('.zip')) {
     const entries = await readZip(file).catch((err: unknown) => void console.warn(`  ${path}: not read (${String(err)})`));
     for (const entry of entries ?? []) await readFileOf(mod, `${path}/${entry.path}`, entry.file);
@@ -309,7 +183,7 @@ async function readFileOf(mod: Mod, path: string, file: SourceBlob) {
 }
 
 async function readMod(path: string): Promise<Mod> {
-  const mod: Mod = { name: basename(path), scripts: new Map(), strayGlobals: new Set(), unreadable: new Set(), settings: new Map() };
+  const mod: Mod = { name: basename(path), ...emptyScripts(), settings: new Map() };
   if ((await stat(path)).isDirectory()) {
     for (const entry of (await readdir(path, { recursive: true })).sort()) {
       const full = join(path, entry);
@@ -323,122 +197,72 @@ async function readMod(path: string): Promise<Mod> {
 
 // --- The report ---------------------------------------------------------------------------------------------------
 
-/** Hook scripts sfall does not name after their hook. */
-const HOOK_FILES: Record<string, string> = { 'hs_subcombatdmg.int': 'SUBCOMBATDAMAGE' };
-
-/** The first opcode an engine's scripts may call beyond the interpreter's own. */
-const FIRST_GAME_OPCODE = 0x80a1;
-
 function some(names: string[]): string {
   const shown = names.sort().slice(0, 4).join(', ');
   return names.length > 4 ? `${shown} and ${names.length - 4} more` : shown;
 }
 
-function readSettings(text: string): { section: string; key: string; value: string }[] {
-  const out: { section: string; key: string; value: string }[] = [];
-  let section = '';
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.replace(/\s;.*$/, '').trim();
-    if (!line || line.startsWith(';')) continue;
-    const head = /^\[(.+)\]$/.exec(line);
-    if (head) section = head[1]!.trim();
-    else if (line.includes('=')) {
-      const at = line.indexOf('=');
-      out.push({ section, key: line.slice(0, at).trim(), value: line.slice(at + 1).trim() });
-    }
-  }
-  return out;
-}
+const HEADINGS: Record<Finding['kind'], string> = {
+  unreadable: 'not readable as scripts',
+  opcode: 'opcodes the engine lacks',
+  stub: 'opcodes the engine takes and does nothing with',
+  memory: "the original program's memory, which the engine does not answer for (a read gives 0, the rest does nothing)",
+  metarule: 'metarules the engine lacks',
+  hook: 'hooks registered that the engine never calls',
+  hookScript: 'hook scripts the engine never runs',
+  stray: 'global scripts outside scripts/ (the engine runs scripts/gl*.int only)',
+  setting: 'ddraw.ini settings the engine does not read',
+  ini: 'settings files the scripts read that are not there',
+};
 
 function report(mod: Mod, engine: Engine, names: Names) {
-  const hookName = new Map([...names.hooks].map(([name, id]) => [id, name]));
-  // (Mods made for another build of sfall call things sfall itself does not have.)
-  const opcodeName = (opcode: number) => `${names.opcodes.get(opcode) ?? 'not in sfall'} (0x${opcode.toString(16)})`;
   console.log(`\n== ${mod.name}: ${mod.scripts.size} scripts, played on the ${engine.id} engine`);
-  if (mod.unreadable.size) console.log(`  not readable as scripts: ${some([...mod.unreadable])}`);
-
-  const lacking = new Map<string, string[]>();
-  const stubbed = new Map<string, string[]>();
-  const metarules = new Map<string, string[]>();
-  const hooks = new Map<string, string[]>();
-  const add = (into: Map<string, string[]>, key: string, script: string) => into.set(key, [...(into.get(key) ?? []), script]);
-  const memory = new Map<string, string[]>();
-  for (const [script, use] of mod.scripts) {
-    for (const access of use.memory) {
-      const [opcode, address] = access.split(':').map(Number) as [number, number];
-      const kind = opcode >= 0x81d2 && opcode <= 0x81db ? 'call' : opcode <= 0x8159 ? 'read' : 'write';
-      const answered = kind === 'call'
-        ? engine.memory.calls.has(address)
-        : engine.memory.areas.some(([start, end]) => address >= start && address < end);
-      if (engine.opcodes.has(opcode) && answered) continue;
-      const name = names.opcodes.get(opcode)?.replace(/_[vr]\d$/, '') ?? `0x${opcode.toString(16)}`;
-      add(memory, `${name} ${Number.isNaN(address) ? '(an address worked out)' : `0x${address.toString(16).toUpperCase()}`}`, script);
-    }
-    for (const opcode of use.opcodes) {
-      if (opcode < FIRST_GAME_OPCODE || MEMORY_OPCODES.has(opcode)) continue;
-      if (!engine.opcodes.has(opcode)) add(lacking, opcodeName(opcode), script);
-      else if (engine.stubs.has(opcode)) add(stubbed, opcodeName(opcode), script);
-    }
-    for (const text of use.strings) {
-      if (names.metarules.has(text) && !engine.metarules.has(text)) add(metarules, text, script);
-    }
-    for (const hook of use.hooks) {
-      if (!engine.fires.has(hook)) add(hooks, `${hookName.get(hook) ?? 'not in sfall'} (${hook})`, script);
-    }
-  }
-  const list = (title: string, found: Map<string, string[]>) => {
-    if (!found.size) return;
-    console.log(`  ${title}:`);
-    for (const [what, scripts] of [...found].sort((a, b) => b[1].length - a[1].length)) {
-      console.log(`    ${what} in ${scripts.length} script${scripts.length > 1 ? 's' : ''}: ${some(scripts)}`);
-    }
-  };
-  list('opcodes the engine lacks', lacking);
-  list('opcodes the engine takes and does nothing with', stubbed);
-  list("the original program's memory, which the engine does not answer for (a read gives 0, the rest does nothing)", memory);
-  list('metarules the engine lacks', metarules);
-  list('hooks registered that the engine never calls', hooks);
-
-  const hookScripts = [...mod.scripts.keys()].filter((script) => /^hs_\w+\.int$/.test(script));
-  if (hookScripts.length) {
-    const named = hookScripts.map((script) => {
-      const id = names.hooks.get(HOOK_FILES[script] ?? script.slice(3, -4).toUpperCase());
-      const fired = id !== undefined && engine.fires.has(id);
-      return `${script}${id === undefined ? ' (no such hook)' : fired ? '' : ' (hook never called)'}`;
-    });
-    console.log(`  hook scripts${engine.hookScripts ? '' : ', which the engine never loads'}: ${named.sort().join(', ')}`);
-  }
-
-  if (mod.strayGlobals.size) console.log(`  global scripts outside scripts/ (the engine runs scripts/gl*.int only): ${some([...mod.strayGlobals])}`);
-
   // The game reads the ddraw.ini beside its program: the outermost one (the others are copies, or another engine's).
   const depth = (path: string) => path.split('/').length;
-  const outermost = Math.min(...[...mod.settings.keys()].map(depth));
-  for (const [path, text] of mod.settings) {
-    if (depth(path) > outermost) continue;
-    const ignored = readSettings(text).filter(({ section, key, value }) => {
-      if (value === '' || value === '0') return false;
-      const id = `${section}/${key}`.toLowerCase();
-      return !engine.settings.some((setting) => (setting.endsWith('*') ? id.startsWith(setting.slice(0, -1)) : setting === id));
-    });
-    if (!ignored.length) continue;
-    console.log(`  ${path}: settings the engine does not read`);
-    const bySection = new Map<string, string[]>();
-    for (const { section, key, value } of ignored) {
-      bySection.set(section, [...(bySection.get(section) ?? []), `${key}=${value.length > 16 ? `${value.slice(0, 12)}...` : value}`]);
+  const outermost = [...mod.settings].sort((a, b) => depth(a[0]) - depth(b[0]))[0];
+  const findings = checkScripts(mod, supportOf(engine, names), outermost?.[1]);
+  for (const kind of Object.keys(HEADINGS) as Finding['kind'][]) {
+    const found = findings.filter((finding) => finding.kind === kind);
+    if (!found.length) continue;
+    console.log(`  ${HEADINGS[kind]}${kind === 'setting' ? ` (${outermost![0]})` : ''}:`);
+    for (const { what, where } of found) {
+      console.log(kind === 'stray' || kind === 'unreadable' || kind === 'setting' ? `    ${what}` : `    ${what} in ${where.length} script${where.length > 1 ? 's' : ''}: ${some(where)}`);
     }
-    for (const [section, keys] of bySection) console.log(`    [${section}] ${keys.join(' ')}`);
   }
+}
+
+/** What an engine has, as the console reads it. */
+function supportOf(engine: Engine, names: Names): Support {
+  return {
+    opcodes: [...engine.opcodes].sort((a, b) => a - b),
+    stubs: [...engine.stubs].sort((a, b) => a - b),
+    metarules: [...engine.metarules].sort(),
+    fires: [...engine.fires].sort((a, b) => a - b),
+    hookScripts: engine.hookScripts,
+    settings: [...new Set(engine.settings)].sort(),
+    memory: { areas: engine.memory.areas.sort((a, b) => a[0] - b[0]), calls: [...engine.memory.calls].sort((a, b) => a - b) },
+    names: {
+      opcodes: Object.fromEntries([...names.opcodes].sort((a, b) => a[0] - b[0]).map(([opcode, name]) => [String(opcode), name])),
+      metarules: [...names.metarules].sort(),
+      hooks: Object.fromEntries([...names.hooks].sort((a, b) => a[1] - b[1])),
+    },
+  };
 }
 
 const args = process.argv.slice(2);
+const names = await readNames();
+if (args.includes('--support')) {
+  const out = join(ROOT, 'src/lib/sfall/support-fo2.json');
+  await writeFile(out, `${JSON.stringify(supportOf(await readEngine('fo2'), names))}\n`);
+  console.log(`wrote ${out}`);
+  process.exit(0);
+}
 const forced = args.includes('--engine') ? (args[args.indexOf('--engine') + 1] as EngineId) : undefined;
 const paths = args.filter((arg, i) => !arg.startsWith('--') && args[i - 1] !== '--engine');
 if (!paths.length || (forced && forced !== 'fo1' && forced !== 'fo2')) {
-  console.error('usage: npm run sfall-scan -- <mod folder or zip>... [--engine fo1|fo2]');
+  console.error('usage: npm run sfall-scan -- <mod folder or zip>... [--engine fo1|fo2] | --support');
   process.exit(2);
 }
-const names = await readNames();
 const engines = new Map<EngineId, Engine>();
 for (const path of paths) {
   const mod = await readMod(path);

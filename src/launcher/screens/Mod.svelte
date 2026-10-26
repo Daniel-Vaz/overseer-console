@@ -17,6 +17,7 @@
   import Addons from '../components/Addons.svelte';
   import Glyph from '../components/Glyph.svelte';
   import IniSettings from '../components/IniSettings.svelte';
+  import ScriptCheck from '../components/ScriptCheck.svelte';
   import JobResult from '../components/JobResult.svelte';
   import Loading from '../components/Loading.svelte';
   import Menu from '../components/Menu.svelte';
@@ -45,10 +46,11 @@
   const canPickFolder = 'webkitdirectory' in HTMLInputElement.prototype;
 
   /**
-   * main: the mod. components: its parts switched on and off. settings: its settings files. addons: those laid
+   * main: the mod. components: its parts switched on and off. settings: its settings files. check: whether its
+   * scripts will work. addons: those laid
    * over it. holodisk: its files loaded again, or taken out. eject: asked first.
    */
-  let view = $state<'main' | 'components' | 'settings' | 'addons' | 'holodisk' | 'eject'>('main');
+  let view = $state<'main' | 'components' | 'settings' | 'check' | 'addons' | 'holodisk' | 'eject'>('main');
   let addonsView: Addons | undefined = $state();
   let settingsView: IniSettings | undefined = $state();
   /** How many settings files it brings, and how many of them the player changed. */
@@ -309,6 +311,15 @@
             },
           ]
         : []),
+      ...(mod.base === 'fo2'
+        ? [
+            {
+              label: 'Check',
+              note: 'Whether it will work on this engine, as far as its scripts tell: what they ask of sfall that the engine lacks, and settings files they read that are not there. A large mod takes a while.',
+              action: () => (view = 'check'),
+            },
+          ]
+        : []),
       {
         label: 'Add-ons',
         state: laid.length ? `${laid.length} ON` : addonsFor ? 'NONE ON' : 'NONE',
@@ -457,6 +468,8 @@
         {/if}
       {:else if view === 'addons' && install}
         <Addons {game} {go} back={() => (view = 'main')} bind:this={addonsView} />
+      {:else if view === 'check' && install}
+        <ScriptCheck owner={game} shelf="games" title={def.title} back={() => (view = 'main')} />
       {:else if view === 'settings' && install}
         <IniSettings owner={game} shelf="games" title={def.title} back={() => (view = 'main')} bind:this={settingsView} />
       {:else if view === 'components' && components}

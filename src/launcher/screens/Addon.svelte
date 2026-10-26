@@ -12,6 +12,7 @@
   import { formatBytes } from '../../lib/storage/manifest';
   import Glyph from '../components/Glyph.svelte';
   import IniSettings from '../components/IniSettings.svelte';
+  import ScriptCheck from '../components/ScriptCheck.svelte';
   import JobResult from '../components/JobResult.svelte';
   import Loading from '../components/Loading.svelte';
   import Menu from '../components/Menu.svelte';
@@ -31,8 +32,8 @@
   let folderInput: HTMLInputElement | undefined = $state();
   let zipInput: HTMLInputElement | undefined = $state();
 
-  /** main: the add-on. settings: its settings files. holodisk: its files loaded again, or taken out. eject: asked first. */
-  let view = $state<'main' | 'settings' | 'holodisk' | 'eject'>('main');
+  /** main: the add-on. settings: its settings files. check: whether its scripts will work. holodisk: its files loaded again, or taken out. eject: asked first. */
+  let view = $state<'main' | 'settings' | 'check' | 'holodisk' | 'eject'>('main');
   let settingsView: IniSettings | undefined = $state();
   /** How many settings files it brings, and how many of them the player changed. */
   let settingsFiles = $state<{ files: number; changed: number } | null>(null);
@@ -121,8 +122,8 @@
     if (await sys.ejectAddon(id)) go('mods');
   }
 
-  // Not E (Holodisk), S (Settings) or 0 (Back).
-  const KEYS = '123456789abcdfghijkmnpqrtuvwxyz';
+  // Not E (Holodisk), K (Check), S (Settings) or 0 (Back).
+  const KEYS = '123456789abcdfghijmnpqrtuvwxyz';
 
   const mainItems = $derived.by((): MenuItem[] => {
     if (!record || !base) return [];
@@ -153,6 +154,16 @@
               tone: settingsFiles.changed ? ('amber' as const) : undefined,
               note: `What its ${settingsFiles.files === 1 ? 'settings file says' : `${settingsFiles.files} settings files say`}, as its scripts read it: parts of it switched on and off, values changed, as on a desktop you would edit the file.`,
               action: () => (view = 'settings'),
+            } satisfies MenuItem,
+          ]
+        : []),
+      ...(record.base === 'fo2'
+        ? [
+            {
+              key: 'k',
+              label: 'Check',
+              note: 'Whether it will work on this engine, as far as its scripts tell: what they ask of sfall that the engine lacks, and settings files they read that are not there.',
+              action: () => (view = 'check'),
             } satisfies MenuItem,
           ]
         : []),
@@ -263,6 +274,8 @@
         {#if cloud.mods !== null}
           <Menu items={cloudItems} label={`Mods folder in your ${sys.cloud.name}`} />
         {/if}
+      {:else if view === 'check'}
+        <ScriptCheck owner={id} shelf="addons" title={record.title} back={() => (view = 'main')} />
       {:else if view === 'settings'}
         <IniSettings owner={id} shelf="addons" title={record.title} back={() => (view = 'main')} bind:this={settingsView} />
       {:else if view === 'eject'}

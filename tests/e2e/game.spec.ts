@@ -729,8 +729,9 @@ test('Fallout 2: sfall virtual files, hook scripts and the calls the mods make, 
   // Read back high byte first; copied from a virtual file; two traits; the world map's view; the knockback and
   // heave-ho calls; an MP3 played; the Hero Appearance style kept for scripts; six reads, writes and a call into the
   // original program's memory; the version of the mod's sfall; two settings of a packed folder of the mods folder, the
-  // first as changed on the mod's page; the settings the engine always acts on; and the end of the script.
-  expect([...files.get('overseer/result')!]).toEqual([1, 1, 1, 5, 7, 1, 1, 1, 1, 1, 1, 1, 1, 1, 4, 4, 5, 43, 7, 1, 66]);
+  // first as changed on the mod's page; the settings the engine always acts on; the interface bar hidden and shown,
+  // and the metarules beside it; and the end of the script.
+  expect([...files.get('overseer/result')!]).toEqual([1, 1, 1, 5, 7, 1, 1, 1, 1, 1, 1, 1, 1, 1, 4, 4, 5, 43, 7, 1, 1, 66]);
   // The player in the style's robe.
   const path = test.info().outputPath('hero-appearance.png');
   await page.locator('#canvas').screenshot({ path });

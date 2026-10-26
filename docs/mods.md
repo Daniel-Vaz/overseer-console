@@ -81,6 +81,12 @@ you would do by editing the file. The file itself stays as it came: the console 
 engine the file with them made, also where the file is inside an archive (a folder of the mods folder, such as
 `mods/InventoryFilter.dat/`, is packed into one here). *As it came* puts a file back.
 
+**Check** reads a Fallout 2 mod's scripts and says whether it will work on the engine as far as they tell: what they
+ask of sfall that the engine lacks (a function, a hook, the original program's memory), global scripts where the
+engine does not look for them, and settings files they read that are not there; each in a sentence saying what
+happens instead. A large mod takes a while. It cannot tell everything: a mod can still go wrong in ways its scripts
+do not show.
+
 ## Add-ons
 
 An add-on is a small mod with no game of its own: on a desktop it is unpacked into a game folder over whatever is
@@ -114,6 +120,10 @@ left out: the engine has what add-ons need of it built in. Its scripts find in `
 is installed: a setting it lacks reads as in the `ddraw.ini` sfall comes with, and those the engine always acts on
 (its file system override, its scripts' access to the original program's memory) read as on, so FO2tweaks does not
 ask for the game to be started again and Inventory Filter does not warn.
+
+An add-on of Fallout 2 is checked as it is loaded, as **Check** on a mod's page does (see
+[Playing one](#playing-one)): the result says what its scripts ask for that the engine lacks, or that they ask for
+nothing it lacks, and **Check** on its page says it again in full.
 
 Its **Settings**, on its page, are those of a mod (see [Playing one](#playing-one)): FO2tweaks' components switched on
 and off in `fo2tweaks.ini`, Inventory Filter's in `InvenFilter.ini`. A change is the add-on's, for every game and mod
