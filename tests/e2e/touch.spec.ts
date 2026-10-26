@@ -57,7 +57,7 @@ test('on a phone the start gate asks for a tap and makes room for the touch deck
   // Between the deck's own buttons sit the shortcuts: keys of the game, fast forward, and the
   // one that lights up what lies on the ground, which this game has. None of them hangs off the screen.
   const shortcuts = page.locator('#deck .deck-quick button:visible');
-  await expect(shortcuts).toHaveText(['INV', 'MAP', 'CHA', 'PIP', 'SKILL', 'FAST', 'HILITE', 'MODE', 'TURN', 'QSAVE', 'QLOAD']);
+  await expect(shortcuts).toHaveText(['INV', 'MAP', 'CHA', 'PIP', 'SKILL', 'FAST', 'HILITE', 'ATTACK', 'MODE', 'TURN', 'QSAVE', 'QLOAD']);
   for (const box of await shortcuts.evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().toJSON() as DOMRect))) {
     expect(box.top).toBeGreaterThanOrEqual(0);
     expect(box.bottom).toBeLessThanOrEqual(390);
@@ -422,10 +422,8 @@ for (const game of GAMES) {
       await turn.tap();
       await expect(page.locator('#toast')).toHaveText('TURN ends your turn in a fight. It lights up when your turn comes.');
     }
-    // A fight begins (the A key): it is the player's turn, and TURN is lit. A tap on it ends that turn.
-    await deck('keys').tap();
-    await key('KeyA').tap();
-    await deck('keys').tap();
+    // ATTACK starts a fight, as the A key does: it is the player's turn, and TURN is lit. A tap on it ends that turn.
+    await shortcut('KeyA').tap();
     await expect(turn).not.toHaveClass(/idle/, { timeout: 30_000 });
     await turn.tap();
     await expect(turn).toHaveClass(/idle/, { timeout: 15_000 });

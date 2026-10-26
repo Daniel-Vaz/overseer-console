@@ -400,7 +400,7 @@
             <dd>
               Keys the games answer to, a tap away. Beside the picture's left edge the game's screens, in the order of its
               own interface bar: INV the inventory, MAP the map of the place, CHA the character screen, PIP the Pip-Boy,
-              SKILL the skilldex. On the right, TURN ends your turn in a fight, as SPACE does: it is lit while it is your
+              SKILL the skilldex. On the right, ATTACK starts a fight, as A does. TURN ends your turn in a fight, as SPACE does: it is lit while it is your
               turn, and dim the rest of the time, when it does nothing. MODE switches the weapon in hand to its next mode
               (aimed, burst, reload), as N does and as a right click on the weapon's own button does. FAST is fast forward.
               HILITE, where a game has it, highlights what lies on the ground until it is pressed again
