@@ -16,6 +16,17 @@
 
   const CACHE_STEPS = [96, 192, 384, 768];
   const SCALINGS: readonly Settings['scaling'][] = ['fill', 'integer', 'smooth'];
+  const TOUCH_POINTERS: Record<Settings['touchPointer'], { state: string; note: string }> = {
+    direct: { state: 'FOLLOWS FINGER', note: 'Tap what you want to click; the pointer goes where your finger is.' },
+    hybrid: {
+      state: 'HYBRID',
+      note: 'Drag to move the pointer as on a trackpad, tap what you want to click. CLICK clicks where a drag left the pointer.',
+    },
+    trackpad: {
+      state: 'TRACKPAD',
+      note: 'The picture works like a laptop trackpad: drag to move the pointer, tap anywhere to click. Precise on small screens.',
+    },
+  };
   // What a setting belongs to. The list is long; these keep it readable. The console's storage is the console's:
   // a heading of its own would cost the line the list does not have.
   const GAMES_GROUP = 'The games';
@@ -182,13 +193,10 @@
             key: 'p',
             group: GAMES_GROUP,
             label: 'Touch pointer',
-            icon: s.touchPointer === 'direct' ? 'pointer-finger' : 'pointer-trackpad',
-            state: s.touchPointer === 'direct' ? 'FOLLOWS FINGER' : 'TRACKPAD',
-            note:
-              s.touchPointer === 'direct'
-                ? 'Tap what you want to click; the pointer goes where your finger is.'
-                : 'The picture works like a laptop trackpad: drag to move the pointer, tap anywhere to click. Precise on small screens.',
-            ...choice('touchPointer', ['direct', 'trackpad']),
+            icon: s.touchPointer === 'trackpad' ? 'pointer-trackpad' : 'pointer-finger',
+            state: TOUCH_POINTERS[s.touchPointer].state,
+            note: TOUCH_POINTERS[s.touchPointer].note,
+            ...choice('touchPointer', ['direct', 'hybrid', 'trackpad']),
           } satisfies MenuItem,
         ]
       : []),

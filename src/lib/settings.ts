@@ -70,8 +70,9 @@ export interface Settings {
    * Touch screens only.
    * direct: the pointer goes where the finger is.
    * trackpad: the picture works like a laptop's trackpad.
+   * hybrid: dragging moves the pointer as on a trackpad; a tap clicks where the finger is.
    */
-  touchPointer: 'direct' | 'trackpad';
+  touchPointer: 'direct' | 'trackpad' | 'hybrid';
 }
 
 /** The speeds fast forward can be set to. */
@@ -163,7 +164,7 @@ export function loadSettings(): Settings {
     }
     if (!['fill', 'integer', 'smooth'].includes(merged.scaling)) merged.scaling = DEFAULT_SETTINGS.scaling;
     if (merged.audio !== 'buffered' && merged.audio !== 'direct') merged.audio = DEFAULT_SETTINGS.audio;
-    if (merged.touchPointer !== 'direct' && merged.touchPointer !== 'trackpad') merged.touchPointer = DEFAULT_SETTINGS.touchPointer;
+    if (!['direct', 'trackpad', 'hybrid'].includes(merged.touchPointer)) merged.touchPointer = DEFAULT_SETTINGS.touchPointer;
     if (!FAST_FORWARD_SPEEDS.includes(merged.fastForward)) merged.fastForward = DEFAULT_SETTINGS.fastForward;
     if (!AUTOSAVE_MINUTES.includes(merged.autosave)) merged.autosave = DEFAULT_SETTINGS.autosave;
     // Saved before arrivals were a choice: autosaves that were on are on for arrivals too, and off stays off.

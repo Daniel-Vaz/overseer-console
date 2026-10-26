@@ -313,6 +313,76 @@ describe('trackpad pointer', () => {
   });
 });
 
+describe('hybrid pointer', () => {
+  beforeEach(() => start('hybrid'));
+  const speed = DEFAULT_TUNING.trackpadSpeed;
+
+  it('a tap clicks where the finger is', () => {
+    down(1, 100, 200);
+    wait(80);
+    up(1);
+    expect(log()).toEqual(['move 100,200', 'click left']);
+    expect(gestures.pointer).toEqual({ x: 100, y: 200 });
+  });
+
+  it('a tap that wobbles clicks where the finger lifted', () => {
+    down(1, 100, 200);
+    move(1, 104, 203);
+    up(1);
+    expect(log()).toEqual(['move 104,203', 'click left']);
+  });
+
+  it('a drag moves the pointer from where it was, as on a trackpad, and clicks nothing', () => {
+    down(1, 500, 400);
+    move(1, 500 + 20, 400);
+    move(1, 500 + 60, 400 + 10);
+    wait(900);
+    up(1);
+    expect(log()).toEqual([`move ${320 + 40 * speed},${240 + 10 * speed}`]);
+  });
+
+  it('a second finger tapping during a drag clicks where the pointer is', () => {
+    down(1, 500, 400);
+    move(1, 520, 400);
+    move(1, 540, 400);
+    down(2, 300, 300);
+    wait(80);
+    up(2);
+    up(1);
+    expect(log()).toEqual([`move ${320 + 20 * speed},240`, 'click left']);
+  });
+
+  it('press and hold presses under the finger, and what it drags follows the finger', () => {
+    down(1, 600, 50);
+    wait(HOLD);
+    move(1, 600, 90);
+    up(1);
+    expect(log()).toEqual(['move 600,50', 'press left', 'move 600,90', 'release left']);
+  });
+
+  it('a tap beside the picture clicks nothing', () => {
+    down(1, -40, 200);
+    up(1);
+    expect(log()).toEqual([]);
+  });
+
+  it('a finger resting beside the picture holds the pointer at its edge, pressing nothing', () => {
+    down(1, 700, 200);
+    wait(HOLD);
+    up(1);
+    expect(log()).toEqual(['move 639,200']);
+  });
+
+  it('two-finger tap and scroll work as in the other modes', () => {
+    down(1, 100, 200);
+    down(2, 180, 210);
+    up(2);
+    up(1);
+    expect(log()).toEqual(['click right']);
+    expect(gestures.pointer).toEqual({ x: 320, y: 240 });
+  });
+});
+
 describe('lists', () => {
   // An inventory down the left of the picture, rows 48 pixels high.
   const LIST = { left: 40, top: 30, right: 120, bottom: 330, row: 48 };
@@ -516,6 +586,30 @@ describe('lists', () => {
       up(2);
       expect(log()).toEqual(['scroll 0,1', 'scroll 0,1']);
       expect(gestures.pointer).toEqual({ x: 80, y: 200 });
+    });
+  });
+
+  describe('hybrid pointer', () => {
+    beforeEach(() => {
+      start('hybrid');
+      gestures.listAt = onList;
+    });
+
+    it('one finger on a list moves the pointer, as anywhere', () => {
+      down(1, 80, 100);
+      move(1, 80, 200);
+      up(1);
+      expect(log().every((entry) => entry.startsWith('move'))).toBe(true);
+    });
+
+    it('two fingers scroll the list under them, the pointer going onto it', () => {
+      down(1, 60, 100);
+      down(2, 100, 100);
+      move(1, 60, 100 + ROW * 2);
+      move(2, 100, 100 + ROW * 2);
+      up(1);
+      up(2);
+      expect(log()).toEqual(['move 80,100', 'scroll 0,1', 'scroll 0,1']);
     });
   });
 });

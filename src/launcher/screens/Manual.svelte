@@ -400,8 +400,8 @@
             <dd>
               Keys the games answer to, a tap away. Beside the picture's left edge the game's screens, in the order of its
               own interface bar: INV the inventory, MAP the map of the place, CHA the character screen, PIP the Pip-Boy,
-              SKILL the skilldex. On the right, ATTACK starts a fight, as A does. TURN ends your turn in a fight, as SPACE does: it is lit while it is your
-              turn, and dim the rest of the time, when it does nothing. MODE switches the weapon in hand to its next mode
+              SKILL the skilldex. On the right, ATTACK starts a fight, as A does. TURN ends your turn in a fight, as SPACE
+              does: it is lit while it is your turn, and dim the rest of the time, when it does nothing. MODE switches the weapon in hand to its next mode
               (aimed, burst, reload), as N does and as a right click on the weapon's own button does. FAST is fast forward.
               HILITE, where a game has it, highlights what lies on the ground until it is pressed again
             </dd>
@@ -412,8 +412,9 @@
           <h2>The pointer</h2>
           <p>
             Terminal settings has a <span class="hot">Touch pointer</span> choice: the pointer can follow your finger, or the
-            picture can work like a laptop trackpad, which is more precise on a small screen. Turn a phone sideways; on an
-            iPhone, add the console to the home screen to play without the browser's bars.
+            picture can work like a laptop trackpad, which is more precise on a small screen. Hybrid is both: dragging
+            moves the pointer as on a trackpad, and a tap clicks where you tap; CLICK clicks where a drag left the pointer.
+            Turn a phone sideways; on an iPhone, add the console to the home screen to play without the browser's bars.
           </p>
         {:else if current.id === 'saving'}
           <h2>Saved games</h2>

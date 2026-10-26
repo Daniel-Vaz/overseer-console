@@ -456,10 +456,10 @@ function openTouchHelp(): void {
   }
 
   const help = el('dl', 'readout touch-help');
-  const trackpad = settings.touchPointer === 'trackpad';
+  const pointer = settings.touchPointer;
   for (const [what, meaning] of [
-    ['Tap', trackpad ? 'Click where the pointer is' : 'Click'],
-    ['Drag', trackpad ? 'Move the pointer. Nothing is clicked' : 'Move the pointer, or scroll a list'],
+    ['Tap', pointer === 'trackpad' ? 'Click where the pointer is' : pointer === 'hybrid' ? 'Click where you tap' : 'Click'],
+    ['Drag', pointer === 'direct' ? 'Move the pointer, or scroll a list' : 'Move the pointer. Nothing is clicked'],
     ['Hold', 'Keep the button pressed: action menus, dragging items'],
     ['2 fingers', 'Drag to scroll. Tap to switch the cursor'],
     ['CLICK', 'Clicks where the pointer is: drag to aim, then press it'],
@@ -486,8 +486,12 @@ function openTouchHelp(): void {
   setHints([['R', 'RESUME']]);
 }
 
+/** The ways the touch pointer can work, in the order the menu steps through them, with what the menu calls each. */
+const POINTER_MODES = { direct: 'follows finger', hybrid: 'hybrid', trackpad: 'trackpad' } as const;
+
 function togglePointerMode(): void {
-  settings.touchPointer = settings.touchPointer === 'direct' ? 'trackpad' : 'direct';
+  const modes = Object.keys(POINTER_MODES) as (keyof typeof POINTER_MODES)[];
+  settings.touchPointer = modes[(modes.indexOf(settings.touchPointer) + 1) % modes.length]!;
   saveSettings(settings);
   touch.setMode(settings.touchPointer);
   openMenu();
@@ -566,7 +570,7 @@ function openMenu(confirmExit = false): void {
       ? [
           actions([
             ['[T] Touch controls', openTouchHelp],
-            [`[P] Pointer: ${settings.touchPointer === 'direct' ? 'follows finger' : 'trackpad'}`, togglePointerMode],
+            [`[P] Pointer: ${POINTER_MODES[settings.touchPointer]}`, togglePointerMode],
           ]),
         ]
       : [keys]),

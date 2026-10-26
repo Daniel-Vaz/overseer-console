@@ -30,6 +30,8 @@ test('the console can be worked with a finger', async ({ page }) => {
   const pointer = page.locator('.menu li', { hasText: 'Touch pointer' });
   await expect(pointer).toContainText('FOLLOWS FINGER');
   await pointer.locator('button').tap();
+  await expect(pointer).toContainText('HYBRID');
+  await pointer.locator('button').tap();
   await expect(pointer).toContainText('TRACKPAD');
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('overseer-console:settings')!).touchPointer)).toBe('trackpad');
 
@@ -414,6 +416,24 @@ for (const game of GAMES) {
       await pause(page, 900);
       await fingers.lift();
       await pause(page, 2500);
+
+      // The menu switches the pointer to hybrid: a drag moves it as on a trackpad and clicks nothing,
+      // and a tap after it still clicks where the finger is, here the inventory's button.
+      await deck('menu').tap();
+      await page.getByRole('button', { name: /Pointer: follows finger/ }).tap();
+      await expect(page.getByRole('button', { name: /Pointer: hybrid/ })).toBeVisible();
+      await page.getByRole('button', { name: /Resume/ }).tap();
+      await expect(page.locator('#terminal')).toBeHidden();
+      await pause(page, 1500);
+      const still = await fingerprint(page);
+      await fingers.drag([300, 120], [380, 160], 1);
+      await pause(page, 1500);
+      expect(distance(await fingerprint(page), still)).toBeLessThan(3);
+      await tap(page, 227, 430);
+      await pause(page, 2000);
+      expect(distance(await fingerprint(page), still)).toBeGreaterThan(6);
+      await deck('esc').tap();
+      await pause(page, 2000);
     }
 
     // TURN does something only on the player's turn in a fight: dim the rest of the time, and a tap then says so.

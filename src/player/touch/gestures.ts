@@ -16,7 +16,11 @@
  *
  * In "direct" mode the pointer goes where the finger is. In "trackpad" mode
  * the picture is a trackpad: dragging moves the pointer from where it was,
- * and a tap clicks where the pointer is, not where the finger landed.
+ * and a tap clicks where the pointer is, not where the finger landed. In
+ * "hybrid" mode dragging moves the pointer as on a trackpad, but a tap or a
+ * hold happens where the finger is, as in direct mode; to click where a drag
+ * left the pointer, a second finger taps during the drag (or the page's own
+ * click button is pressed).
  *
  * The lists are the games' inventories, which scroll with the mouse wheel
  * while the pointer is over them. Scrolling one, the pointer goes onto it.
@@ -25,7 +29,7 @@
  * knows nothing of the page, so that it can be tested on its own.
  */
 
-export type PointerMode = 'direct' | 'trackpad';
+export type PointerMode = 'direct' | 'trackpad' | 'hybrid';
 
 export type MouseButton = 'left' | 'right';
 
@@ -62,7 +66,7 @@ export interface GestureTuning {
   /** Finger travel per step of scrolling, sideways and up or down. */
   scrollStepX: number;
   scrollStepY: number;
-  /** Trackpad mode: pointer travel per finger travel. */
+  /** Trackpad and hybrid modes: pointer travel per finger travel. */
   trackpadSpeed: number;
   /** A list let go of faster than this (CSS pixels per millisecond) glides on. */
   flingSpeed: number;
@@ -202,6 +206,7 @@ export class Gestures {
         this.restY = this.pointerY;
         this.list = this.mode === 'direct' ? this.listAt(x, y) : null;
         this.state = 'pending';
+        // In hybrid mode the pointer stays put until the finger turns out to tap or hold.
         if (this.mode === 'direct') this.moveTo(x, y);
         this.holdTimer = this.timers.set(() => this.onHold(), this.tuning.holdMs);
         break;
@@ -241,8 +246,8 @@ export class Gestures {
     finger.y = y;
     if (!finger.moved && Math.hypot(x - finger.startX, y - finger.startY) > this.tuning.slop) {
       finger.moved = true;
-      // In trackpad mode the pointer starts moving from here, not from where the finger landed.
-      if (this.mode === 'trackpad' && finger === this.first && this.state === 'pending') {
+      // In trackpad and hybrid modes the pointer starts moving from here, not from where the finger landed.
+      if (this.mode !== 'direct' && finger === this.first && this.state === 'pending') {
         this.clearHold();
         this.state = 'hover';
         return;
@@ -317,7 +322,10 @@ export class Gestures {
     switch (this.state) {
       case 'pending':
         this.clearHold();
-        if (this.onPicture(finger) && !this.caught) this.emit({ type: 'click', button: 'left' });
+        if (this.onPicture(finger) && !this.caught) {
+          if (this.mode === 'hybrid') this.moveTo(finger.x, finger.y);
+          this.emit({ type: 'click', button: 'left' });
+        }
         break;
       case 'swipe':
         if (finger === this.first) this.fling(now);
@@ -369,6 +377,7 @@ export class Gestures {
   private onHold(): void {
     this.holdTimer = null;
     if (this.state !== 'pending') return;
+    if (this.mode === 'hybrid') this.moveTo(this.first!.x, this.first!.y);
     if (!this.onPicture(this.first!)) {
       // Resting a finger beside the picture holds the pointer at its edge
       // (which scrolls the map); it presses nothing.
@@ -381,7 +390,7 @@ export class Gestures {
 
   /**
    * Whether a finger is on the picture rather than on the border around it.
-   * Only asked in direct mode: a trackpad is a trackpad all over.
+   * Only asked where taps go where the finger is: a trackpad is a trackpad all over.
    */
   private onPicture(finger: Finger): boolean {
     if (this.mode === 'trackpad') return true;
@@ -395,7 +404,8 @@ export class Gestures {
   }
 
   private follow(finger: Finger, dx: number, dy: number): void {
-    if (this.mode === 'direct') {
+    // A held button in hybrid mode was pressed under the finger, and what it drags stays there.
+    if (this.mode === 'direct' || (this.mode === 'hybrid' && this.state === 'held')) {
       this.moveTo(finger.x, finger.y);
     } else {
       this.moveTo(this.pointerX + dx * this.tuning.trackpadSpeed, this.pointerY + dy * this.tuning.trackpadSpeed);
@@ -449,9 +459,9 @@ export class Gestures {
   }
 
   /**
-   * The list two fingers came to scroll. In direct mode, the one under them,
-   * and the pointer goes onto it where they landed; in trackpad mode, the one
-   * under the pointer.
+   * The list two fingers came to scroll. In direct and hybrid modes, the one
+   * under them, and the pointer goes onto it where they landed; in trackpad
+   * mode, the one under the pointer.
    */
   private pairList(): ScrollList | null {
     if (this.mode === 'trackpad') return this.listAt(this.pointerX, this.pointerY);
