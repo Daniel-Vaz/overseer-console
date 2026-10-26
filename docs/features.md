@@ -49,6 +49,9 @@ own **Operations manual** (entry 6 of the main directory) explains each of these
   and sounds too, as Fallout Yesterday has some.
 - **More of sfall for scripts.** sfall's drugs file (new drugs' addictions, effect limits and withdrawal times),
   where the player may rest, text and overlays drawn on the game's windows, and its OnExplosion hook.
+- **Companions in combat, as sfall has them.** With sfall's CombatControl on (Fallout Et Tu and Fallout Yesterday
+  ship it so), a party member's action menu tells it whom to attack; with control switched on in its settings, the
+  player plays party members on their turns.
 - **sfall's Hero Appearance.** The look picked for your character, its race and style, in the Restoration Project
   and Fallout Yesterday: on the character screen as it is made, and in the game.
 - **What mods reach for in the original program.** Fallout 2's engine answers for what mods are known to read, write

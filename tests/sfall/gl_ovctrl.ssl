@@ -1,0 +1,37 @@
+/*
+ * A global script for game.spec.ts: once, in the first game it starts in, it
+ * puts a villager in the party next to the player and has a tough thug start
+ * a fight; on each of the villager's turns the player plays the villager
+ * (set_dude_obj, engines/fallout2/patches 0030), as gl_partycontrol does with
+ * CombatControl Mode=2, and the player's own comes back at the turn's end.
+ * Compiled with sfall's sslc: see docs/developing.md.
+ */
+procedure start;
+procedure turn;
+
+procedure turn begin
+   variable status, critter;
+   status := get_sfall_arg;
+   critter := get_sfall_arg;
+   if (status == 1) then begin
+      if (critter != sfall_func0("real_dude_obj") and party_member_obj(obj_pid(critter)) == critter) then begin
+         sfall_func1("set_dude_obj", critter);
+         set_sfall_global("ovctrl", get_sfall_global_int("ovctrl") + 1);
+      end
+   end else begin
+      if (dude_obj != sfall_func0("real_dude_obj")) then sfall_func1("set_dude_obj", sfall_func0("real_dude_obj"));
+   end
+end
+
+procedure start begin
+   variable member, foe;
+   if (not(game_loaded)) then return;
+   register_hook_proc(27, turn);
+   if (get_sfall_global_int("ovctrlset") != 0) then return;
+   set_sfall_global("ovctrlset", 1);
+   member := create_object_sid(16777219, tile_num_in_direction(tile_num(dude_obj), 2, 2), elevation(dude_obj), -1);
+   party_add(member);
+   foe := create_object_sid(16777246, tile_num_in_direction(tile_num(dude_obj), 1, 5), elevation(dude_obj), -1);
+   critter_add_trait(foe, 1, 6, 50);
+   attack_setup(foe, dude_obj);
+end

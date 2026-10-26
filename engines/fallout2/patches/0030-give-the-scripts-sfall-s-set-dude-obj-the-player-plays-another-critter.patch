@@ -1,0 +1,933 @@
+Give the scripts sfall's set_dude_obj: the player plays another critter
+
+As sfall's PartyControl does: the critter takes the player's place (gDude, the inventory's owner, the interface's hands, the critter whose turn it is) with its own name, perks (a party member's), level and addictions, and none of the player's traits, tagged skills, experience or skill points, which come back with control. Experience given meanwhile is the player's once control comes back; scripts asking of the player's own perks and traits are told them; a weapon the critter has no pictures of itself with is not readied. gl_partycontrol uses it with CombatControl Mode 1 or 2.
+---
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index f50ee4e..70ae32f 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -323,6 +323,8 @@ set(FALLOUT_PLATFORM_SOURCES
+     "src/sfall_opcodes.cc"
+     "src/sfall_opcodes.h"
+     "src/sfall_perks.cc"
++    "src/sfall_party_control.cc"
++    "src/sfall_party_control.h"
+     "src/sfall_perks.h"
+     "src/sfall_rest.cc"
+     "src/sfall_rest.h"
+diff --git a/src/character_editor.cc b/src/character_editor.cc
+index 4cdf277..5cb2603 100644
+--- a/src/character_editor.cc
++++ b/src/character_editor.cc
+@@ -7904,4 +7904,16 @@ static void customTownReputationFree()
+     gCustomTownReputationEntries.clear();
+ }
+ 
++void characterEditorGetLevelState(int* lastLevel, unsigned char* freePerks)
++{
++    *lastLevel = gCharacterEditorLastLevel;
++    *freePerks = gCharacterEditorHasFreePerk;
++}
++
++void characterEditorSetLevelState(int lastLevel, unsigned char freePerks)
++{
++    gCharacterEditorLastLevel = lastLevel;
++    gCharacterEditorHasFreePerk = freePerks;
++}
++
+ } // namespace fallout
+diff --git a/src/character_editor.h b/src/character_editor.h
+index 828e924..af6ef48 100644
+--- a/src/character_editor.h
++++ b/src/character_editor.h
+@@ -39,6 +39,10 @@ const std::vector<int>& characterEditorGetOwedPerkLevels();
+ bool characterEditorSetOwedPerkLevels(const std::vector<int>& levels);
+ void characterEditorMigrateLegacyPerkSelectionState();
+ 
++// SFALL: set_dude_obj. The level the character screen last saw and the perks owed.
++void characterEditorGetLevelState(int* lastLevel, unsigned char* freePerks);
++void characterEditorSetLevelState(int lastLevel, unsigned char freePerks);
++
+ } // namespace fallout
+ 
+ #endif /* CHARACTER_EDITOR_H */
+diff --git a/src/combat.cc b/src/combat.cc
+index 8ce26dc..b5e1511 100644
+--- a/src/combat.cc
++++ b/src/combat.cc
+@@ -19,6 +19,7 @@
+ #include "elevator.h"
+ #include "game.h"
+ #include "game_mouse.h"
++#include "sfall_party_control.h"
+ #include "game_sound.h"
+ #include "input.h"
+ #include "interface.h"
+@@ -2914,6 +2915,10 @@ static void _combat_over()
+ {
+     // SFALL: the orders party members were given end with the fight.
+     partyOrderAttackReset();
++    // SFALL: and control of another critter: the player is the player's own again.
++    if (partyControlActive()) {
++        partyControlSwitchTo(nullptr);
++    }
+ 
+     if (_game_user_wants_to_quit == GAME_QUIT_REQUEST_NONE
+         || _game_user_wants_to_quit == GAME_QUIT_REQUEST_END_COMBAT) {
+@@ -7206,4 +7211,9 @@ Attack* combat_get_data()
+     return &_main_ctd;
+ }
+ 
++void combatSetTurnObject(Object* critter)
++{
++    _combat_turn_obj = critter;
++}
++
+ } // namespace fallout
+diff --git a/src/combat.h b/src/combat.h
+index c07bbf2..8b99c4b 100644
+--- a/src/combat.h
++++ b/src/combat.h
+@@ -22,6 +22,8 @@ int combatSave(File* stream);
+ bool _combat_safety_invalidate_weapon(Object* attacker, Object* weapon, HitMode hitMode, Object* defender, int* safeDistancePtr);
+ bool _combatTestIncidentalHit(Object* attacker, Object* defender, Object* attackerFriend, Object* weapon);
+ Object* _combat_whose_turn();
++// SFALL: set_dude_obj. The critter whose turn it is, as the player takes over another.
++void combatSetTurnObject(Object* critter);
+ void _combat_data_init(Object* obj);
+ Object* aiInfoGetFriendlyDead(Object* obj);
+ int aiInfoSetFriendlyDead(Object* a1, Object* a2);
+diff --git a/src/critter.cc b/src/critter.cc
+index 6f7751b..0fe9209 100644
+--- a/src/critter.cc
++++ b/src/critter.cc
+@@ -36,6 +36,7 @@
+ #include "skill.h"
+ #include "stat.h"
+ #include "tile.h"
++#include "sfall_party_control.h"
+ #include "sfall_rest.h"
+ #include "trait.h"
+ #include "worldmap.h"
+@@ -233,6 +234,12 @@ char* critterGetName(Object* obj)
+         return gDudeName;
+     }
+ 
++    // SFALL: the player's own name, while the player plays another critter.
++    char* realName = partyControlRealDudeName(obj);
++    if (realName != nullptr) {
++        return realName;
++    }
++
+     char* overrideName = sfallObjectNameGet(obj);
+     if (overrideName != nullptr) {
+         _name_critter = overrideName;
+@@ -1578,4 +1585,14 @@ SFALL_MEMORY_CALL(0x42DA64, [](const ProgramValue* args, int) {
+     return ProgramValue(0);
+ });
+ 
++int dudeGetSneakWorking()
++{
++    return _sneak_working;
++}
++
++void dudeSetSneakWorking(int value)
++{
++    _sneak_working = value;
++}
++
+ } // namespace fallout
+diff --git a/src/critter.h b/src/critter.h
+index f53fd92..2697950 100644
+--- a/src/critter.h
++++ b/src/critter.h
+@@ -55,6 +55,9 @@ int critterSave(File* stream);
+ char* critterGetName(Object* obj);
+ void critterProtoDataCopy(CritterProtoData* dest, CritterProtoData* src);
+ int dudeSetName(const char* name);
++// SFALL: set_dude_obj.
++int dudeGetSneakWorking();
++void dudeSetSneakWorking(int value);
+ void dudeResetName();
+ int critterGetHitPoints(Object* critter);
+ int critterAdjustHitPoints(Object* critter, int hp);
+diff --git a/src/game.cc b/src/game.cc
+index a180354..28d38ac 100644
+--- a/src/game.cc
++++ b/src/game.cc
+@@ -63,6 +63,7 @@
+ #include "sfall_lists.h"
+ #include "sfall_memory.h"
+ #include "sfall_perks.h"
++#include "sfall_party_control.h"
+ #include "sfall_rest.h"
+ #include "sfall_script_hooks.h"
+ #include "sfall_stat_mods.h"
+@@ -492,6 +493,7 @@ void gameReset()
+     sfallArraysReset();
+     sfallPerksReset();
+     sfallRestReset();
++    partyControlReset();
+     sfallStatModsReset();
+     sfall_gl_scr_reset();
+     sfall_ini_cache_clear();
+diff --git a/src/interface.cc b/src/interface.cc
+index f757558..fc379dc 100644
+--- a/src/interface.cc
++++ b/src/interface.cc
+@@ -32,6 +32,7 @@
+ #include "platform_compat.h"
+ #include "proto.h"
+ #include "proto_instance.h"
++#include "sfall_party_control.h"
+ #include "proto_types.h"
+ #include "settings.h"
+ #include "skill.h"
+@@ -1252,6 +1253,12 @@ int interfaceBarSwapHands(bool animated)
+ 
+     gInterfaceCurrentHand = static_cast<Hand>(1 - gInterfaceCurrentHand);
+ 
++    // SFALL: a critter played as the player readies no weapon it has no pictures of itself with.
++    if (!partyControlCanReady(gInterfaceItemStates[gInterfaceCurrentHand].item)) {
++        gInterfaceCurrentHand = static_cast<Hand>(1 - gInterfaceCurrentHand);
++        return -1;
++    }
++
+     if (animated) {
+         Object* item = gInterfaceItemStates[gInterfaceCurrentHand].item;
+         WeaponAnimation animationCode = WeaponAnimation::None;
+@@ -3138,4 +3145,26 @@ bool interface_get_current_attack_mode(HitMode* hitMode)
+     return true;
+ }
+ 
++std::vector<unsigned char> interfaceSaveHands()
++{
++    std::vector<unsigned char> saved(sizeof(gInterfaceItemStates) + sizeof(gInterfaceCurrentHand));
++    memcpy(saved.data(), gInterfaceItemStates, sizeof(gInterfaceItemStates));
++    memcpy(saved.data() + sizeof(gInterfaceItemStates), &gInterfaceCurrentHand, sizeof(gInterfaceCurrentHand));
++    return saved;
++}
++
++void interfaceRestoreHands(const std::vector<unsigned char>& saved)
++{
++    if (saved.size() != sizeof(gInterfaceItemStates) + sizeof(gInterfaceCurrentHand)) {
++        return;
++    }
++    memcpy(gInterfaceItemStates, saved.data(), sizeof(gInterfaceItemStates));
++    memcpy(&gInterfaceCurrentHand, saved.data() + sizeof(gInterfaceItemStates), sizeof(gInterfaceCurrentHand));
++}
++
++void interfaceSetCurrentHand(int hand)
++{
++    gInterfaceCurrentHand = hand == HAND_RIGHT ? HAND_RIGHT : HAND_LEFT;
++}
++
+ } // namespace fallout
+diff --git a/src/interface.h b/src/interface.h
+index 9fe2476..e3108ef 100644
+--- a/src/interface.h
++++ b/src/interface.h
+@@ -1,6 +1,8 @@
+ #ifndef INTERFACE_H
+ #define INTERFACE_H
+ 
++#include <vector>
++
+ #include "combat_defs.h"
+ #include "db.h"
+ #include "inventory.h"
+@@ -57,6 +59,11 @@ void interfaceBarEnable();
+ void interfaceBarDisable();
+ bool interfaceBarEnabled();
+ void interfaceBarRefresh();
++// SFALL: set_dude_obj. The interface bar's hands, kept for the player while
++// another critter is played, and put back.
++std::vector<unsigned char> interfaceSaveHands();
++void interfaceRestoreHands(const std::vector<unsigned char>& saved);
++void interfaceSetCurrentHand(int hand);
+ void interfaceRenderHitPoints(bool animate);
+ void interfaceRenderArmorClass(bool animate);
+ void interfaceRenderActionPoints(int actionPointsLeft, int bonusActionPoints);
+diff --git a/src/interpreter_extra.cc b/src/interpreter_extra.cc
+index c120f23..7d30202 100644
+--- a/src/interpreter_extra.cc
++++ b/src/interpreter_extra.cc
+@@ -20,6 +20,7 @@
+ #include "game.h"
+ #include "game_dialog.h"
+ #include "game_mouse.h"
++#include "sfall_party_control.h"
+ #include "game_movie.h"
+ #include "game_sound.h"
+ #include "geometry.h"
+@@ -472,6 +473,11 @@ static void opGiveExpPoints(Program* program)
+ {
+     int xp = programStackPopInteger(program);
+ 
++    // SFALL: the player's, given once control comes back to the player.
++    if (partyControlDelayExperience(xp)) {
++        return;
++    }
++
+     if (pcAddExperience(xp) != 0) {
+         scriptError("\nScript Error: %s: op_give_exp_points: stat_pc_set failed", program->name);
+     }
+@@ -2619,7 +2625,10 @@ static void opHasTrait(Program* program)
+         switch (type) {
+         case CRITTER_TRAIT_PERK:
+             if (param < PERK_COUNT) {
+-                result = perkGetRank(object, static_cast<Perk>(param));
++                // SFALL: the player's own, while another critter is played.
++                if (!partyControlRealDudePerk(object, param, &result)) {
++                    result = perkGetRank(object, static_cast<Perk>(param));
++                }
+             } else {
+                 scriptError("\nScript Error: %s: op_has_trait: Perk out of range", program->name);
+             }
+@@ -2649,7 +2658,9 @@ static void opHasTrait(Program* program)
+             break;
+         case CRITTER_TRAIT_TRAIT:
+             if (param < TRAIT_COUNT) {
+-                result = traitIsSelected(static_cast<Trait>(param));
++                if (!partyControlRealDudeTrait(object, param, &result)) {
++                    result = traitIsSelected(static_cast<Trait>(param));
++                }
+             } else {
+                 scriptError("\nScript Error: %s: op_has_trait: Trait out of range", program->name);
+             }
+diff --git a/src/inventory.cc b/src/inventory.cc
+index 29060bf..a57f7d2 100644
+--- a/src/inventory.cc
++++ b/src/inventory.cc
+@@ -42,6 +42,7 @@
+ #include "platform_compat.h"
+ #include "proto.h"
+ #include "proto_instance.h"
++#include "sfall_party_control.h"
+ #include "random.h"
+ #include "reaction.h"
+ #include "scripts.h"
+@@ -3101,6 +3102,11 @@ inventory_move_done:
+ // 0x4714E0
+ static void _switch_hand(Object* sourceItem, Object** targetSlot, Object** sourceSlot, int itemIndex)
+ {
++    // SFALL: a critter played as the player readies no weapon it has no pictures of itself with.
++    if ((targetSlot == &gInventoryLeftHandItem || targetSlot == &gInventoryRightHandItem) && !partyControlCanReady(sourceItem)) {
++        return;
++    }
++
+     if (*targetSlot != nullptr) {
+         if (itemGetType(*targetSlot) == ITEM_TYPE_WEAPON && itemGetType(sourceItem) == ITEM_TYPE_AMMO) {
+             return;
+@@ -6888,4 +6894,14 @@ int inventoryUnwieldSlot(Object* critter, InvenSlot slot)
+     return 0;
+ }
+ 
++Object* inventoryGetDude()
++{
++    return _inven_dude;
++}
++
++void inventorySetDude(Object* critter)
++{
++    _inven_dude = critter;
++}
++
+ } // namespace fallout
+diff --git a/src/inventory.h b/src/inventory.h
+index 875b04e..ba59337 100644
+--- a/src/inventory.h
++++ b/src/inventory.h
+@@ -67,6 +67,9 @@ int inventoryOpenStealing(Object* thief, Object* target);
+ void barterProcessUI(int win, Object* barterer, Object* playerTable, Object* bartererTable, int barterMod);
+ int inventorySetTimer(Object* item);
+ int inventoryGetWindow();
++// SFALL: set_dude_obj. Whose inventory the inventory screens show as the player's.
++Object* inventoryGetDude();
++void inventorySetDude(Object* critter);
+ void inventoryDisplayStats();
+ void inventoryRedraw(int redrawSide);
+ Object* inventoryGetTargetObject();
+diff --git a/src/item.cc b/src/item.cc
+index 09c9257..a383447 100644
+--- a/src/item.cc
++++ b/src/item.cc
+@@ -4132,4 +4132,75 @@ bool drugsAddictionAt(int index, int* gvarPtr, int* messageIdPtr, int* frmIdPtr)
+     return true;
+ }
+ 
++// The addiction variables, each once: the engine's drugs', then the file's.
++static std::vector<int> drugsAddictionGvars()
++{
++    std::vector<int> gvars;
++    auto add = [&](int gvar) {
++        if (gvar > 0 && gvar < gGameGlobalVarsLength && std::find(gvars.begin(), gvars.end(), gvar) == gvars.end()) {
++            gvars.push_back(gvar);
++        }
++    };
++    for (int index = 0; index < ADDICTION_COUNT; index++) {
++        add(gDrugDescriptions[index].gvar);
++    }
++    for (auto& drug : gSfallDrugs) {
++        add(drug.gvar);
++    }
++    return gvars;
++}
++
++std::vector<int> drugsAddictionValues()
++{
++    std::vector<int> values;
++    for (int gvar : drugsAddictionGvars()) {
++        values.push_back(gGameGlobalVars[gvar]);
++    }
++    return values;
++}
++
++void drugsSetAddictionValues(const std::vector<int>& values)
++{
++    std::vector<int> gvars = drugsAddictionGvars();
++    for (size_t index = 0; index < gvars.size() && index < values.size(); index++) {
++        gGameGlobalVars[gvars[index]] = values[index];
++    }
++}
++
++// sfall's CheckAddictByPid: a critter is addicted to a drug while it has a
++// withdrawal for it waiting.
++static bool critterIsAddictedTo(Object* critter, int pid)
++{
++    WithdrawalEvent* event = (WithdrawalEvent*)queueFindFirstEvent(critter, EVENT_TYPE_WITHDRAWAL);
++    while (event != nullptr) {
++        if (event->pid == pid) {
++            return true;
++        }
++        event = (WithdrawalEvent*)queueFindNextEvent(critter, EVENT_TYPE_WITHDRAWAL);
++    }
++    return false;
++}
++
++bool drugsSetAddictionValuesFor(Object* critter)
++{
++    for (int gvar : drugsAddictionGvars()) {
++        gGameGlobalVars[gvar] = 0;
++    }
++
++    bool addicted = false;
++    for (int index = 0; index < ADDICTION_COUNT; index++) {
++        if (critterIsAddictedTo(critter, gDrugDescriptions[index].drugPid)) {
++            gGameGlobalVars[gDrugDescriptions[index].gvar] = 1;
++            addicted = true;
++        }
++    }
++    for (auto& drug : gSfallDrugs) {
++        if (drug.gvar > 0 && drug.gvar < gGameGlobalVarsLength && critterIsAddictedTo(critter, drug.pid)) {
++            gGameGlobalVars[drug.gvar] = 1;
++            addicted = true;
++        }
++    }
++    return addicted;
++}
++
+ } // namespace fallout
+diff --git a/src/item.h b/src/item.h
+index e8679a0..7e91d32 100644
+--- a/src/item.h
++++ b/src/item.h
+@@ -1,6 +1,8 @@
+ #ifndef ITEM_H
+ #define ITEM_H
+ 
++#include <vector>
++
+ #include "animation_defs.h"
+ #include "art.h"
+ #include "art_defs.h"
+@@ -188,6 +190,12 @@ int drugsSetAddictTime(int pid, int minutes);
+ // The addictions of drugs the file adds, for the character screen: false
+ // past the last one, or for one with no addiction or one the engine shows.
+ int drugsCount();
++// SFALL: set_dude_obj. The global variables that hold the player's
++// addictions (the engine's drugs, then the DrugsFile's), their values, and
++// those of a critter played as the player: true where it is addicted.
++std::vector<int> drugsAddictionValues();
++void drugsSetAddictionValues(const std::vector<int>& values);
++bool drugsSetAddictionValuesFor(Object* critter);
+ bool drugsAddictionAt(int index, int* gvarPtr, int* messageIdPtr, int* frmIdPtr);
+ 
+ } // namespace fallout
+diff --git a/src/loadsave.cc b/src/loadsave.cc
+index b129097..a405918 100644
+--- a/src/loadsave.cc
++++ b/src/loadsave.cc
+@@ -51,6 +51,7 @@
+ #include "scripts.h"
+ #include "settings.h"
+ #include "sfall_callbacks.h"
++#include "sfall_party_control.h"
+ #include "sfall_rest.h"
+ #include "sfall_ext.h"
+ #include "sfall_filesystem.h"
+@@ -2035,6 +2036,14 @@ EM_ASYNC_JS(void, do_save_idbfs_loadsave, (), {
+ // 0x47D88C
+ static int lsgPerformSaveGame()
+ {
++    // SFALL: no saving while the player plays another critter, which the save
++    // would keep as the player (sfall's CombatSaveTest says the same).
++    if (partyControlActive()) {
++        char message[] = "Cannot save at this time.";
++        displayMonitorAddMessage(message);
++        return -1;
++    }
++
+     _ls_error_code = 0;
+     _map_backup_count = -1;
+     gameMouseSetCursor(MOUSE_CURSOR_WAIT_PLANET);
+diff --git a/src/perk.cc b/src/perk.cc
+index 75bb7d2..06c8bd9 100644
+--- a/src/perk.cc
++++ b/src/perk.cc
+@@ -1,5 +1,7 @@
+ #include "perk.h"
+ 
++#include <string.h>
++
+ #include <stdio.h>
+ 
+ #include "art.h"
+@@ -1146,4 +1148,30 @@ int perkGetWeaponHandlingBonus()
+     return perkTweaks.weaponHandlingBonus;
+ }
+ 
++size_t perkRanksSize()
++{
++    return sizeof(PerkRankData);
++}
++
++void perkGetDudeRanks(void* ranks)
++{
++    memcpy(ranks, gPartyMemberPerkRanks, sizeof(PerkRankData));
++}
++
++void perkSetDudeRanks(const void* ranks)
++{
++    memcpy(gPartyMemberPerkRanks, ranks, sizeof(PerkRankData));
++}
++
++bool perkGetPartyMemberRanks(Object* critter, void* ranks)
++{
++    for (int index = 1; index < gPartyMemberDescriptionsLength; index++) {
++        if (ProtoId(critter) == gPartyMemberProtoIds[index]) {
++            memcpy(ranks, gPartyMemberPerkRanks + index, sizeof(PerkRankData));
++            return true;
++        }
++    }
++    return false;
++}
++
+ } // namespace fallout
+diff --git a/src/perk.h b/src/perk.h
+index ec7cfe5..8b17955 100644
+--- a/src/perk.h
++++ b/src/perk.h
+@@ -86,6 +86,14 @@ static inline bool perkHasRank(Object* critter, Perk perk)
+     return perkGetRank(critter, perk) != 0;
+ }
+ 
++// SFALL: set_dude_obj. The perks of the player (the first of the party's),
++// as many bytes as perkRanksSize says; a party member's, false for a critter
++// that is not one.
++size_t perkRanksSize();
++void perkGetDudeRanks(void* ranks);
++void perkSetDudeRanks(const void* ranks);
++bool perkGetPartyMemberRanks(Object* critter, void* ranks);
++
+ } // namespace fallout
+ 
+ #endif /* PERK_H */
+diff --git a/src/sfall_metarules.cc b/src/sfall_metarules.cc
+index e2d6137..2d401be 100644
+--- a/src/sfall_metarules.cc
++++ b/src/sfall_metarules.cc
+@@ -40,6 +40,7 @@
+ #include "sfall_ini.h"
+ #include "sfall_object_name.h"
+ #include "sfall_opcodes.h"
++#include "sfall_party_control.h"
+ #include "sfall_perks.h"
+ #include "sfall_rest.h"
+ #include "sfall_script_hooks.h"
+@@ -785,6 +786,7 @@ static void mf_intface_show(OpcodeContext& ctx);
+ static void mf_get_rest_on_map(OpcodeContext& ctx);
+ static void mf_set_rest_on_map(OpcodeContext& ctx);
+ static void mf_set_drugs_data(OpcodeContext& ctx);
++static void mf_set_dude_obj(OpcodeContext& ctx);
+ static void mf_draw_image(OpcodeContext& ctx);
+ static void mf_draw_image_scaled(OpcodeContext& ctx);
+ static void mf_encounter_detection(OpcodeContext& ctx);
+@@ -940,7 +942,7 @@ const MetaruleInfo kMetarules[] = {
+     { "set_combat_free_move", mf_set_combat_free_move, 1, 1, -1, { ARG_INT } },
+     { "set_cursor_mode", mf_set_cursor_mode, 1, 1, -1, { ARG_INT } },
+     { "set_drugs_data", mf_set_drugs_data, 3, 3, -1, { ARG_INT, ARG_INT, ARG_INT } },
+-    // {"set_dude_obj",              mf_set_dude_obj,              1, 1, -1, {ARG_INT}},
++    { "set_dude_obj", mf_set_dude_obj, 1, 1, -1, { ARG_ANY } },
+     { "set_fake_perk_npc", mf_set_fake_perk_npc, 5, 5, -1, { ARG_OBJECT, ARG_STRING, ARG_INT, ARG_INT, ARG_STRING } },
+     { "set_fake_trait_npc", mf_set_fake_trait_npc, 5, 5, -1, { ARG_OBJECT, ARG_STRING, ARG_INT, ARG_INT, ARG_STRING } },
+     { "set_flags", mf_set_flags, 2, 2, -1, { ARG_OBJECT, ARG_INT } },
+@@ -1251,6 +1253,18 @@ void mf_set_drugs_data(OpcodeContext& ctx)
+     }
+ }
+ 
++// set_dude_obj(critter): the player plays that critter; 0, or the player's own, gives control back.
++void mf_set_dude_obj(OpcodeContext& ctx)
++{
++    Object* critter = ctx.arg(0).asObject();
++    if (critter != nullptr && ProtoId(critter).objectType() != OBJ_TYPE_CRITTER) {
++        ctx.printError("%s() - the object is not a critter.", ctx.name());
++        ctx.setReturn(-1);
++        return;
++    }
++    partyControlSwitchTo(critter);
++}
++
+ void mf_display_stats(OpcodeContext& ctx)
+ {
+     if (GameMode::isInGameMode(GameMode::kInventory)) {
+@@ -2037,7 +2051,7 @@ void mf_outlined_object(OpcodeContext& ctx)
+ 
+ void mf_real_dude_obj(OpcodeContext& ctx)
+ {
+-    ctx.setReturn(gDude);
++    ctx.setReturn(partyControlRealDude());
+ }
+ 
+ // The owner of a party member's made-up traits and perks: 0 for the player (see sfall_perks.h), or -1 when it
+diff --git a/src/sfall_party_control.cc b/src/sfall_party_control.cc
+new file mode 100644
+index 0000000..a6e8b9b
+--- /dev/null
++++ b/src/sfall_party_control.cc
+@@ -0,0 +1,243 @@
++#include "sfall_party_control.h"
++
++#include <string.h>
++
++#include <vector>
++
++#include "art.h"
++#include "character_editor.h"
++#include "combat.h"
++#include "critter.h"
++#include "display_monitor.h"
++#include "interface.h"
++#include "inventory.h"
++#include "item.h"
++#include "map.h"
++#include "message.h"
++#include "object.h"
++#include "party_member.h"
++#include "perk.h"
++#include "proto.h"
++#include "skill.h"
++#include "stat.h"
++#include "trait.h"
++
++namespace fallout {
++
++// What sfall's SaveRealDudeState keeps of the player while another critter is
++// played as the player.
++static struct {
++    Object* obj = nullptr;
++    CritterFrameId artVaultGuy;
++    std::vector<unsigned char> hands;
++    Trait traits[2];
++    std::vector<unsigned char> perks;
++    char name[64];
++    int pcStats[PC_STAT_COUNT];
++    int lastLevel;
++    unsigned char freePerks;
++    int sneakWorking;
++    Skill taggedSkills[NUM_TAGGED_SKILLS];
++    std::vector<int> addictions;
++    bool saved = false;
++} gRealDude;
++
++static bool gControlling = false;
++static int gDelayedExperience = 0;
++
++bool partyControlActive()
++{
++    return gControlling;
++}
++
++Object* partyControlRealDude()
++{
++    return gRealDude.obj != nullptr ? gRealDude.obj : gDude;
++}
++
++char* partyControlRealDudeName(Object* obj)
++{
++    return gControlling && obj == gRealDude.obj ? gRealDude.name : nullptr;
++}
++
++static void saveRealDudeState()
++{
++    gRealDude.obj = gDude;
++    gRealDude.artVaultGuy = _art_vault_guy_num;
++    gRealDude.hands = interfaceSaveHands();
++    traitsGetSelected(&gRealDude.traits[0], &gRealDude.traits[1]);
++    gRealDude.perks.resize(perkRanksSize());
++    perkGetDudeRanks(gRealDude.perks.data());
++    snprintf(gRealDude.name, sizeof(gRealDude.name), "%s", critterGetName(gDude));
++    pcStatsCopy(gRealDude.pcStats);
++    characterEditorGetLevelState(&gRealDude.lastLevel, &gRealDude.freePerks);
++    gRealDude.sneakWorking = dudeGetSneakWorking();
++    skillsGetTagged(gRealDude.taggedSkills, NUM_TAGGED_SKILLS);
++    gRealDude.addictions = drugsAddictionValues();
++    gRealDude.saved = true;
++}
++
++// sfall's SetCurrentDude: the critter takes the player's place, with its own
++// name, perks (a party member's, else none), level, and addictions, and none
++// of the player's traits, tagged skills, experience or skill points.
++static void setCurrentDude(Object* critter)
++{
++    char name[64];
++    snprintf(name, sizeof(name), "%s", critterGetName(critter));
++
++    Skill tags[NUM_TAGGED_SKILLS];
++    for (int index = 0; index < NUM_TAGGED_SKILLS; index++) {
++        tags[index] = SKILL_INVALID;
++    }
++    skillsSetTagged(tags, NUM_TAGGED_SKILLS);
++
++    traitsSetSelected(TRAIT_INVALID, TRAIT_INVALID);
++
++    std::vector<unsigned char> perks(perkRanksSize(), 0);
++    bool partyMember = perkGetPartyMemberRanks(critter, perks.data());
++    perkSetDudeRanks(perks.data());
++
++    int level = partyMember ? partyMemberGetCurrentLevel(critter) : 0;
++    int stats[PC_STAT_COUNT];
++    pcStatsCopy(stats);
++    stats[PC_STAT_LEVEL] = level;
++    stats[PC_STAT_EXPERIENCE] = 0;
++    stats[PC_STAT_UNSPENT_SKILL_POINTS] = 0;
++    pcStatsPut(stats);
++    characterEditorSetLevelState(level, 0);
++
++    dudeSetName(name);
++    dudeSetSneakWorking(0);
++
++    // The hand held ready: the one whose weapon it is seen with.
++    Object* left = critterGetItem1(critter);
++    WeaponAnimation shown = FrmId(critter).weaponAnimation();
++    bool leftReady = left != nullptr && itemGetType(left) == ITEM_TYPE_WEAPON && weaponGetAnimationCode(left) == shown;
++    interfaceSetCurrentHand(leftReady ? HAND_LEFT : HAND_RIGHT);
++
++    drugsSetAddictionValuesFor(critter);
++
++    // Last, the pointers to the player.
++    combatSetTurnObject(critter);
++    gDude = critter;
++    inventorySetDude(critter);
++    _art_vault_guy_num = FrmId(critter).frameId<CritterFrameId>();
++
++    gControlling = true;
++    gDelayedExperience = 0;
++
++    interfaceBarRefresh();
++}
++
++static void restoreRealDudeState(bool redraw)
++{
++    if (gRealDude.obj == nullptr) {
++        return;
++    }
++
++    gDude = gRealDude.obj;
++    inventorySetDude(gRealDude.obj);
++    _art_vault_guy_num = gRealDude.artVaultGuy;
++
++    interfaceRestoreHands(gRealDude.hands);
++    traitsSetSelected(gRealDude.traits[0], gRealDude.traits[1]);
++    perkSetDudeRanks(gRealDude.perks.data());
++    dudeSetName(gRealDude.name);
++    pcStatsPut(gRealDude.pcStats);
++    characterEditorSetLevelState(gRealDude.lastLevel, gRealDude.freePerks);
++    dudeSetSneakWorking(gRealDude.sneakWorking);
++    skillsSetTagged(gRealDude.taggedSkills, NUM_TAGGED_SKILLS);
++    drugsSetAddictionValues(gRealDude.addictions);
++
++    gRealDude.saved = false;
++    gControlling = false;
++
++    if (gDelayedExperience > 0) {
++        int xp = gDelayedExperience;
++        gDelayedExperience = 0;
++        pcAddExperience(xp);
++    }
++
++    if (redraw) {
++        interfaceBarRefresh();
++    }
++}
++
++void partyControlSwitchTo(Object* critter)
++{
++    if (gControlling && (critter == nullptr || critter == gRealDude.obj)) {
++        restoreRealDudeState(critter != nullptr);
++    }
++
++    if (critter != nullptr && critter != partyControlRealDude() && critter != gDude) {
++        if (!gControlling && !gRealDude.saved) {
++            saveRealDudeState();
++        }
++        setCurrentDude(critter);
++    }
++}
++
++void partyControlReset()
++{
++    if (gControlling) {
++        restoreRealDudeState(false);
++    }
++    gRealDude.obj = nullptr;
++    gRealDude.saved = false;
++    gDelayedExperience = 0;
++}
++
++bool partyControlDelayExperience(int xp)
++{
++    if (!gControlling) {
++        return false;
++    }
++    gDelayedExperience += xp;
++    return true;
++}
++
++bool partyControlRealDudePerk(Object* obj, int perk, int* rankPtr)
++{
++    if (!gControlling || obj != gRealDude.obj) {
++        return false;
++    }
++
++    // The player's own ranks, kept as the engine keeps them: one int a perk.
++    int rank = 0;
++    if (perk >= 0 && static_cast<size_t>(perk + 1) * sizeof(int) <= gRealDude.perks.size()) {
++        memcpy(&rank, gRealDude.perks.data() + perk * sizeof(int), sizeof(int));
++    }
++    *rankPtr = rank;
++    return true;
++}
++
++bool partyControlRealDudeTrait(Object* obj, int trait, int* selectedPtr)
++{
++    if (!gControlling || obj != gRealDude.obj) {
++        return false;
++    }
++    *selectedPtr = (trait == gRealDude.traits[0] || trait == gRealDude.traits[1]) ? 1 : 0;
++    return true;
++}
++
++bool partyControlCanReady(Object* item)
++{
++    if (!gControlling || item == nullptr || itemGetType(item) != ITEM_TYPE_WEAPON) {
++        return true;
++    }
++
++    CritterFrmId fid(FrmId(gDude).frameId<CritterFrameId>(), ANIM_STAND, weaponGetAnimationCode(item), ROTATION_NE);
++    if (fid.exist()) {
++        return true;
++    }
++
++    // proto.msg 675: "I can't do that."
++    MessageListItem messageListItem;
++    messageListItem.num = 675;
++    if (messageListGetItem(&gProtoMessageList, &messageListItem)) {
++        displayMonitorAddMessage(messageListItem.text);
++    }
++    return false;
++}
++
++} // namespace fallout
+diff --git a/src/sfall_party_control.h b/src/sfall_party_control.h
+new file mode 100644
+index 0000000..886bd1c
+--- /dev/null
++++ b/src/sfall_party_control.h
+@@ -0,0 +1,35 @@
++#ifndef FALLOUT_SFALL_PARTY_CONTROL_H_
++#define FALLOUT_SFALL_PARTY_CONTROL_H_
++
++#include "obj_types.h"
++
++namespace fallout {
++
++// sfall's set_dude_obj (its PartyControl): the player plays another critter,
++// a party member in combat as gl_partycontrol has it, which then stands as
++// the player (gDude) until control goes back to the player's own.
++
++// Whether another critter is being played as the player.
++bool partyControlActive();
++// The player's own critter, whichever is being played.
++Object* partyControlRealDude();
++// The player's own name while another critter is played, for that critter;
++// null otherwise.
++char* partyControlRealDudeName(Object* obj);
++// Plays `critter`; null, or the player's own, gives control back.
++void partyControlSwitchTo(Object* critter);
++void partyControlReset();
++// Experience given while another critter is played is the player's, given
++// when control comes back: true where it was put aside so.
++bool partyControlDelayExperience(int xp);
++// What scripts are told of the player's own perks and traits while another
++// critter is played: false where it is not the player's own they ask of.
++bool partyControlRealDudePerk(Object* obj, int perk, int* rankPtr);
++bool partyControlRealDudeTrait(Object* obj, int trait, int* selectedPtr);
++// Whether the critter played can hold `item` ready: one with no pictures of
++// itself with that weapon cannot ("I can't do that").
++bool partyControlCanReady(Object* item);
++
++} // namespace fallout
++
++#endif /* FALLOUT_SFALL_PARTY_CONTROL_H_ */
+diff --git a/src/stat.cc b/src/stat.cc
+index e28ed45..d0215c3 100644
+--- a/src/stat.cc
++++ b/src/stat.cc
+@@ -1,5 +1,7 @@
+ #include "stat.h"
+ 
++#include <string.h>
++
+ #include <charconv>
+ #include <stdio.h>
+ 
+@@ -1067,4 +1069,14 @@ SFALL_MEMORY_CALL(0x4AF910, [](const ProgramValue* args, int) {
+     return ProgramValue(pcSetStat(static_cast<PcStat>(args[0].integerValue), args[1].integerValue));
+ });
+ 
++void pcStatsCopy(int* values)
++{
++    memcpy(values, gPcStatValues, sizeof(gPcStatValues));
++}
++
++void pcStatsPut(const int* values)
++{
++    memcpy(gPcStatValues, values, sizeof(gPcStatValues));
++}
++
+ } // namespace fallout
+diff --git a/src/stat.h b/src/stat.h
+index f9c1580..fd70678 100644
+--- a/src/stat.h
++++ b/src/stat.h
+@@ -42,6 +42,9 @@ char* statGetDescription(Stat stat);
+ char* statGetValueDescription(int value);
+ int pcGetStat(PcStat pcStat);
+ int pcSetStat(PcStat pcStat, int value);
++// SFALL: set_dude_obj. The player's statistics (PC_STAT_COUNT of them), as they are.
++void pcStatsCopy(int* values);
++void pcStatsPut(const int* values);
+ void pcStatsReset();
+ int pcGetExperienceForNextLevel();
+ int pcGetExperienceForLevel(int level);

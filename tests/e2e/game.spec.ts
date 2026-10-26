@@ -1146,6 +1146,60 @@ test('Fallout 2: Inventory Filter as an add-on reads its settings and filters th
   expect(faults).toEqual([]);
 });
 
+/**
+ * sfall's set_dude_obj (engines/fallout2/patches 0030), played in the real
+ * game by tests/sfall/gl_ovctrl.int laid over it: a villager joins the party,
+ * a thug starts a fight, and on the villager's turns the player plays the
+ * villager, as gl_partycontrol does with CombatControl Mode=2. Then the bar
+ * is the villager's (its kick, its 9 action points), a click walks it, the
+ * game cannot be saved, and the player's own comes back with the turn's end.
+ */
+test('Fallout 2: the player plays a party member in combat, as sfall\'s set_dude_obj has it', async ({ page }) => {
+  const fallout2 = GAMES[1].dir;
+  test.skip(!fallout2, 'set FO2_DIR to your Fallout 2 folder to run this');
+  test.setTimeout(900_000);
+  const faults: string[] = [];
+  page.on('pageerror', (error) => faults.push(error.message));
+
+  await openConsole(page, 'fo2', { skipIntro: true });
+  await pickFolder(page, fallout2!);
+  await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 300_000 });
+  await page.locator('.menu button', { hasText: 'Add-ons' }).click();
+  const script = join(tempFolder(), 'gl_ovctrl.int');
+  writeFileSync(script, readFileSync(new URL('../sfall/gl_ovctrl.int', import.meta.url)));
+  await page.locator('input[accept*=".dat"]').setInputFiles(script);
+  await expect(page.locator('.menu li', { hasText: 'Gl ovctrl' })).toContainText('ON', { timeout: 120_000 });
+  await page.keyboard.press('Escape');
+
+  await launch(page, 'Begin simulation', '1');
+  await waitForPicture(page, 8000);
+  await page.keyboard.press('n');
+  await pause(page, 6000);
+  await page.keyboard.press('t');
+  await pause(page, 10000);
+  await page.keyboard.press(' ');
+  await pause(page, 5000);
+  await page.keyboard.press(' ');
+  await expect.poll(() => inProgress(page), { timeout: 120_000, intervals: [1000] }).toBe(true);
+  await pause(page, 2000);
+
+  // The villager's turn, played by the player: no saving while it is (sfall's CombatSaveTest).
+  await page.keyboard.press('F6');
+  await expect(page.locator('#toast')).toHaveText(/QUICK SAVE FAILED/, { timeout: 30_000 });
+  const path = test.info().outputPath('party-control.png');
+  await page.locator('#canvas').screenshot({ path });
+  await test.info().attach('The villager played as the player', { path, contentType: 'image/png' });
+
+  // Its turn, and the rounds after it, ended: the fight goes on with the player's own in their turns, and the game
+  // is still played.
+  for (let round = 0; round < 3; round++) {
+    await page.keyboard.press(' ');
+    await pause(page, 4000);
+  }
+  await expect.poll(() => inProgress(page), { timeout: 30_000 }).toBe(true);
+  expect(faults).toEqual([]);
+});
+
 test('Fallout 2: autosaved on arriving on another map, its picture changed while playing, and a save that knows its add-ons', async ({ page }) => {
   const fallout2 = GAMES[1].dir;
   test.skip(!fallout2, 'set FO2_DIR to your Fallout 2 folder to run this');
