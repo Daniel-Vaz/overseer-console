@@ -100,6 +100,7 @@ own **Operations manual** (entry 6 of the main directory) explains each of these
 | F8 | Fast forward, on and off |
 | F9 | The console menu |
 | F11 | Fullscreen |
+| Shift F8 / F9 / F11 | The game's own key, for an add-on that takes one (Inventory Filter switches on F11) |
 
 <p align="center"><img src="images/suspended.webp" width="800" alt="The console menu over a paused game of Fallout 2, with the keys listed"></p>
 

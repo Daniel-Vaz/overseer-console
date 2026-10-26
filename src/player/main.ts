@@ -532,6 +532,7 @@ function openMenu(confirmExit = false): void {
     ['F8', `Fast forward, on and off (${settings.fastForward} times the speed)`],
     ['F9', 'This menu'],
     ['F11', 'Fullscreen'],
+    ['SHIFT F8 / F9 / F11', "The game's own, for an add-on that takes one"],
   ] as const) {
     keys.append(el('dt', undefined, key), el('dd', undefined, label));
   }
@@ -972,7 +973,11 @@ function onKey(event: KeyboardEvent): void {
   const down = event.type === 'keydown';
 
   if (phase === 'running') {
-    if (event.code === 'F8' || event.code === 'F9' || event.code === 'F11') {
+    if ((event.code === 'F8' || event.code === 'F9' || event.code === 'F11') && event.shiftKey) {
+      // With SHIFT the key is the game's, for an add-on that takes one (Inventory Filter switches on F11). The
+      // browser does nothing with it either.
+      event.preventDefault();
+    } else if (event.code === 'F8' || event.code === 'F9' || event.code === 'F11') {
       event.preventDefault();
       event.stopImmediatePropagation();
       if (down && !event.repeat) {

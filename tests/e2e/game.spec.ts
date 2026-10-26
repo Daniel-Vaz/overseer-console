@@ -1111,6 +1111,29 @@ test('Fallout 2: Inventory Filter as an add-on reads its settings and filters th
   // Everything again.
   await press(26, 25);
   expect((await list()).length).toBeGreaterThan(weapons.length);
+  // Its buttons, at the inventory's left edge.
+  const left = at(5, 10);
+  const right = at(45, 175);
+  const buttons = async () => {
+    // The pointer away from them, which lights one up.
+    const away = at(320, 400);
+    await page.mouse.move(away.x, away.y);
+    await pause(page, 1000);
+    return page.screenshot({ clip: { x: left.x, y: left.y, width: right.x - left.x, height: right.y - left.y } });
+  };
+  const shown = await buttons();
+  await page.keyboard.press('Escape');
+  await pause(page, 2000);
+
+  // Switched off with its own key, F11, which with SHIFT is the game's: its buttons are gone from the inventory.
+  await page.keyboard.press('Shift+F11');
+  await pause(page, 2000);
+  expect(await page.evaluate(() => !!document.fullscreenElement)).toBe(false);
+  await page.keyboard.press('i');
+  await pause(page, 3000);
+  const off = await buttons();
+  await test.info().attach('Inventory Filter switched off', { body: off, contentType: 'image/png' });
+  expect(off.equals(shown)).toBe(false);
   await page.keyboard.press('Escape');
   expect(faults).toEqual([]);
 });

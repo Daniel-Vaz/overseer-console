@@ -36,7 +36,7 @@
       title: 'Mods',
       icon: 'mod',
       summary: 'Fallout Et Tu, the Restoration Project, Sonora and others: loading a mod, and playing it on its game.',
-      topics: ['What a mod is', 'Loading one', 'Installing one it knows', 'Playing it', 'Add-ons', 'How well they play'],
+      topics: ['What a mod is', 'Loading one', 'Installing one it knows', 'Playing it', 'Add-ons', 'Settings and checks', 'How well they play'],
     },
     {
       id: 'controls',
@@ -286,6 +286,20 @@
             change takes hold the next time it starts.
           </p>
 
+          <h2>Settings and checks</h2>
+          <p>
+            <span class="hot">Settings</span>, on a mod's or an add-on's page, shows the settings files its scripts read
+            (FO2tweaks' components, Inventory Filter's options) as lists: a setting of 0 or 1 is a switch, a number is
+            stepped with the arrows, anything else is typed, and what the file says of a setting is its note. The file
+            stays as it came; the game is handed it with your changes made, the next time it starts.
+          </p>
+          <p>
+            <span class="hot">Check</span> reads a Fallout 2 mod's or add-on's scripts and says what they ask for that the
+            engine lacks, and what happens instead; an add-on is checked as it is loaded. To put a file of your own in place
+            of one of the game's (a picture, a text, a script), load it as an add-on: a zip or folder holding it where it
+            goes in the game folder, under data/. Switched off, the game is as it was.
+          </p>
+
           <h2>How well they play</h2>
           <p>
             The engines the console runs have the scripting additions of sfall built in, which most mods need, so there
@@ -312,6 +326,8 @@
             <dd>Console menu: suspend the game, fullscreen, exit to this console</dd>
             <dt>F11</dt>
             <dd>Fullscreen</dd>
+            <dt>SHIFT F8 / F9 / F11</dt>
+            <dd>The game's own key, for an add-on that takes one: Inventory Filter switches on and off with F11</dd>
           </dl>
 
           <h2>Fullscreen</h2>
