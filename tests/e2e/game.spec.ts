@@ -665,7 +665,9 @@ test('Fallout 2: sfall virtual files, hook scripts and the calls the mods make, 
   writeFileSync(join(folder, 'data', 'sound', 'sfx', 'overseer.mp3'), readFileSync(new URL('../sfall/overseer.mp3', import.meta.url)));
   // Hero Appearance on, with a style of its own: the first ready-made character, standing, in a robe (Fallout 2's
   // own robe, out of critter.dat).
-  writeFileSync(join(folder, 'ddraw.ini'), '[Misc]\r\nEnableHeroAppearanceMod=1\r\n');
+  writeFileSync(join(folder, 'ddraw.ini'), '[Misc]\r\nEnableHeroAppearanceMod=1\r\nDrugsFile=Drugs.ini\r\n');
+  // sfall's drugs file, naming one drug.
+  writeFileSync(join(folder, 'Drugs.ini'), '[main]\r\nCount=1\r\n[1]\r\nPID=40\r\nNumEffects=1\r\nAddictTime=0\r\n');
   // The sfall it came with, which its scripts are told.
   writeFileSync(join(folder, 'ddraw.dll'), sfallLibrary(['4.4.5.1', [4, 4, 5]]));
   const critterName = readdirSync(fallout2!).find((name) => name.toLowerCase() === 'critter.dat')!;
@@ -683,10 +685,12 @@ test('Fallout 2: sfall virtual files, hook scripts and the calls the mods make, 
   await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 300_000 });
   // One of its settings changed on its page, as a player would.
   await page.locator('.menu li', { hasText: 'Settings' }).locator('button').click();
+  await page.locator('.menu li', { hasText: 'ovtest.ini' }).locator('button').click();
   await page.locator('.menu li', { hasText: /^\[1\]\s*Value/ }).locator('button').click();
   await page.getByRole('textbox').fill('43');
   await page.getByRole('textbox').press('Enter');
   await expect(page.locator('.menu li', { hasText: /^\[1\]\s*Value/ })).toContainText('43');
+  await page.keyboard.press('Escape');
   await page.keyboard.press('Escape');
 
   // A new game with the first ready-made character.
@@ -730,8 +734,12 @@ test('Fallout 2: sfall virtual files, hook scripts and the calls the mods make, 
   // heave-ho calls; an MP3 played; the Hero Appearance style kept for scripts; six reads, writes and a call into the
   // original program's memory; the version of the mod's sfall; two settings of a packed folder of the mods folder, the
   // first as changed on the mod's page; the settings the engine always acts on; the interface bar hidden and shown,
-  // and the metarules beside it; and the end of the script.
-  expect([...files.get('overseer/result')!]).toEqual([1, 1, 1, 5, 7, 1, 1, 1, 1, 1, 1, 1, 1, 1, 4, 4, 5, 43, 7, 1, 1, 66]);
+  // and the metarules beside it; rest on a map; a drug's data; words on the interface bar's overlay; and the end.
+  expect([...files.get('overseer/result')!]).toEqual([1, 1, 1, 5, 7, 1, 1, 1, 1, 1, 1, 1, 1, 1, 4, 4, 5, 43, 7, 1, 1, 1, 1, 1, 66]);
+  // The words the script left on an overlay of the interface bar, there after the bar was drawn again.
+  const barPath = test.info().outputPath('interface-overlay.png');
+  await page.locator('#canvas').screenshot({ path: barPath });
+  await test.info().attach('interface_print: OVERSEER over the interface bar', { path: barPath, contentType: 'image/png' });
   // The player in the style's robe.
   const path = test.info().outputPath('hero-appearance.png');
   await page.locator('#canvas').screenshot({ path });

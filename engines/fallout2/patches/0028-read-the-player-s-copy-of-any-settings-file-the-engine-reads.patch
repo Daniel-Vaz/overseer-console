@@ -1,0 +1,30 @@
+Read the player's copy of any settings file the engine reads
+
+Not only those scripts read: a mod's sfall settings files named in ddraw.ini (DrugsFile, BooksFile, PerksFile...) are read from overseer\settings where the page put a copy of one, as the console's Settings changes them.
+---
+diff --git a/src/config.cc b/src/config.cc
+index 98ffd22..2b1aa7b 100644
+--- a/src/config.cc
++++ b/src/config.cc
+@@ -396,7 +396,20 @@ bool configRead(Config* config, const char* filePath, bool isDb)
+         }
+         fileClose(stream);
+     } else {
+-        FILE* stream = compat_fopen(filePath, "rt");
++        // The player's copy of a settings file, which the page puts under
++        // overseer\settings by its path in the game folder, is read in its
++        // place: a mod's sfall settings files (DrugsFile, BooksFile...) as well
++        // as those its scripts read.
++        const char* relative = filePath;
++        if (relative[0] == '.' && (relative[1] == '\\' || relative[1] == '/')) {
++            relative += 2;
++        }
++        char copy[COMPAT_MAX_PATH];
++        snprintf(copy, sizeof(copy), "overseer\\settings\\%s", relative);
++        FILE* stream = compat_strnicmp(relative, "overseer", 8) != 0 ? compat_fopen(copy, "rt") : nullptr;
++        if (stream == nullptr) {
++            stream = compat_fopen(filePath, "rt");
++        }
+ 
+         // CE: Return `false` if file does not exists on the file system.
+         if (stream == nullptr) {

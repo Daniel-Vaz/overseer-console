@@ -1,0 +1,322 @@
+Give the scripts sfall's set_can_rest_on_map and get_can_rest_on_map
+
+Where the player may rest, map by map and elevation by elevation, over what maps.txt says, kept in sfalldb.sav in sfall's layout (written low byte first, as sfall does). Fallout Yesterday's scripts use it.
+---
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index b84fb77..f50ee4e 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -324,6 +324,8 @@ set(FALLOUT_PLATFORM_SOURCES
+     "src/sfall_opcodes.h"
+     "src/sfall_perks.cc"
+     "src/sfall_perks.h"
++    "src/sfall_rest.cc"
++    "src/sfall_rest.h"
+     "src/sfall_script_hooks.cc"
+     "src/sfall_stat_mods.cc"
+     "src/sfall_stat_mods.h"
+diff --git a/src/critter.cc b/src/critter.cc
+index e404e75..6f7751b 100644
+--- a/src/critter.cc
++++ b/src/critter.cc
+@@ -36,6 +36,7 @@
+ #include "skill.h"
+ #include "stat.h"
+ #include "tile.h"
++#include "sfall_rest.h"
+ #include "trait.h"
+ #include "worldmap.h"
+ 
+@@ -1429,7 +1430,9 @@ bool critterCanDudeRest()
+     }
+ 
+     bool mapDisallowsRest = false;
+-    if (!wmMapCanRestHere(gElevation)) {
++    // SFALL: set_can_rest_on_map, over what maps.txt says.
++    int scripted = sfallRestGet(mapGetCurrentMap(), gElevation);
++    if (scripted == 0 || (scripted == -1 && !wmMapCanRestHere(gElevation))) {
+         mapDisallowsRest = true;
+     }
+ 
+diff --git a/src/game.cc b/src/game.cc
+index 0212014..a180354 100644
+--- a/src/game.cc
++++ b/src/game.cc
+@@ -63,6 +63,7 @@
+ #include "sfall_lists.h"
+ #include "sfall_memory.h"
+ #include "sfall_perks.h"
++#include "sfall_rest.h"
+ #include "sfall_script_hooks.h"
+ #include "sfall_stat_mods.h"
+ #include "skill.h"
+@@ -490,6 +491,7 @@ void gameReset()
+     scriptHooksReset();
+     sfallArraysReset();
+     sfallPerksReset();
++    sfallRestReset();
+     sfallStatModsReset();
+     sfall_gl_scr_reset();
+     sfall_ini_cache_clear();
+diff --git a/src/loadsave.cc b/src/loadsave.cc
+index cf0c026..b129097 100644
+--- a/src/loadsave.cc
++++ b/src/loadsave.cc
+@@ -51,6 +51,7 @@
+ #include "scripts.h"
+ #include "settings.h"
+ #include "sfall_callbacks.h"
++#include "sfall_rest.h"
+ #include "sfall_ext.h"
+ #include "sfall_filesystem.h"
+ #include "sfall_global_scripts.h"
+@@ -2124,6 +2125,18 @@ static int lsgPerformSaveGame()
+         }
+     }
+ 
++    // SFALL: Save sfalldb.sav: where the player may rest (set_can_rest_on_map),
++    // the critters' stats sfall keeps (none here), and the version of sfall.
++    snprintf(_gmpath, sizeof(_gmpath), "%s\\%s%.2d\\%s", "SAVEGAME", "SLOT", _slot_cursor + 1, "sfalldb.sav");
++    _flptr = fileOpen(_gmpath, "wb");
++    if (_flptr != nullptr) {
++        bool saved = sfallDbSave(_flptr);
++        fileClose(_flptr);
++        if (!saved) {
++            return -1;
++        }
++    }
++
+     // SFALL: Save sfallfs.sav, the virtual files scripts asked to keep; none
+     // left from an earlier save in this slot when there are none.
+     snprintf(_gmpath, sizeof(_gmpath), "%s\\%s%.2d\\%s", "SAVEGAME", "SLOT", _slot_cursor + 1, "sfallfs.sav");
+@@ -2263,6 +2276,19 @@ static int lsgLoadGameInSlot(int slot)
+         }
+     }
+ 
++    // SFALL: Load sfalldb.sav. A save without it has the rest rules of maps.txt.
++    snprintf(_gmpath, sizeof(_gmpath), "%s\\%s%.2d\\%s", "SAVEGAME", "SLOT", _slot_cursor + 1, "sfalldb.sav");
++    _flptr = fileOpen(_gmpath, "rb");
++    if (_flptr != nullptr) {
++        bool loaded = sfallDbLoad(_flptr);
++        fileClose(_flptr);
++        if (!loaded) {
++            return -1;
++        }
++    } else {
++        sfallRestReset();
++    }
++
+     // SFALL: Load sfallfs.sav.
+     snprintf(_gmpath, sizeof(_gmpath), "%s\\%s%.2d\\%s", "SAVEGAME", "SLOT", _slot_cursor + 1, "sfallfs.sav");
+     _flptr = fileOpen(_gmpath, "rb");
+diff --git a/src/sfall_metarules.cc b/src/sfall_metarules.cc
+index 00f9361..f216ab1 100644
+--- a/src/sfall_metarules.cc
++++ b/src/sfall_metarules.cc
+@@ -41,6 +41,7 @@
+ #include "sfall_object_name.h"
+ #include "sfall_opcodes.h"
+ #include "sfall_perks.h"
++#include "sfall_rest.h"
+ #include "sfall_script_hooks.h"
+ #include "skilldex.h"
+ #include "stat.h"
+@@ -781,6 +782,8 @@ static void mf_get_current_inven_size(OpcodeContext& ctx);
+ static void mf_intface_hide(OpcodeContext& ctx);
+ static void mf_intface_is_hidden(OpcodeContext& ctx);
+ static void mf_intface_show(OpcodeContext& ctx);
++static void mf_get_rest_on_map(OpcodeContext& ctx);
++static void mf_set_rest_on_map(OpcodeContext& ctx);
+ static void mf_draw_image(OpcodeContext& ctx);
+ static void mf_draw_image_scaled(OpcodeContext& ctx);
+ static void mf_encounter_detection(OpcodeContext& ctx);
+@@ -880,7 +883,7 @@ const MetaruleInfo kMetarules[] = {
+     { "encounter_detection", mf_encounter_detection, 1, 1, -1, { ARG_INT } },
+     { "exec_map_update_scripts", mf_exec_map_update_scripts, 0, 0 },
+     { "floor2", mf_floor2, 1, 1, 0, { ARG_NUMBER } },
+-    // {"get_can_rest_on_map",       mf_get_rest_on_map,           2, 2, -1, {ARG_INT, ARG_INT}},
++    { "get_can_rest_on_map", mf_get_rest_on_map, 2, 2, -1, { ARG_INT, ARG_INT } },
+     { "get_combat_free_move", mf_get_combat_free_move, 0, 0 },
+     { "get_current_inven_size", mf_get_current_inven_size, 1, 1, 0, { ARG_OBJECT } },
+     { "get_cursor_mode", mf_get_cursor_mode, 0, 0 },
+@@ -929,7 +932,7 @@ const MetaruleInfo kMetarules[] = {
+     { "reg_anim_animate_and_move", mf_reg_anim_animate_and_move, 4, 4, -1, { ARG_OBJECT, ARG_INT, ARG_INT, ARG_INT } },
+     { "remove_timer_event", mf_remove_timer_event, 0, 1, -1, { ARG_INT } },
+     // {"set_spray_settings",        mf_set_spray_settings,        4, 4, -1, {ARG_INT, ARG_INT, ARG_INT, ARG_INT}},
+-    // {"set_can_rest_on_map",       mf_set_rest_on_map,           3, 3, -1, {ARG_INT, ARG_INT, ARG_INT}},
++    { "set_can_rest_on_map", mf_set_rest_on_map, 3, 3, -1, { ARG_INT, ARG_INT, ARG_INT } },
+     { "set_car_intface_art", mf_set_car_intface_art, 1, 1, -1, { ARG_INT } },
+     { "set_combat_free_move", mf_set_combat_free_move, 1, 1, -1, { ARG_INT } },
+     { "set_cursor_mode", mf_set_cursor_mode, 1, 1, -1, { ARG_INT } },
+@@ -1199,6 +1202,31 @@ void mf_intface_show(OpcodeContext& ctx)
+     interfaceBarShow();
+ }
+ 
++// set_can_rest_on_map(map, elevation, can): -1 for every elevation.
++void mf_set_rest_on_map(OpcodeContext& ctx)
++{
++    int map = ctx.arg(0).asInt();
++    int elevation = ctx.arg(1).asInt();
++    if (map < 0 || elevation < -1 || elevation > 2) {
++        ctx.printError("%s() - invalid map number or elevation.", ctx.name());
++        ctx.setReturn(-1);
++        return;
++    }
++    sfallRestSet(map, elevation, ctx.arg(2).asInt() != 0);
++}
++
++// get_can_rest_on_map(map, elevation): 1 or 0 where a script set it, -1 where maps.txt has its way.
++void mf_get_rest_on_map(OpcodeContext& ctx)
++{
++    int elevation = ctx.arg(1).asInt();
++    if (elevation < 0 || elevation > 2) {
++        ctx.printError("%s() - invalid map elevation.", ctx.name());
++        ctx.setReturn(-1);
++        return;
++    }
++    ctx.setReturn(sfallRestGet(ctx.arg(0).asInt(), elevation));
++}
++
+ void mf_display_stats(OpcodeContext& ctx)
+ {
+     if (GameMode::isInGameMode(GameMode::kInventory)) {
+diff --git a/src/sfall_rest.cc b/src/sfall_rest.cc
+new file mode 100644
+index 0000000..8c672d6
+--- /dev/null
++++ b/src/sfall_rest.cc
+@@ -0,0 +1,106 @@
++#include "sfall_rest.h"
++
++#include <array>
++#include <map>
++
++namespace fallout {
++
++// By map: one value for each elevation (and one sfall leaves unused), -1 for
++// none set. Ordered, so that a save is written the same way each time.
++static std::map<int, std::array<signed char, 4>> gRestByMap;
++
++void sfallRestReset()
++{
++    gRestByMap.clear();
++}
++
++void sfallRestSet(int map, int elevation, bool canRest)
++{
++    auto it = gRestByMap.find(map);
++    if (it == gRestByMap.end()) {
++        it = gRestByMap.emplace(map, std::array<signed char, 4> { -1, -1, -1, -1 }).first;
++    }
++
++    if (elevation == -1) {
++        for (int index = 0; index < 3; index++) {
++            it->second[index] = canRest ? 1 : 0;
++        }
++    } else if (elevation >= 0 && elevation < 3) {
++        it->second[elevation] = canRest ? 1 : 0;
++    }
++}
++
++int sfallRestGet(int map, int elevation)
++{
++    if (elevation < 0 || elevation >= 3) {
++        return -1;
++    }
++
++    auto it = gRestByMap.find(map);
++    return it != gRestByMap.end() ? it->second[elevation] : -1;
++}
++
++// sfall writes its files as the program holds its numbers: low byte first.
++static bool writeInt(File* stream, int value)
++{
++    unsigned char bytes[4] = {
++        static_cast<unsigned char>(value),
++        static_cast<unsigned char>(value >> 8),
++        static_cast<unsigned char>(value >> 16),
++        static_cast<unsigned char>(value >> 24),
++    };
++    return fileWrite(bytes, 1, 4, stream) == 4;
++}
++
++static bool readInt(File* stream, int* value)
++{
++    unsigned char bytes[4];
++    if (fileRead(bytes, 1, 4, stream) != 4) {
++        return false;
++    }
++    *value = bytes[0] | (bytes[1] << 8) | (bytes[2] << 16) | (bytes[3] << 24);
++    return true;
++}
++
++// sfalldb.sav as sfall writes it: Worldmap::SaveData (the number of maps,
++// then each one's number and its four bytes), CritterStats::SaveStatData (the
++// critters' base and bonus stats it keeps: none here), and a last marker with
++// the version of sfall.
++bool sfallDbSave(File* stream)
++{
++    if (!writeInt(stream, static_cast<int>(gRestByMap.size()))) {
++        return false;
++    }
++
++    for (auto& [map, levels] : gRestByMap) {
++        if (!writeInt(stream, map) || fileWrite(levels.data(), 1, levels.size(), stream) != levels.size()) {
++            return false;
++        }
++    }
++
++    return writeInt(stream, 0) && writeInt(stream, 0) && writeInt(stream, 0xCC | (4 << 8) | (5 << 16) | (1 << 24));
++}
++
++bool sfallDbLoad(File* stream)
++{
++    gRestByMap.clear();
++
++    int count;
++    if (!readInt(stream, &count)) {
++        return true;
++    }
++
++    for (int index = 0; index < count; index++) {
++        int map;
++        std::array<signed char, 4> levels;
++        if (!readInt(stream, &map) || fileRead(levels.data(), 1, levels.size(), stream) != levels.size()) {
++            return false;
++        }
++        gRestByMap[map] = levels;
++    }
++
++    // What follows is sfall's critters' stats, which this engine does not keep.
++    return true;
++}
++
++} // namespace fallout
+diff --git a/src/sfall_rest.h b/src/sfall_rest.h
+new file mode 100644
+index 0000000..1fcc6db
+--- /dev/null
++++ b/src/sfall_rest.h
+@@ -0,0 +1,22 @@
++#ifndef FALLOUT_SFALL_REST_H_
++#define FALLOUT_SFALL_REST_H_
++
++#include "db.h"
++
++namespace fallout {
++
++// sfall's set_can_rest_on_map/get_can_rest_on_map: where the player may rest,
++// map by map and elevation by elevation, over what maps.txt says. Kept in
++// sfalldb.sav, in sfall's layout.
++
++void sfallRestReset();
++// `elevation` -1: every elevation of the map.
++void sfallRestSet(int map, int elevation, bool canRest);
++// 1 or 0 where a script said so, -1 where maps.txt has its way.
++int sfallRestGet(int map, int elevation);
++bool sfallDbSave(File* stream);
++bool sfallDbLoad(File* stream);
++
++} // namespace fallout
++
++#endif /* FALLOUT_SFALL_REST_H_ */

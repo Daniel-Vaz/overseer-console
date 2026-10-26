@@ -23,7 +23,11 @@
  *   byte 19: the sfall settings the engine always acts on read as on (0021)
  *   byte 20: intface_hide/show/is_hidden, get_current_inven_size and
  *     exec_map_update_scripts (0024)
- *   byte 21: 66, the script got to its end, setting off an explosion for
+ *   byte 21: set_can_rest_on_map and get_can_rest_on_map (0025)
+ *   byte 22: set_drugs_data, for a drug in the mod's DrugsFile and one not (0026)
+ *   byte 23: interface_overlay and interface_print got through: the words are
+ *     left on the interface bar for the test to see (0027)
+ *   byte 24: 66, the script got to its end, setting off an explosion for
  *     hs_onexplosion on the way
  * In a game loaded from a save, which brings that file back, it writes only
  * "overseer/loaded": the style the save brought back.
@@ -42,7 +46,7 @@ procedure start begin
       return;
    end
 
-   id := fs_create("overseer/result", 22);
+   id := fs_create("overseer/result", 25);
    fs_resize(id, -1);
 
    fs_write_short(id, 0x1234);
@@ -133,6 +137,20 @@ procedure start begin
    sfall_func0("intface_show");
    sfall_func0("exec_map_update_scripts");
    if (traits == 1 and sfall_func0("intface_is_hidden") == 0 and sfall_func1("get_current_inven_size", dude_obj) > 0) then fs_write_byte(id, 1); else fs_write_byte(id, 0);
+
+   // No resting on this map, at any elevation, and nothing said of the next map (0025).
+   sfall_func3("set_can_rest_on_map", cur_map_index, -1, 0);
+   if (sfall_func2("get_can_rest_on_map", cur_map_index, 0) == 0 and sfall_func2("get_can_rest_on_map", cur_map_index, 2) == 0 and sfall_func2("get_can_rest_on_map", cur_map_index + 1, 0) == -1) then fs_write_byte(id, 1); else fs_write_byte(id, 0);
+
+   // A drug of the mod's DrugsFile (Stimpak, 40) changed, and one not in it refused (0026).
+   if (sfall_func3("set_drugs_data", 0, 40, 2) == 0 and sfall_func3("set_drugs_data", 1, 40, 60) == 0 and sfall_func3("set_drugs_data", 0, 41, 2) == -1) then fs_write_byte(id, 1); else fs_write_byte(id, 0);
+
+   // Words on an overlay over the interface bar, which stay there as it is drawn again beneath (0027).
+   // Shadowed (0x10000), in colour 215.
+   points := 0x10000 + 215;
+   sfall_func2("interface_overlay", 4, 1);
+   sfall_func5("interface_print", "OVERSEER", 4, 20, 30, points);
+   fs_write_byte(id, 1);
 
    // An explosion of no damage three tiles away, for hs_onexplosion (0022).
    explosion(tile_num_in_direction(tile_num(dude_obj), 2, 3), elevation(dude_obj), 0);

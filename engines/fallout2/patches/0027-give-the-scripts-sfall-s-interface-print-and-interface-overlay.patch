@@ -1,0 +1,301 @@
+Give the scripts sfall's interface_print and interface_overlay
+
+Text printed onto an interface window as the original's PrintRect does, and an overlay a script can draw on above a window, kept there as the window redraws beneath it (made, cleared, taken away). Fallout Yesterday's stealing mod shows the chance to steal each item that way.
+---
+diff --git a/src/sfall_metarules.cc b/src/sfall_metarules.cc
+index 4300fba..e2d6137 100644
+--- a/src/sfall_metarules.cc
++++ b/src/sfall_metarules.cc
+@@ -803,6 +803,8 @@ static void mf_get_text_width(OpcodeContext& ctx);
+ static void mf_get_window_attribute(OpcodeContext& ctx);
+ static void mf_hide_window(OpcodeContext& ctx);
+ static void mf_interface_art_draw(OpcodeContext& ctx);
++static void mf_interface_overlay(OpcodeContext& ctx);
++static void mf_interface_print(OpcodeContext& ctx);
+ static void mf_intface_redraw(OpcodeContext& ctx);
+ static void mf_inventory_redraw(OpcodeContext& ctx);
+ static void mf_item_weight(OpcodeContext& ctx);
+@@ -909,8 +911,8 @@ const MetaruleInfo kMetarules[] = {
+     { "has_fake_trait_npc", mf_has_fake_trait_npc, 2, 2, 0, { ARG_OBJECT, ARG_STRING } },
+     { "hide_window", mf_hide_window, 0, 1, -1, { ARG_STRING } },
+     { "interface_art_draw", mf_interface_art_draw, 4, 6, -1, { ARG_INT, ARG_INTSTR, ARG_INT, ARG_INT, ARG_INT, ARG_INT } },
+-    // {"interface_overlay",         mf_interface_overlay,         2, 6, -1, {ARG_INT, ARG_INT, ARG_INT, ARG_INT, ARG_INT, ARG_INT}},
+-    // {"interface_print",           mf_interface_print,           5, 6, -1, {ARG_STRING, ARG_INT, ARG_INT, ARG_INT, ARG_INT, ARG_INT}},
++    { "interface_overlay", mf_interface_overlay, 2, 6, -1, { ARG_INT, ARG_INT, ARG_INT, ARG_INT, ARG_INT, ARG_INT } },
++    { "interface_print", mf_interface_print, 5, 6, -1, { ARG_STRING, ARG_INT, ARG_INT, ARG_INT, ARG_INT, ARG_INT } },
+     { "intface_hide", mf_intface_hide, 0, 0 },
+     { "intface_is_hidden", mf_intface_is_hidden, 0, 0 },
+     { "intface_redraw", mf_intface_redraw, 0, 1 },
+@@ -1697,6 +1699,90 @@ static void mf_draw_image_scaled(OpcodeContext& ctx)
+     ctx.setReturn(drawSfallImageToScriptWindow(ctx, true));
+ }
+ 
++// interface_print(text, winType, x, y, color, width): as the original's
++// PrintRect, onto an interface window, or onto its overlay where it has one.
++// The color's flags are the engine's: shadow, no background (switched, as
++// sfall does), no redraw.
++static void mf_interface_print(OpcodeContext& ctx)
++{
++    int win = -1;
++    if (getInterfaceWindowByType(ctx.arg(1).asInt(), win) != InterfaceWindowLookupResult::Found) {
++        ctx.printError("%s() - the game interface window is not created or invalid window type number.", ctx.name());
++        ctx.setReturn(-1);
++        return;
++    }
++
++    Window* window = windowGetWindow(win);
++    char* text = const_cast<char*>(ctx.stringArg(0));
++    int x = std::max(0, ctx.arg(2).asInt());
++    int y = std::max(0, ctx.arg(3).asInt());
++    unsigned int color = static_cast<unsigned int>(ctx.arg(4).asInt());
++    int width = ctx.numArgs() > 5 ? ctx.arg(5).asInt() : 0;
++
++    int maxHeight = window->height - y;
++    int maxWidth = window->width - x;
++    if (width <= 0 || width > maxWidth) {
++        width = maxWidth;
++    }
++
++    color ^= DRAW_TEXT_FLAG_NO_BG;
++    if ((color & 0xFF) == 0) {
++        color |= scriptWindowGetTextColor();
++    }
++
++    // Drawn on the overlay where there is one: the engine draws where a window's buffer is.
++    unsigned char* buffer = window->buffer;
++    if (window->overlay != nullptr) {
++        window->buffer = window->overlay;
++    }
++
++    if ((color & DRAW_TEXT_FLAG_SHADOWED) != 0) {
++        windowWrapLineWithSpacing(win, text, width, maxHeight, x, y, static_cast<ColorWithFlags>(0x201000F), TEXT_ALIGNMENT_LEFT, 0);
++        color ^= DRAW_TEXT_FLAG_SHADOWED;
++    }
++    windowWrapLineWithSpacing(win, text, width, maxHeight, x, y, static_cast<ColorWithFlags>(color), TEXT_ALIGNMENT_LEFT, 0);
++
++    window->buffer = buffer;
++
++    if ((color & DRAW_TEXT_FLAG_REFRESH) == 0) {
++        windowRefresh(win);
++    }
++}
++
++// interface_overlay(winType, mode, x, y, w, h): 0 takes the window's
++// overlay away, 1 makes one, 2 clears it (or the rectangle given).
++static void mf_interface_overlay(OpcodeContext& ctx)
++{
++    int win = -1;
++    if (getInterfaceWindowByType(ctx.arg(0).asInt(), win) != InterfaceWindowLookupResult::Found) {
++        return;
++    }
++
++    switch (ctx.arg(1).asInt()) {
++    case 0:
++        windowDestroyOverlay(win);
++        break;
++    case 1:
++        windowCreateOverlay(win);
++        break;
++    case 2:
++        if (ctx.numArgs() > 2) {
++            int x = ctx.arg(2).asInt();
++            int y = ctx.numArgs() > 3 ? ctx.arg(3).asInt() : 0;
++            int w = ctx.numArgs() > 4 ? ctx.arg(4).asInt() : 0;
++            int h = ctx.numArgs() > 5 ? ctx.arg(5).asInt() : 0;
++            if (w <= 0 || h <= 0 || x < 0 || y < 0) {
++                return;
++            }
++            Rect rect = { x, y, x + w - 1, y + h - 1 };
++            windowClearOverlay(win, &rect);
++        } else {
++            windowClearOverlay(win, nullptr);
++        }
++        break;
++    }
++}
++
+ static void mf_interface_art_draw(OpcodeContext& ctx)
+ {
+     int window = -1;
+diff --git a/src/window_manager.cc b/src/window_manager.cc
+index cbc33c0..6650ab3 100644
+--- a/src/window_manager.cc
++++ b/src/window_manager.cc
+@@ -338,6 +338,7 @@ int windowCreate(int x, int y, int width, int height, ColorWithFlags color, int
+         internal_free(window);
+         return -1;
+     }
++    window->overlay = nullptr;
+ 
+     int id = 1;
+     while (windowGetWindow(id) != nullptr) {
+@@ -440,6 +441,56 @@ void windowDestroy(int win)
+     windowRefreshAll(&rect);
+ }
+ 
++// SFALL: interface_overlay. Makes an empty overlay for a window, where it
++// has none.
++bool windowCreateOverlay(int win)
++{
++    Window* window = windowGetWindow(win);
++    if (window == nullptr) {
++        return false;
++    }
++
++    if (window->overlay == nullptr) {
++        size_t size = static_cast<size_t>(window->width) * window->height;
++        window->overlay = (unsigned char*)internal_malloc(size);
++        if (window->overlay != nullptr) {
++            memset(window->overlay, 0, size);
++        }
++    }
++
++    return window->overlay != nullptr;
++}
++
++void windowDestroyOverlay(int win)
++{
++    Window* window = windowGetWindow(win);
++    if (window != nullptr && window->overlay != nullptr) {
++        internal_free(window->overlay);
++        window->overlay = nullptr;
++        windowRefresh(win);
++    }
++}
++
++// Clears a part of a window's overlay (all of it for null).
++void windowClearOverlay(int win, const Rect* rect)
++{
++    Window* window = windowGetWindow(win);
++    if (window == nullptr || window->overlay == nullptr) {
++        return;
++    }
++
++    int left = rect != nullptr ? std::max(rect->left, 0) : 0;
++    int top = rect != nullptr ? std::max(rect->top, 0) : 0;
++    int right = rect != nullptr ? std::min(rect->right, window->width - 1) : window->width - 1;
++    int bottom = rect != nullptr ? std::min(rect->bottom, window->height - 1) : window->height - 1;
++    for (int y = top; y <= bottom; y++) {
++        if (right >= left) {
++            memset(window->overlay + y * window->width + left, 0, right - left + 1);
++        }
++    }
++    windowRefresh(win);
++}
++
+ // 0x4D650C
+ void windowFree(int win)
+ {
+@@ -452,6 +503,10 @@ void windowFree(int win)
+         internal_free(window->buffer);
+     }
+ 
++    if (window->overlay != nullptr) {
++        internal_free(window->overlay);
++    }
++
+     if (window->menuBar != nullptr) {
+         internal_free(window->menuBar);
+     }
+@@ -839,6 +894,20 @@ void _GNW_win_refresh(Window* window, Rect* rect, unsigned char* dest)
+             _win_clip(window, &refreshRectList, dest);
+ 
+             if (window->id) {
++                // SFALL: what scripts drew over the window, laid over it.
++                unsigned char* source = window->buffer;
++                if (window->overlay != nullptr) {
++                    size_t size = static_cast<size_t>(window->width) * window->height;
++                    source = (unsigned char*)internal_malloc(size);
++                    if (source == nullptr) {
++                        source = window->buffer;
++                    } else {
++                        for (size_t index = 0; index < size; index++) {
++                            source[index] = window->overlay[index] != 0 ? window->overlay[index] : window->buffer[index];
++                        }
++                    }
++                }
++
+                 // loop through all clip rectangles blitting to dest or screen
+                 clipRect = refreshRectList;
+                 while (clipRect) {
+@@ -847,7 +916,7 @@ void _GNW_win_refresh(Window* window, Rect* rect, unsigned char* dest)
+                     if (dest) {
+                         if (_buffering && (window->flags & WINDOW_TRANSPARENT)) {
+                             // window->blitProc is always blitBufferToBufferTrans
+-                            window->blitProc(window->buffer + clipRect->rect.left - window->rect.left + (clipRect->rect.top - window->rect.top) * window->width,
++                            window->blitProc(source + clipRect->rect.left - window->rect.left + (clipRect->rect.top - window->rect.top) * window->width,
+                                 clipRect->rect.right - clipRect->rect.left + 1,
+                                 clipRect->rect.bottom - clipRect->rect.top + 1,
+                                 window->width,
+@@ -855,7 +924,7 @@ void _GNW_win_refresh(Window* window, Rect* rect, unsigned char* dest)
+                                 dest_pitch);
+                         } else {
+                             blitBufferToBuffer(
+-                                window->buffer + clipRect->rect.left - window->rect.left + (clipRect->rect.top - window->rect.top) * window->width,
++                                source + clipRect->rect.left - window->rect.left + (clipRect->rect.top - window->rect.top) * window->width,
+                                 clipRect->rect.right - clipRect->rect.left + 1,
+                                 clipRect->rect.bottom - clipRect->rect.top + 1,
+                                 window->width,
+@@ -866,7 +935,7 @@ void _GNW_win_refresh(Window* window, Rect* rect, unsigned char* dest)
+                         if (_buffering) {
+                             if (window->flags & WINDOW_TRANSPARENT) {
+                                 window->blitProc(
+-                                    window->buffer + clipRect->rect.left - window->rect.left + (clipRect->rect.top - window->rect.top) * window->width,
++                                    source + clipRect->rect.left - window->rect.left + (clipRect->rect.top - window->rect.top) * window->width,
+                                     clipRect->rect.right - clipRect->rect.left + 1,
+                                     clipRect->rect.bottom - clipRect->rect.top + 1,
+                                     window->width,
+@@ -874,7 +943,7 @@ void _GNW_win_refresh(Window* window, Rect* rect, unsigned char* dest)
+                                     _scr_size.right - _scr_size.left + 1);
+                             } else {
+                                 blitBufferToBuffer(
+-                                    window->buffer + clipRect->rect.left - window->rect.left + (clipRect->rect.top - window->rect.top) * window->width,
++                                    source + clipRect->rect.left - window->rect.left + (clipRect->rect.top - window->rect.top) * window->width,
+                                     clipRect->rect.right - clipRect->rect.left + 1,
+                                     clipRect->rect.bottom - clipRect->rect.top + 1,
+                                     window->width,
+@@ -883,7 +952,7 @@ void _GNW_win_refresh(Window* window, Rect* rect, unsigned char* dest)
+                             }
+                         } else {
+                             _scr_blit(
+-                                window->buffer + clipRect->rect.left - window->rect.left + (clipRect->rect.top - window->rect.top) * window->width,
++                                source + clipRect->rect.left - window->rect.left + (clipRect->rect.top - window->rect.top) * window->width,
+                                 window->width,
+                                 clipRect->rect.bottom - clipRect->rect.top + 1,
+                                 0,
+@@ -897,6 +966,10 @@ void _GNW_win_refresh(Window* window, Rect* rect, unsigned char* dest)
+ 
+                     clipRect = clipRect->next;
+                 }
++
++                if (source != window->buffer) {
++                    internal_free(source);
++                }
+             } else {
+                 // this is special window 0 with no window->buffer, so we fill the rectangles with the background color
+                 RectListNode* clipRect = refreshRectList;
+diff --git a/src/window_manager.h b/src/window_manager.h
+index 12c731c..5d92999 100644
+--- a/src/window_manager.h
++++ b/src/window_manager.h
+@@ -123,6 +123,9 @@ typedef struct Window {
+     Button* clickedButton;
+     MenuBar* menuBar;
+     WindowBlitProc* blitProc;
++    // SFALL: interface_overlay. What scripts draw over the window, as large
++    // as it, 0 where the window shows through; null where there is none.
++    unsigned char* overlay;
+ } Window;
+ 
+ typedef void ButtonCallback(int btn, int keyCode);
+@@ -189,6 +192,10 @@ inline int windowCreate(int x, int y, int width, int height, Color color, int fl
+ }
+ 
+ void windowDestroy(int win);
++// SFALL: interface_overlay.
++bool windowCreateOverlay(int win);
++void windowDestroyOverlay(int win);
++void windowClearOverlay(int win, const Rect* rect);
+ void windowDrawBorder(int win);
+ // flags is also used to pass color
+ void windowDrawText(int win, const char* str, int maxWidth, int x, int y, ColorWithFlags color);

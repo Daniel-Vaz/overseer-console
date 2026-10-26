@@ -47,6 +47,8 @@ own **Operations manual** (entry 6 of the main directory) explains each of these
 - **sfall's hook scripts and virtual files.** Fallout 2's engine runs a mod's `hs_*.int` hook scripts and lets its
   scripts make and change files the game then reads, kept in saved games where a script asks. It plays MP3 music
   and sounds too, as Fallout Yesterday has some.
+- **More of sfall for scripts.** sfall's drugs file (new drugs' addictions, effect limits and withdrawal times),
+  where the player may rest, text and overlays drawn on the game's windows, and its OnExplosion hook.
 - **sfall's Hero Appearance.** The look picked for your character, its race and style, in the Restoration Project
   and Fallout Yesterday: on the character screen as it is made, and in the game.
 - **What mods reach for in the original program.** Fallout 2's engine answers for what mods are known to read, write
