@@ -471,7 +471,7 @@
       {:else if view === 'check' && install}
         <ScriptCheck owner={game} shelf="games" title={def.title} back={() => (view = 'main')} />
       {:else if view === 'settings' && install}
-        <IniSettings owner={game} shelf="games" title={def.title} back={() => (view = 'main')} bind:this={settingsView} />
+        <IniSettings owner={game} shelf="games" title={def.title} addons={laid} {go} back={() => (view = 'main')} bind:this={settingsView} />
       {:else if view === 'components' && components}
         <p class="gap">COMPONENTS OF {def.title.toUpperCase()}</p>
         <p class="dim prose">

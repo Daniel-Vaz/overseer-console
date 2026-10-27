@@ -15,15 +15,27 @@
     type Setting,
     type SettingsFile,
   } from '../../lib/mods/settings';
+  import type { AddonRecord } from '../../lib/addons';
   import { basename, pathKey } from '../../lib/storage/manifest';
+  import { addonName } from '../mods';
   import { loadInstall, type Install, type Shelf } from '../../lib/storage/opfs';
   import { sfx } from '../sfx';
   import type { MenuItem } from '../types';
   import Field from './Field.svelte';
   import Menu from './Menu.svelte';
 
-  /** `owner`: the add-on or mod whose files these are, kept on `shelf`. `back`: leaves this view. */
-  let { owner, shelf, title, back }: { owner: string; shelf: Shelf; title: string; back: () => void } = $props();
+  /**
+   * `owner`: the add-on or mod whose files these are, kept on `shelf`. `back`: leaves this view. `addons`: those laid
+   * over the mod, the one under the others first; a file one of them brings too is read from it instead.
+   */
+  let {
+    owner,
+    shelf,
+    title,
+    back,
+    addons = [],
+    go,
+  }: { owner: string; shelf: Shelf; title: string; back: () => void; addons?: AddonRecord[]; go?: (path: string) => void } = $props();
 
   let install = $state<Install | null>(null);
   /** Its settings files, once looked for. */
@@ -45,10 +57,20 @@
     void look();
   });
 
+  /** By the file's lower-cased path: the add-on laid over the mod that brings it too (or the archive it is in). */
+  let coveredBy = $state(new Map<string, AddonRecord>());
+
   async function look(): Promise<void> {
     changed = changedSettings(owner);
     install = await loadInstall(owner, shelf).catch(() => null);
     files = install ? await settingsFilesOf(install.manifest.files, installOpener(install)).catch(() => []) : [];
+    const covered = new Map<string, AddonRecord>();
+    for (const addon of addons) {
+      const brought = await loadInstall(addon.id, 'addons').catch(() => null);
+      const paths = new Set(brought?.manifest.files.map((file) => pathKey(file.path)));
+      for (const file of files) if (paths.has(pathKey(file.archive ?? file.path))) covered.set(pathKey(file.path), addon);
+    }
+    coveredBy = covered;
     // One file: straight into it.
     if (files.length === 1) await openFile(files[0]!);
   }
@@ -114,15 +136,24 @@
     changed = changedSettings(owner);
   }
 
+  function coveredNote(addon: AddonRecord, file: SettingsFile): string {
+    return `Not read while ${addonName(addon)} is on: the game reads its copy of ${basename(file.path)}, on its page.`;
+  }
+
+  const coveringOpen = $derived(open ? coveredBy.get(pathKey(open.file.path)) : undefined);
+
   const fileItems = $derived<MenuItem[]>([
     ...(files ?? []).map((file, index): MenuItem => {
       const count = Object.keys(changed.get(pathKey(file.path))?.changes ?? {}).length;
+      const addon = coveredBy.get(pathKey(file.path));
       return {
         key: String(index + 1),
         label: basename(file.path),
-        state: count ? `${count} CHANGED` : 'AS IT CAME',
-        tone: count ? 'amber' : undefined,
-        note: `${file.path}${file.archive ? `, in the archive it is packed into` : ''}. Its settings, as its scripts read them.`,
+        state: addon ? 'NOT READ' : count ? `${count} CHANGED` : 'AS IT CAME',
+        tone: addon ? 'alert' : count ? 'amber' : undefined,
+        note: addon
+          ? coveredNote(addon, file)
+          : `${file.path}${file.archive ? `, in the archive it is packed into` : ''}. Its settings, as its scripts read them.`,
         action: () => void openFile(file),
       };
     }),
@@ -171,6 +202,9 @@
         note: Object.keys(changes).length ? `Puts ${basename(open.file.path)} back as it came.` : `${basename(open.file.path)} is as it came.`,
         action: reset,
       },
+      ...(coveringOpen && go
+        ? [{ key: 'a', label: `${coveringOpen.title}'s settings`, note: `The ${basename(open.file.path)} the game reads, on ${addonName(coveringOpen)}'s page.`, action: () => go(`mods/addons/${coveringOpen.id}`) }]
+        : []),
       { key: '0', label: 'Back', action: () => (files && files.length > 1 ? (open = null) : back()) },
     ];
   });
@@ -186,9 +220,13 @@
     <dt>Settings</dt>
     <dd>{open.file.path.toUpperCase()}</dd>
   </dl>
-  <p class="dim prose">
-    A change takes hold the next time {shelf === 'addons' ? 'a game starts, for every game and mod it is laid over' : 'it starts'}.
-  </p>
+  {#if coveringOpen}
+    <p class="alert prose">{coveredNote(coveringOpen, open.file)}</p>
+  {:else}
+    <p class="dim prose">
+      A change takes hold the next time {shelf === 'addons' ? 'a game starts, for every game and mod it is laid over' : 'it starts'}.
+    </p>
+  {/if}
   {#if editing}
     <Field label={editing.key} bind:value={draft} bind:input onenter={typed} />
   {/if}

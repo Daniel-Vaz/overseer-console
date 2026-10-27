@@ -263,3 +263,33 @@ test('takes an add-on handed to "Load a mod" for one, lays it over a mod, and ej
   await expect(page.locator('.readout').first()).not.toContainText('PARTY ORDERS');
   await expect(entry(page, 'Add-ons')).toContainText('NONE');
 });
+
+test("says on a mod's settings that an add-on laid over it brings its own copy of a file, and goes to that one", async ({ page }) => {
+  // The Restoration Project brings FO2tweaks' settings as well, as the real one does.
+  await openConsole(page, 'fo2');
+  await pickFolder(page, await fakeFallout2Folder(true));
+  await loaded(page);
+  await page.goto('#/mods/load');
+  await page.locator('input[accept*="zip"]').setInputFiles(await zipOf({ ...rpuFiles(), 'mods/fo2tweaks.ini': '[main]\r\ncarry_weight=0\r\n' }, 'rpu_v2.4.34.zip'));
+  await expect(page.getByRole('heading', { name: 'Restoration Project' })).toBeVisible({ timeout: 60_000 });
+  await loaded(page);
+
+  // Not yet laid over it: its own copy is the one read.
+  await entry(page, 'Settings').locator('button').click();
+  await expect(entry(page, 'fo2tweaks.ini')).toContainText('AS IT CAME');
+  await page.keyboard.press('Escape');
+
+  await entry(page, 'Add-ons').locator('button').click();
+  await page.locator('input[accept*=".dat"]').setInputFiles(await zipOf(fo2tweaksFiles(), 'fo2tweaks_v14.7.zip'));
+  await loaded(page);
+  await expect(entry(page, 'Fo2tweaks 14.7')).toContainText('ON');
+  await page.keyboard.press('Escape');
+
+  await entry(page, 'Settings').locator('button').click();
+  await expect(entry(page, 'fo2tweaks.ini')).toContainText('NOT READ');
+  await expect(entry(page, 'rpu.ini')).toContainText('AS IT CAME');
+  await entry(page, 'fo2tweaks.ini').locator('button').click();
+  await expect(page.locator('p.alert')).toContainText('Not read while Fo2tweaks 14.7 is on: the game reads its copy of fo2tweaks.ini, on its page.');
+  await entry(page, "Fo2tweaks's settings").locator('button').click();
+  await expect(page.getByRole('heading', { name: 'Fo2tweaks 14.7' })).toBeVisible();
+});

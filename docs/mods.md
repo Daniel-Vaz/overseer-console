@@ -127,7 +127,9 @@ nothing it lacks, and **Check** on its page says it again in full.
 
 Its **Settings**, on its page, are those of a mod (see [Playing one](#playing-one)): FO2tweaks' components switched on
 and off in `fo2tweaks.ini`, Inventory Filter's in `InvenFilter.ini`. A change is the add-on's, for every game and mod
-it is laid over, and is kept when its files are loaded again.
+it is laid over, and is kept when its files are loaded again. Where the mod brings the same file (the Restoration
+Project brings its own `fo2tweaks.ini`), the game reads the add-on's while it is on, and the mod's **Settings** mark
+its copy NOT READ, with the way to the add-on's.
 
 Several add-ons can be laid over one game or mod: each over those switched on before it, as its place in the list
 says. Switching one off and on again puts it over the others. A change takes hold the next time the game starts, and a
