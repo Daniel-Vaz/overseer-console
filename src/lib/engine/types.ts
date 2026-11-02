@@ -46,6 +46,8 @@ export interface OverseerApi {
   inGame(): boolean;
   /** Whether it is the player's turn in combat, when SPACE ends it. */
   playerTurn(): boolean;
+  /** Whether the dialog that asks for a number is open: how many items to move, or how long a timer runs. */
+  quantityDialog(): QuantityDialog;
   /**
    * Asks for a save in `slot` (1-based) at the next moment the game could
    * make one. True once made; false when it failed or was called off. Slot 0
@@ -76,6 +78,9 @@ export interface ScreenRect {
   right: number;
   bottom: number;
 }
+
+/** The dialog that asks for a number, when it is open: A picks all there are, or the longest time. */
+export type QuantityDialog = 'move' | 'timer' | null;
 
 export type QuickKind = 'save' | 'load';
 /** Made; nothing in the slot to load; failed. */

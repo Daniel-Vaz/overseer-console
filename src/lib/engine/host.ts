@@ -20,7 +20,7 @@ export { StorageUnavailableError };
 import { commitWithHistory } from '../storage/history';
 import { listOverlay, type OverlayEntry } from '../storage/overlay';
 import { HIGHLIGHT_KEY, HIGHLIGHTING_FILE, MODS_ORDER, TWEAKS_FILE, buildConfigFiles, chooseScreen, settingsFileOf, sfallLightsAtKey, wantsEngineData, withConsoleKeys, type ScreenSize } from './config';
-import type { EngineFactory, EngineInfo, EngineModule, PersistBatch, QuickKind, QuickOutcome, ScreenRect } from './types';
+import type { EngineFactory, EngineInfo, EngineModule, PersistBatch, QuantityDialog, QuickKind, QuickOutcome, ScreenRect } from './types';
 
 const GAME_ROOT = '/game';
 
@@ -114,6 +114,8 @@ export interface Engine {
   inGame(): boolean;
   /** Whether it is the player's turn in combat: the one time ending a turn does anything. */
   playerTurn(): boolean;
+  /** Whether the dialog that asks how many items to move, or how long a timer runs, is open. */
+  quantityDialog(): QuantityDialog;
   /** The list at (x, y) on the game's screen that a finger swiping over should scroll, or null. */
   scrollListAt(x: number, y: number): ScreenRect | null;
   /** A save in `slot` at the next moment the game can make one; slot 0 calls it off. True once made. */
@@ -437,6 +439,7 @@ export async function bootEngine(
     setSpeed: (speed) => ov.setSpeed(speed),
     inGame: () => ov.inGame(),
     playerTurn: () => ov.playerTurn(),
+    quantityDialog: () => ov.quantityDialog(),
     scrollListAt: (x, y) => ov.scrollListAt(x, y),
     requestSave: (slot) => ov.requestSave(slot),
     setLights: (on) => ov.holdScriptKey(HIGHLIGHT_KEY, on),

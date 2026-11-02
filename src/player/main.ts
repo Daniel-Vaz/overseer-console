@@ -26,7 +26,9 @@ import { PICTURE_NAMES } from '../launcher/picture';
 import { audioBridgeStats, installAudioBridge } from './audio-bridge';
 import { Autosaver } from './autosave';
 import { playerReport, whereOf } from './report';
+import { COMMANDS, OWN_BUTTONS, buttonLabel, ownButtons } from './touch/buttons';
 import { TouchControls, fingerFirst } from './touch/controls';
+import { keyByCode, keyName } from './touch/keyboard';
 
 keepPageErrors();
 
@@ -92,7 +94,11 @@ let hiddenPause = false;
 let fast = false;
 let confirmingExit = false;
 /** What the suspended screen shows: the menu itself, the touch help, the pictures or a problem report. */
-let menuView: 'menu' | 'touch' | 'picture' | 'report' = 'menu';
+let menuView: 'menu' | 'touch' | 'picture' | 'report' | 'buttons' | 'button' = 'menu';
+/** The slot (0-based) of the player's own button being given a key, on its screen of the menu. */
+let buttonSlot = 0;
+/** The keyboard was up before the menu brought it up to pick a key with. */
+let keysWereOpen = false;
 /** What the fault screen said, for its report. */
 let fault: { message: string; advice?: string } | null = null;
 /** The keys of the screen on show while the game cannot have them (start-up, a report over a fault). */
@@ -226,6 +232,7 @@ const touch = new TouchControls(
     turns: () => engine?.module.overseer.stats().sleeps ?? 0,
     playing: () => phase === 'running',
     playerTurn: () => engine?.playerTurn(),
+    quantityDialog: () => engine?.quantityDialog(),
     scrollListAt: (x, y) => engine?.scrollListAt(x, y),
     wantsText: () => {
       const module = engine?.module;
@@ -465,13 +472,12 @@ function openTouchHelp(): void {
     ['CLICK', 'Clicks where the pointer is: drag to aim, then press it'],
     ['CURSOR', 'Switches the cursor between walking and using'],
     ['INV, MAP...', 'The small buttons: inventory, map, character, Pip-Boy, skilldex'],
-    ['ATTACK, TURN', 'Start a fight, as A does. End your turn: dim when it is not yours'],
+    ['ATTACK, TURN', 'Start a fight, as A does: ALL when asked how many. End your turn'],
     ['MODE', 'Next attack mode of the weapon in hand'],
     ['QSAVE, QLOAD', `Quick save and quick load, slot ${QUICK_SLOT_NAME}. QLOAD asks twice`],
-    ...(lights ? ([['HILITE', 'Highlights what lies on the ground until pressed again']] as const) : []),
-    ['FAST', 'Fast forward, on and off'],
-    ['KEYS', 'Keyboard. Comes up by itself when the game wants text'],
-    ['ESC, MENU', 'Skip or close. Pause, this help, leave the game'],
+    lights ? ['FAST, HILITE', 'Fast forward. Light up what lies on the ground. On until pressed again'] : ['FAST', 'Fast forward, on and off'],
+    ['KEYS, MENU', 'Keyboard, up by itself for text. Pause, help, buttons of your own'],
+    ['ESC, ENTER', 'Skip or close. Say yes, done'],
   ] as const) {
     help.append(el('dt', undefined, what), el('dd', undefined, meaning));
   }
@@ -497,8 +503,147 @@ function togglePointerMode(): void {
   openMenu();
 }
 
+// ---------------------------------------------------------------------
+// The player's own buttons on the touch deck
+// ---------------------------------------------------------------------
+
+/** The game whose buttons the menu is setting: the one being played. */
+const buttonsGame = (): GameId | null => engine?.game ?? (isGameId(requested) ? requested : null);
+
+/** Gives a slot of the player's own buttons a key (a code such as KeyB), or none (''), and puts it on the deck. */
+function setOwnButton(slot: number, code: string): void {
+  const game = buttonsGame();
+  if (!game) return;
+  const codes = ownButtons(settings.touchButtons[game]);
+  codes[slot] = code;
+  if (codes.some(Boolean)) settings.touchButtons[game] = codes;
+  else delete settings.touchButtons[game];
+  saveSettings(settings);
+  touch.setOwnButtons(codes);
+}
+
+/** Done picking a key on the console's keyboard: it goes back to how it was. */
+function stopPicking(): void {
+  if (!touch.keyboard.picking) return;
+  touch.keyboard.picking = null;
+  document.body.classList.remove('picking-key');
+  if (!keysWereOpen) touch.keyboard.show(false);
+}
+
+/** The four slots of the player's own buttons, each with the key it presses. */
+function openButtons(): void {
+  const game = buttonsGame();
+  if (!game || phase !== 'menu') return;
+  stopPicking();
+  menuView = 'buttons';
+  const codes = ownButtons(settings.touchButtons[game]);
+  const choices = codes.map((code, slot): [string, () => void] => [
+    `[${slot + 1}] ${code ? `${buttonLabel(code).padEnd(7)} ${keyName(code)} KEY` : '(NONE)'}`,
+    () => openButtonSlot(slot),
+  ]);
+  const list = actions(choices);
+  list.classList.add('stacked');
+  body.replaceChildren(
+    el('p', 'big', 'Your buttons'),
+    el('p', 'gap', `Up to ${OWN_BUTTONS} keys of your own on the deck, for ${gameDef(game).title}.`),
+    list,
+    actions([['[B] Back', () => openMenu()]]),
+  );
+  screenKeys = Object.fromEntries([...choices.map(([, choose], slot) => [String(slot + 1), choose] as const), ['b', () => openMenu()]]);
+  setHints([
+    [`1-${OWN_BUTTONS}`, 'CHOOSE'],
+    ['B', 'BACK'],
+  ]);
+}
+
+/** What one of the player's buttons presses: a command of the game, any key of the keyboard, or nothing. */
+function openButtonSlot(slot: number): void {
+  const game = buttonsGame();
+  if (!game || phase !== 'menu') return;
+  stopPicking();
+  menuView = 'button';
+  buttonSlot = slot;
+  screenKeys = null;
+  const code = ownButtons(settings.touchButtons[game])[slot]!;
+  const choose = (chosen: string) => {
+    setOwnButton(slot, chosen);
+    openButtons();
+  };
+  const commands = actions(COMMANDS.map((command): [string, () => void] => [`[${command.key}] ${command.label}`, () => choose(command.code)]));
+  commands.classList.add('grid');
+  body.replaceChildren(
+    el('p', 'big', `Button ${slot + 1}`),
+    el('p', 'gap', code ? `It presses ${keyName(code)}: ${buttonLabel(code)}. Choose another key.` : 'Choose the key it presses.'),
+    commands,
+    el('p', 'dim touch-tip', "SNEAK goes on and off; the other skills aim at what you tap next. HAND: the other hand. REST: the Pip-Boy's clock. CENTER: back to you."),
+    actions([
+      ['[KEYS] Other key', () => pickButtonKey(slot)],
+      ...(code ? ([['[DEL] None', () => choose('')]] as [string, () => void][]) : []),
+      ['[ESC] Back', openButtons],
+    ]),
+  );
+  setHints([
+    ['ANY KEY', 'CHOOSE IT'],
+    ['DEL', 'NONE'],
+    ['ESC', 'BACK'],
+  ]);
+}
+
+/**
+ * The keyboard goes as soon as a key of it is picked, and the click that ends
+ * the same tap then comes down on what was under it: the menu. It is not one.
+ */
+function swallowClick(): void {
+  const swallow = (event: Event) => {
+    event.stopPropagation();
+    event.preventDefault();
+  };
+  window.addEventListener('click', swallow, { capture: true, once: true });
+  setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 700);
+}
+
+/** The next key tapped on the console's keyboard is the one the button presses. */
+function pickButtonKey(slot: number): void {
+  if (phase !== 'menu') return;
+  menuView = 'button';
+  keysWereOpen = touch.keyboard.open;
+  touch.keyboard.picking = (code) => {
+    swallowClick();
+    stopPicking();
+    setOwnButton(slot, code);
+    openButtons();
+  };
+  document.body.classList.add('picking-key');
+  touch.keyboard.show(true);
+  body.replaceChildren(
+    el('p', 'big', `Button ${slot + 1}`),
+    el('p', 'gap', 'Tap the key it presses. FN shows the F keys and arrows.'),
+    actions([['[ESC] Back', () => openButtonSlot(slot)]]),
+  );
+  setHints([['ESC', 'BACK']]);
+}
+
+/** A key of a real keyboard on a button's screen: that key, if the console's keyboard has it. */
+function buttonKeyPressed(event: KeyboardEvent): void {
+  const key = event.key.toLowerCase();
+  if (key === 'escape') {
+    if (touch.keyboard.picking) openButtonSlot(buttonSlot);
+    else openButtons();
+  } else if (key === 'delete') {
+    setOwnButton(buttonSlot, '');
+    openButtons();
+  } else if (keyByCode(event.code)) {
+    stopPicking();
+    setOwnButton(buttonSlot, event.code);
+    openButtons();
+  } else if (!['shift', 'control', 'alt', 'meta'].includes(key)) {
+    toast(`THE CONSOLE'S KEYBOARD HAS NO ${event.code.toUpperCase()} KEY`, 2600, true);
+  }
+}
+
 function openMenu(confirmExit = false): void {
   if (phase !== 'running' && phase !== 'menu') return;
+  stopPicking();
   phase = 'menu';
   menuView = 'menu';
   screenKeys = null;
@@ -572,6 +717,7 @@ function openMenu(confirmExit = false): void {
           actions([
             ['[T] Touch controls', openTouchHelp],
             [`[P] Pointer: ${POINTER_MODES[settings.touchPointer]}`, togglePointerMode],
+            ['[B] Buttons', openButtons],
           ]),
         ]
       : [keys]),
@@ -585,6 +731,7 @@ function openMenu(confirmExit = false): void {
 
 function closeMenu(): void {
   if (phase !== 'menu') return;
+  stopPicking();
   phase = 'running';
   hideTerminal();
   canvas.focus({ preventScroll: true });
@@ -1008,7 +1155,8 @@ function onKey(event: KeyboardEvent): void {
     else begin();
   } else if (phase === 'menu') {
     event.preventDefault();
-    if (menuView === 'picture' || menuView === 'report') {
+    if (menuView === 'button') buttonKeyPressed(event);
+    else if (menuView === 'picture' || menuView === 'report' || menuView === 'buttons') {
       // Their own keys; ESC goes back to the menu, not into the game.
       if (screenKeys?.[key]) screenKeys[key]();
       else if (key === 'escape') openMenu();
@@ -1021,6 +1169,7 @@ function onKey(event: KeyboardEvent): void {
     else if (key === 'x') openMenu(true);
     else if (key === 't' && touch.visible) openTouchHelp();
     else if (key === 'p' && touch.visible) togglePointerMode();
+    else if (key === 'b' && touch.visible) openButtons();
     else if (key === 'v') openPictures();
     else if (key === 'd') void openReport();
     else if (key === 'a' && missingAddons) restartWithAddons();
@@ -1151,6 +1300,7 @@ async function main(): Promise<void> {
   // Lighting up what lies on the ground comes with the engine's additions, where a game has them.
   lights = wantsEngineData(game, settings.improvements);
   touch.offer('lights', lights);
+  touch.setOwnButtons(ownButtons(settings.touchButtons[game]));
   document.title = `${def.title} - Overseer Console`;
   barTitle.textContent = def.mod ? `OVERSEER CONSOLE // ${def.label} // ${def.short}` : `OVERSEER CONSOLE // ${def.label}`;
   showTerminal({ state: 'BOOT' });

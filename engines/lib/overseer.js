@@ -71,6 +71,8 @@ addToLibrary({
     onLoad: null,
     // It is the player's turn in combat: the one time the key that ends it does anything.
     playerTurn: false,
+    // The dialog that asks for a number is open: 1 how many items to move, 2 how long a timer runs, 0 none.
+    quantityDialog: 0,
     // Keys (DirectInput scan codes) the host holds down for the game's scripts,
     // and the presses and releases of them the scripts have yet to hear of.
     scriptKeys: new Set(),
@@ -751,6 +753,8 @@ addToLibrary({
         inGame: () => OVERSEER.inGame,
         // Whether it is the player's turn in combat.
         playerTurn: () => OVERSEER.playerTurn,
+        // Whether the dialog that asks for a number is open: 'move' (how many items), 'timer', or null.
+        quantityDialog: () => (OVERSEER.quantityDialog === 1 ? 'move' : OVERSEER.quantityDialog === 2 ? 'timer' : null),
         // Asks for a save in `slot` (1-based) at the next moment the game
         // could make one. Resolves true once made, false when it failed or
         // a later request took its place. Slot 0 calls off the one waiting.
@@ -844,7 +848,10 @@ addToLibrary({
   overseer_in_game__deps: ['$OVERSEER'],
   overseer_in_game: (playing) => {
     OVERSEER.inGame = !!playing;
-    if (!playing) OVERSEER.playerTurn = false;
+    if (!playing) {
+      OVERSEER.playerTurn = false;
+      OVERSEER.quantityDialog = 0;
+    }
   },
   overseer_autosave_point__deps: ['$OVERSEER'],
   overseer_autosave_point: () => {
@@ -870,6 +877,12 @@ addToLibrary({
   overseer_combat_turn__deps: ['$OVERSEER'],
   overseer_combat_turn: (yours) => {
     OVERSEER.playerTurn = !!yours;
+  },
+
+  // The inventories say when the dialog that asks how many (1) or how long (2) opens, and when it closes (0).
+  overseer_quantity_dialog__deps: ['$OVERSEER'],
+  overseer_quantity_dialog: (kind) => {
+    OVERSEER.quantityDialog = kind;
   },
 
   // The inventories say where each of their lists is, every time their

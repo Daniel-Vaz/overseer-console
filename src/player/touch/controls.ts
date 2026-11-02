@@ -5,9 +5,10 @@
  * device whose main pointer is a finger), so mouse and keyboard players never
  * see it.
  */
-import type { ScreenRect } from '../../lib/engine/types';
+import type { QuantityDialog, ScreenRect } from '../../lib/engine/types';
+import { buttonLabel } from './buttons';
 import { DEFAULT_TUNING, Gestures, type GestureTuning, type MouseButton, type PointerMode, type ScrollList } from './gestures';
-import { ESCAPE_KEY, Keyboard, SHORTCUT_KEYS, sendKey } from './keyboard';
+import { ENTER_KEY, ESCAPE_KEY, Keyboard, keyByCode, keyName, sendKey } from './keyboard';
 import { SyntheticMouse } from './mouse';
 
 export interface TouchHost {
@@ -23,6 +24,8 @@ export interface TouchHost {
   wantsText(): boolean | undefined;
   /** Whether it is the player's turn in combat. Undefined when there is no engine to ask. */
   playerTurn(): boolean | undefined;
+  /** The dialog that asks how many items to move or how long a timer runs, while it is open. Undefined when there is no engine to ask. */
+  quantityDialog(): QuantityDialog | undefined;
   /** The game's list at (x, y) on its screen, in its pixels, that scrolls with the wheel; null or undefined for none. */
   scrollListAt(x: number, y: number): ScreenRect | null | undefined;
   openMenu(): void;
@@ -47,6 +50,15 @@ const INVENTORY_ROW = 48;
 /** How long a button that asks for a second tap waits for it. */
 const CONFIRM_MS = 3000;
 
+/** The deck's buttons for keys that are not shortcuts of the game: they work in its dialogs as much as on the map. */
+const KEY_ACTS: Record<string, Pick<KeyboardEvent, 'code' | 'key' | 'keyCode'>> = { esc: ESCAPE_KEY, enter: ENTER_KEY };
+
+/** What the A key does in the dialog that asks for a number, and so what ATTACK says while it is open. */
+const IN_DIALOG = {
+  move: { label: 'ALL', aria: 'All of them, as the A key does here' },
+  timer: { label: 'MAX', aria: 'The longest time, as the A key does here' },
+} as const;
+
 export class TouchControls {
   private readonly tuning: GestureTuning = { ...DEFAULT_TUNING };
   /** A button that costs what was played since the last save, tapped once: it waits for the second tap. */
@@ -58,6 +70,7 @@ export class TouchControls {
   /** The keyboard is up because the game asked for text, not because the player opened it. */
   private keyboardIsAutomatic = false;
   private wantedText = false;
+  private dialog: QuantityDialog = null;
   private readonly deckHeld = new Map<number, () => void>();
   /** CSS pixels per pixel of the game. */
   private scale = 1;
@@ -122,6 +135,7 @@ export class TouchControls {
     setInterval(() => {
       this.watchForText();
       this.watchTurn();
+      this.watchDialog();
     }, 200);
   }
 
@@ -187,6 +201,27 @@ export class TouchControls {
   offer(act: string, offered: boolean): void {
     const button = this.host.deck.querySelector<HTMLElement>(`[data-act="${act}"]`);
     if (button) button.hidden = !offered;
+  }
+
+  /**
+   * The player's own buttons for the game being played: a key's code in each
+   * slot, '' for none. Only those with a key are shown, in slot order.
+   */
+  setOwnButtons(codes: readonly string[]): void {
+    const strip = this.host.deck.querySelector<HTMLElement>('.deck-mine');
+    if (!strip) return;
+    const buttons = codes.filter((code) => keyByCode(code)).map((code) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.dataset.key = code;
+      button.textContent = buttonLabel(code);
+      button.setAttribute('aria-label', `Your button: ${buttonLabel(code)}, the ${keyName(code)} key`);
+      return button;
+    });
+    strip.replaceChildren(...buttons);
+    strip.hidden = !buttons.length;
+    document.body.classList.toggle('own-buttons', buttons.length > 0);
+    if (this.shown) this.host.layoutChanged();
   }
 
   /** Lets go of everything: the game is being paused or left. */
@@ -272,7 +307,7 @@ export class TouchControls {
     }
 
     // A shortcut is a key of the keyboard: down for as long as the button is.
-    const shortcut = SHORTCUT_KEYS[button.dataset.key ?? ''];
+    const shortcut = act ? KEY_ACTS[act] : keyByCode(button.dataset.key ?? '');
     if (!act && !shortcut) return;
     if (button.dataset.confirm !== undefined && !this.confirmed(button)) return;
     // Dimmed, it does nothing just now: say when it will. The key still goes, should the game want it.
@@ -283,9 +318,6 @@ export class TouchControls {
     if (shortcut) {
       sendKey('keydown', shortcut);
       release = () => sendKey('keyup', shortcut);
-    } else if (act === 'esc') {
-      sendKey('keydown', ESCAPE_KEY);
-      release = () => sendKey('keyup', ESCAPE_KEY);
     } else {
       const which = act as MouseButton;
       this.mouse.press(which);
@@ -312,6 +344,25 @@ export class TouchControls {
     if (!this.shown) return;
     const yours = this.host.playerTurn();
     for (const button of this.host.deck.querySelectorAll('[data-in-combat]')) button.classList.toggle('idle', yours === false);
+  }
+
+  /**
+   * While the game asks how many items to move (or how long a timer runs),
+   * ATTACK says what its key, A, does there: all of them, or the longest time.
+   * ENTER beside ESC then says yes to it.
+   */
+  private watchDialog(): void {
+    if (!this.shown) return;
+    const dialog = this.host.quantityDialog() ?? null;
+    if (dialog === this.dialog) return;
+    this.dialog = dialog;
+    const button = this.host.deck.querySelector<HTMLElement>('.deck-right [data-key="KeyA"]');
+    if (!button) return;
+    button.dataset.attack ??= button.textContent ?? '';
+    button.dataset.attackAria ??= button.getAttribute('aria-label') ?? '';
+    button.textContent = dialog ? IN_DIALOG[dialog].label : button.dataset.attack;
+    button.setAttribute('aria-label', dialog ? IN_DIALOG[dialog].aria : button.dataset.attackAria);
+    button.classList.toggle('offer', !!dialog);
   }
 
   /** Brings the keyboard up when the game starts waiting for text, and takes it away again after. */

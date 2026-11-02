@@ -114,3 +114,26 @@ describe('what a deck plays', () => {
     expect(loadSettings().decks).toEqual({});
   });
 });
+
+describe("the player's own touch buttons", () => {
+  it('are none until chosen, and kept game by game', () => {
+    expect(loadSettings().touchButtons).toEqual({});
+    const settings = loadSettings();
+    settings.touchButtons.fo2 = ['KeyB', '', 'Digit2', 'Home'];
+    saveSettings(settings);
+    expect(loadSettings().touchButtons).toEqual({ fo2: ['KeyB', '', 'Digit2', 'Home'] });
+  });
+
+  it('keep four at most, and nothing that is not a key', () => {
+    localStorage.setItem(
+      KEY,
+      JSON.stringify({ touchButtons: { fo1: ['KeyZ', 7, '<b>', 'F4', 'KeyQ', 'KeyW'], '../x': ['KeyB'], fo2: 'KeyB' } }),
+    );
+    expect(loadSettings().touchButtons).toEqual({ fo1: ['KeyZ', '', '', 'F4'] });
+  });
+
+  it('are never the defaults themselves', () => {
+    loadSettings().touchButtons.fo1 = ['KeyB'];
+    expect(DEFAULT_SETTINGS.touchButtons).toEqual({});
+  });
+});

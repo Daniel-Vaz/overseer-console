@@ -1,0 +1,49 @@
+Tell the page when the dialog that asks how many is open
+
+A touch player moves a whole stack with the A key (ALL) and ENTER. The
+page names its button that sends A for what it does there, ALL, or MAX
+on an explosive's timer, while the dialog is open.
+---
+diff --git a/src/inventory.cc b/src/inventory.cc
+index a57f7d2..88f81a5 100644
+--- a/src/inventory.cc
++++ b/src/inventory.cc
+@@ -62,6 +62,9 @@
+ // lies on the screen (engines/lib/overseer.js), so that a finger swiping over
+ // it can scroll it.
+ extern "C" void overseer_scroll_list(int left, int top, int right, int bottom);
++// Overseer Console: tells the page when the dialog that asks how many items to
++// move (1), or how long a timer runs (2), is open, and when it closes (0).
++extern "C" void overseer_quantity_dialog(int kind);
+ #endif
+ 
+ namespace fallout {
+@@ -6407,10 +6410,28 @@ static void _draw_amount(int value, int inventoryWindowType)
+     windowRefreshRect(_mt_wid, &rect);
+ }
+ 
++// Overseer Console: says the dialog that asks for a number is open, for as long as it is.
++struct QuantityDialogReport {
++    QuantityDialogReport(int inventoryWindowType)
++    {
++#if defined(__EMSCRIPTEN__)
++        overseer_quantity_dialog(inventoryWindowType == INVENTORY_WINDOW_TYPE_SET_TIMER ? 2 : 1);
++#endif
++    }
++
++    ~QuantityDialogReport()
++    {
++#if defined(__EMSCRIPTEN__)
++        overseer_quantity_dialog(0);
++#endif
++    }
++};
++
+ // 0x47688C do_move_timer
+ static int inventoryQuantitySelect(int inventoryWindowType, Object* item, int max, int defaultValue)
+ {
+     ScopedGameMode gm(GameMode::kCounter);
++    QuantityDialogReport report(inventoryWindowType);
+ 
+     inventoryQuantityWindowInit(inventoryWindowType, item);
+ 

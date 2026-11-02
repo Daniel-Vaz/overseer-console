@@ -73,6 +73,8 @@ export interface Settings {
    * hybrid: dragging moves the pointer as on a trackpad; a tap clicks where the finger is.
    */
   touchPointer: 'direct' | 'trackpad' | 'hybrid';
+  /** Touch screens only: the player's own buttons on the deck, for each game, a key's code (KeyB) in each slot or '' for none. */
+  touchButtons: Record<GameId, string[]>;
 }
 
 /** The speeds fast forward can be set to. */
@@ -109,9 +111,13 @@ export const DEFAULT_SETTINGS: Settings = {
   cacheMb: 192,
   audio: 'buffered',
   touchPointer: 'direct',
+  touchButtons: {},
 };
 
-const defaults = (): Settings => ({ ...DEFAULT_SETTINGS, picture: { ...DEFAULT_SETTINGS.picture }, decks: { ...DEFAULT_SETTINGS.decks } });
+const defaults = (): Settings => ({ ...DEFAULT_SETTINGS, picture: { ...DEFAULT_SETTINGS.picture }, decks: { ...DEFAULT_SETTINGS.decks }, touchButtons: {} });
+
+/** What the code of a key of the keyboard looks like (KeyB, Digit1, F4, Home). */
+const KEY_CODE = /^[A-Za-z0-9]{1,16}$/;
 
 /** The pictures a game can be played at: those tall enough for it. */
 export function picturesFor(game: GameId): readonly Picture[] {
@@ -165,6 +171,13 @@ export function loadSettings(): Settings {
     if (!['fill', 'integer', 'smooth'].includes(merged.scaling)) merged.scaling = DEFAULT_SETTINGS.scaling;
     if (merged.audio !== 'buffered' && merged.audio !== 'direct') merged.audio = DEFAULT_SETTINGS.audio;
     if (!['direct', 'trackpad', 'hybrid'].includes(merged.touchPointer)) merged.touchPointer = DEFAULT_SETTINGS.touchPointer;
+    const buttons = (parsed.touchButtons && typeof parsed.touchButtons === 'object' ? parsed.touchButtons : {}) as Record<string, unknown>;
+    merged.touchButtons = {};
+    for (const [game, codes] of Object.entries(buttons)) {
+      if (GAME_ID.test(game) && Array.isArray(codes)) {
+        merged.touchButtons[game] = codes.slice(0, 4).map((code) => (typeof code === 'string' && KEY_CODE.test(code) ? code : ''));
+      }
+    }
     if (!FAST_FORWARD_SPEEDS.includes(merged.fastForward)) merged.fastForward = DEFAULT_SETTINGS.fastForward;
     if (!AUTOSAVE_MINUTES.includes(merged.autosave)) merged.autosave = DEFAULT_SETTINGS.autosave;
     // Saved before arrivals were a choice: autosaves that were on are on for arrivals too, and off stays off.

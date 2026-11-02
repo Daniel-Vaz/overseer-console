@@ -75,17 +75,25 @@ export function sendKey(type: 'keydown' | 'keyup', key: Pick<Key, 'code' | 'key'
   );
 }
 
-/** A full press of a key that is not on the panel (the deck's ESC, for one). */
+/** Keys the deck has buttons of its own for, beside the panel's: ESC and ENTER. */
 export const ESCAPE_KEY: Pick<Key, 'code' | 'key' | 'keyCode'> = ESC;
+export const ENTER_KEY: Pick<Key, 'code' | 'key' | 'keyCode'> = ENTER;
 
-/**
- * The keys behind the deck's shortcut buttons, by code: inventory, character
- * screen, Pip-Boy, skilldex, a fight, the weapon's mode, the map, the end of a
- * turn, quick save and quick load.
- */
-export const SHORTCUT_KEYS: Record<string, Pick<Key, 'code' | 'key' | 'keyCode'>> = Object.fromEntries(
-  [letter('i'), letter('c'), letter('p'), letter('s'), letter('a'), letter('n'), TAB, SPACE, fn(6), fn(7)].map((key) => [key.code, key]),
-);
+/** Every key of the panel, by its code, the panel's own (Shift, FN) left out. */
+const BY_CODE = new Map(LAYERS.flat(2).filter((key) => !key.code.startsWith('@')).map((key) => [key.code, key]));
+
+/** A key of the panel by its code (the deck's shortcuts and the player's own buttons press these), or undefined. */
+export function keyByCode(code: string): Pick<Key, 'code' | 'key' | 'keyCode'> | undefined {
+  return BY_CODE.get(code);
+}
+
+/** What a key is called on a button six letters wide: "B", "F8", "LEFT". */
+export function keyName(code: string): string | undefined {
+  const key = BY_CODE.get(code);
+  if (!key) return undefined;
+  if (key.code === 'Backspace') return 'BKSP';
+  return key.label.toUpperCase();
+}
 
 export class Keyboard {
   private layer = 0;
@@ -93,6 +101,8 @@ export class Keyboard {
   private readonly held = new Map<number, { key: Key; shifted: boolean; button: HTMLButtonElement }>();
   /** Called when the panel opens or closes, so the picture can make room. */
   onToggle: (open: boolean) => void = () => {};
+  /** While set, a key tapped is handed to it and not sent to the game: the player is choosing a key for a button. */
+  picking: ((code: string) => void) | null = null;
 
   constructor(private readonly panel: HTMLElement) {
     panel.addEventListener('pointerdown', (event) => this.down(event));
@@ -179,6 +189,14 @@ export class Keyboard {
       this.releaseAll();
       this.layer = 1 - this.layer;
       this.render();
+      return;
+    }
+    if (this.picking) {
+      if (this.shift) {
+        this.shift = false;
+        this.render();
+      }
+      this.picking(key.code);
       return;
     }
     // A finger sliding off a key must still release it.

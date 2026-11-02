@@ -115,9 +115,11 @@ own **Operations manual** (entry 6 of the main directory) explains each of these
 
 Tap, drag, press-and-hold and two-finger gestures stand in for the mouse, with on-screen mouse buttons,
 one-tap shortcuts for the inventory, map, character screen, Pip-Boy, skilldex, the weapon's attack mode, the
-end of a turn, quick save and quick load, a switch that keeps what lies on the ground highlighted, and a
-keyboard that appears when a game asks for text. Inventories, containers and traders' goods scroll under a
-swiping finger, as a phone's lists do.
+end of a turn, quick save and quick load, ESC and ENTER, a switch that keeps what lies on the ground highlighted,
+and a keyboard that appears when a game asks for text. While a game asks how many items to move, ATTACK reads ALL:
+ALL, then ENTER, moves a whole stack. Up to four buttons of the player's own, for each game, press the keys they
+choose in the console menu: switching hands, resting, a skill, or any key of the keyboard. Inventories, containers
+and traders' goods scroll under a swiping finger, as a phone's lists do.
 
 ## Saves
 

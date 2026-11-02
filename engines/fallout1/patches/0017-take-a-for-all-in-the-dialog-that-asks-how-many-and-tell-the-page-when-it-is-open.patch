@@ -1,0 +1,63 @@
+Take A for ALL in the dialog that asks how many, and tell the page when it is open
+
+A touch player moves a whole stack with the A key (ALL) and ENTER, as
+Fallout 2 has it; here A did nothing in the dialog. The page names its
+button that sends A for what it does there, ALL, or MAX on an
+explosive's timer, while the dialog is open.
+---
+diff --git a/src/game/inventry.cc b/src/game/inventry.cc
+index e7cf4a0..0ed9f35 100644
+--- a/src/game/inventry.cc
++++ b/src/game/inventry.cc
+@@ -51,6 +51,9 @@
+ // lies on the screen (engines/lib/overseer.js), so that a finger swiping over
+ // it can scroll it.
+ extern "C" void overseer_scroll_list(int left, int top, int right, int bottom);
++// Overseer Console: tells the page when the dialog that asks how many items to
++// move (1), or how long a timer runs (2), is open, and when it closes (0).
++extern "C" void overseer_quantity_dialog(int kind);
+ #endif
+ 
+ namespace fallout {
+@@ -5186,9 +5189,28 @@ void draw_amount(int value, int inventoryWindowType)
+     win_draw_rect(mt_wid, &rect);
+ }
+ 
++// Overseer Console: says the dialog that asks for a number is open, for as long as it is.
++struct QuantityDialogReport {
++    QuantityDialogReport(int inventoryWindowType)
++    {
++#if defined(__EMSCRIPTEN__)
++        overseer_quantity_dialog(inventoryWindowType == INVENTORY_WINDOW_TYPE_SET_TIMER ? 2 : 1);
++#endif
++    }
++
++    ~QuantityDialogReport()
++    {
++#if defined(__EMSCRIPTEN__)
++        overseer_quantity_dialog(0);
++#endif
++    }
++};
++
+ // 0x469458
+ static int do_move_timer(int inventoryWindowType, Object* item, int max)
+ {
++    QuantityDialogReport report(inventoryWindowType);
++
+     setup_move_timer_win(inventoryWindowType, item);
+ 
+     int value;
+@@ -5225,7 +5247,11 @@ static int do_move_timer(int inventoryWindowType, Object* item, int max)
+             }
+ 
+             gsound_play_sfx_file("iisxxxx1");
+-        } else if (keyCode == 5000) {
++        } else if (keyCode == 5000 || keyCode == KEY_LOWERCASE_A) {
++            // Overseer Console: A for ALL, as in Fallout 2.
++            if (keyCode == KEY_LOWERCASE_A) {
++                gsound_play_sfx_file("ib1p1xx1");
++            }
+             v5 = false;
+             value = max;
+             draw_amount(value, inventoryWindowType);

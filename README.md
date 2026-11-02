@@ -102,8 +102,8 @@ Epic). No game data is hosted or distributed here, and nothing is uploaded.
     <td>
       <h3>Made for touch screens too</h3>
       Tap, drag, hold and two-finger gestures stand in for the mouse. One-tap buttons open the inventory, map,
-      character screen and Pip-Boy, end a turn, quick save and fast forward. A keyboard appears when the game asks
-      for text.
+      character screen and Pip-Boy, end a turn, quick save and fast forward, and up to four more press keys of your
+      choosing. A keyboard appears when the game asks for text.
     </td>
     <td width="55%"><img src="docs/images/touch.webp" alt="Fallout 2 on a phone held sideways, with the touch deck's buttons on both sides of the picture"></td>
   </tr>

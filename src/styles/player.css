@@ -6,6 +6,8 @@ body.player {
   --keys: 0px;
   /* And by the deck's row of shortcuts, where that is a row of its own. */
   --quick: 0px;
+  /* And by the column of the player's own buttons, beside the right strip. */
+  --mine: 0px;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -19,7 +21,7 @@ body.player {
 #stage {
   position: fixed;
   top: var(--safe-top);
-  right: calc(var(--deck) + var(--safe-right));
+  right: calc(var(--deck) + var(--mine) + var(--safe-right));
   bottom: var(--keys);
   left: calc(var(--deck) + var(--safe-left));
   display: grid;
@@ -355,6 +357,31 @@ body.touch #handle {
   text-shadow: none;
 }
 
+/* A button that says what it does just now, which is not what it usually does (ATTACK reads ALL in the dialog that asks how many). */
+.deck-side button.offer:not(.down) {
+  border-color: var(--phosphor);
+  color: var(--phosphor-hot);
+}
+
+/* The player's own buttons: a column of their own beside the right strip, at the bottom, where the thumb is. The picture makes room. */
+body.touch.own-buttons {
+  --mine: var(--deck);
+}
+
+.deck-mine {
+  right: calc(var(--safe-right) + var(--deck));
+  justify-content: flex-end;
+}
+
+.deck-mine[hidden] {
+  display: none;
+}
+
+.deck-side.deck-mine button {
+  font-size: clamp(11px, 2.5vmin, 17px);
+  letter-spacing: 0.03em;
+}
+
 /* Shortcuts: keys the games answer to, small enough to sit between the deck's own buttons. */
 .deck-quick {
   display: flex;
@@ -375,8 +402,13 @@ body.touch #handle {
 
 /* With the keyboard up, the strips beside the picture are too short for the shortcuts, which are keys anyway. */
 @media (orientation: landscape) {
-  body.keys-open .deck-quick {
+  body.keys-open .deck-quick,
+  body.keys-open .deck-mine {
     display: none;
+  }
+
+  body.touch.own-buttons.keys-open {
+    --mine: 0px;
   }
 }
 
@@ -451,14 +483,41 @@ body.touch #handle {
     bottom: var(--keys);
   }
 
+  /* The right half is as wide as its two buttons; the left takes the rest, for four. */
   .deck-left {
     left: var(--safe-left);
-    right: 50%;
+    right: calc(var(--safe-right) + 2 * (var(--deck) - 10px) + 3 * clamp(4px, 1.4vmin, 12px));
   }
 
   .deck-right {
-    left: 50%;
+    left: auto;
     right: var(--safe-right);
+  }
+
+  /* The player's own buttons: a third row of shortcuts, over the other two. */
+  body.touch.own-buttons {
+    --quick: calc(3 * var(--quick-row));
+  }
+
+  .deck-side.deck-mine {
+    right: var(--safe-right);
+    bottom: calc(var(--keys) + var(--deck) + 2 * var(--quick-row) + var(--safe-bottom));
+    left: var(--safe-left);
+    align-items: flex-start;
+    justify-content: center;
+    height: var(--quick-row);
+  }
+
+  body.keys-open .deck-side.deck-mine {
+    bottom: calc(var(--keys) + var(--deck) + 2 * var(--quick-row));
+  }
+
+  .deck-side.deck-mine button {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
+    max-width: calc((var(--deck) - 10px) * 1.7);
+    height: calc((var(--deck) - 10px) * 0.56);
   }
 }
 
@@ -601,6 +660,36 @@ body.keys-open {
 
 #terminal .actions + .actions {
   margin-top: 0.6em;
+}
+
+/* Short choices in a grid (the keys a button of the deck can press). */
+.actions.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15ch, 1fr));
+  width: min(100%, 84ch);
+}
+
+.actions.grid button {
+  text-align: left;
+  white-space: pre;
+}
+
+/* A key for a button of the deck is picked on the console's keyboard: it comes up over the menu, under what it says. */
+body.picking-key #keys {
+  z-index: 21;
+}
+
+body.picking-key #terminal {
+  bottom: var(--keys);
+}
+
+/* A phone held sideways has little height left over the keyboard: what the menu says goes at the top, without the key hints. */
+body.picking-key #terminal .hints {
+  display: none;
+}
+
+body.picking-key #terminal.centered .body > :first-child {
+  margin-top: 0;
 }
 
 /* A column of choices, one to a line, their sizes lined up (the pictures). */

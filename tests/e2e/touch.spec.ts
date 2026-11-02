@@ -1,6 +1,6 @@
 import type { CDPSession, Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { fakeFallout2Folder, openConsole, pickFolder, waitForPicture } from './helpers';
+import { fakeFallout2Folder, inProgress, openConsole, pickFolder, waitForPicture } from './helpers';
 
 /**
  * Playing by touch, on a screen the size of a phone held sideways.
@@ -70,8 +70,65 @@ test('on a phone the start gate asks for a tap and makes room for the touch deck
   await expect(page.getByRole('heading', { name: 'SIMULATION 02: Fallout 2' })).toBeVisible();
 });
 
+/** The console with a made-up Fallout 2 loaded, at the gate that asks for a tap: the deck is out, the game not started. */
+async function atTheGate(page: Page, settings: Record<string, unknown> = {}): Promise<void> {
+  await openConsole(page, 'fo2', settings);
+  await pickFolder(page, await fakeFallout2Folder());
+  await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 60_000 });
+  await pause(page, 1500);
+  await page.locator('.menu button', { hasText: 'Begin simulation' }).tap();
+  await expect(page.getByText('TAP TO BEGIN')).toBeVisible({ timeout: 60_000 });
+}
+
+const boxesOf = (buttons: ReturnType<Page['locator']>) => buttons.evaluateAll((all) => all.map((button) => button.getBoundingClientRect().toJSON() as DOMRect));
+
+test("ENTER sits under ESC, and the player's own buttons are a column beside the right strip", async ({ page }) => {
+  await atTheGate(page, { touchButtons: { fo2: ['KeyB', '', 'Digit2', 'KeyQ'] } });
+  const own = page.locator('#deck .deck-mine button');
+  await expect(own).toHaveText(['HAND', 'LOCKPK', 'Q']);
+  const esc = (await page.locator('#deck button[data-act="esc"]').boundingBox())!;
+  const enter = (await page.locator('#deck button[data-act="enter"]').boundingBox())!;
+  expect(enter.y).toBeGreaterThan(esc.y + esc.height - 1);
+  expect(enter.y + enter.height).toBeLessThanOrEqual(390);
+  // Between the picture and the right strip, at the bottom, whole.
+  const stage = (await page.locator('#stage').boundingBox())!;
+  const strip = (await page.locator('#deck .deck-right').boundingBox())!;
+  for (const box of await boxesOf(own)) {
+    expect(box.left).toBeGreaterThanOrEqual(stage.x + stage.width - 1);
+    expect(box.right).toBeLessThanOrEqual(strip.x + 1);
+    expect(box.top).toBeGreaterThanOrEqual(0);
+    expect(box.bottom).toBeLessThanOrEqual(390);
+    expect(box.height).toBeGreaterThan(40);
+  }
+});
+
 test.describe('on a phone held upright', () => {
   test.use({ viewport: { width: 390, height: 844 } });
+
+  test("the player's own buttons are a third row of shortcuts, and the deck's row has room for ENTER", async ({ page }) => {
+    await atTheGate(page, { touchButtons: { fo2: ['KeyB', 'Digit2', 'KeyZ', 'Home'] } });
+    const own = await boxesOf(page.locator('#deck .deck-mine button'));
+    const shortcuts = await boxesOf(page.locator('#deck .deck-quick button:visible'));
+    expect(own).toHaveLength(4);
+    expect(new Set(own.map((box) => Math.round(box.top))).size).toBe(1);
+    expect(own[0]!.bottom).toBeLessThanOrEqual(Math.min(...shortcuts.map((box) => box.top)) + 1);
+    const stage = (await page.locator('#stage').boundingBox())!;
+    expect(stage.y + stage.height).toBeLessThanOrEqual(own[0]!.top + 1);
+    for (const box of own) {
+      expect(box.left).toBeGreaterThanOrEqual(0);
+      expect(box.right).toBeLessThanOrEqual(390);
+      expect(box.width).toBeGreaterThan(40);
+    }
+    // MENU, KEYS, ESC and ENTER on the left, CLICK and CURSOR on the right: all six on the screen, none over another.
+    const row = await boxesOf(page.locator('#deck .deck-left > button, #deck .deck-right > button'));
+    expect(row).toHaveLength(6);
+    const across = [...row].sort((a, b) => a.left - b.left);
+    for (const [index, box] of across.entries()) {
+      expect(box.left).toBeGreaterThanOrEqual(0);
+      expect(box.right).toBeLessThanOrEqual(390);
+      if (index) expect(box.left).toBeGreaterThanOrEqual(across[index - 1]!.right - 1);
+    }
+  });
 
   test('the shortcuts are two rows across the phone, between the picture and the deck', async ({ page }) => {
     await openConsole(page, 'fo2');
@@ -355,6 +412,30 @@ for (const game of GAMES) {
     }
     expect(back).toBe(true);
 
+    // A button of the player's own, from the menu, its key picked on the console's keyboard: I, the inventory,
+    // which ESC closes.
+    await deck('menu').tap();
+    await page.getByRole('button', { name: /\[B\] Buttons/ }).tap();
+    await page.getByRole('button', { name: /\[1\] \(NONE\)/i }).tap();
+    await page.getByRole('button', { name: /Other key/ }).tap();
+    await expect(page.locator('#keys')).toBeVisible();
+    await key('KeyI').tap();
+    await expect(page.getByRole('button', { name: /\[1\] I\s+I KEY/i })).toBeVisible();
+    await expect(page.locator('#keys')).toBeHidden();
+    await page.getByRole('button', { name: /Back/ }).tap();
+    await page.getByRole('button', { name: /Resume/ }).tap();
+    await expect(page.locator('#terminal')).toBeHidden();
+    const mine = page.locator('#deck .deck-mine button');
+    await expect(mine).toHaveText(['I']);
+    await pause(page, 1500);
+    const beforeMine = await fingerprint(page);
+    await mine.tap();
+    await pause(page, 2000);
+    expect(distance(await fingerprint(page), beforeMine)).toBeGreaterThan(6);
+    await deck('esc').tap();
+    await pause(page, 2000);
+    expect(distance(await fingerprint(page), beforeMine)).toBeLessThan(3);
+
     // From here on the browser's own mouse is over the picture, as after a tap
     // on a menu laid over it, or on a laptop with a touch screen. A tap on the
     // deck then reaches the picture as that mouse leaving it, and the game's
@@ -462,6 +543,92 @@ for (const game of GAMES) {
     await expect(page.getByText('System fault')).toHaveCount(0);
   });
 }
+
+// ---------------------------------------------------------------------
+// The dialog that asks how many
+// ---------------------------------------------------------------------
+
+test.describe('on a laptop with a touch screen', () => {
+  test.use({ isMobile: false, viewport: { width: 1280, height: 800 } });
+
+  /**
+   * Dropping a stack asks how many. While it does, ATTACK says what its key
+   * does there, ALL; ENTER beside ESC says yes. Fallout's own dialog only took
+   * A for ALL once the engine was patched to, as Fallout 2's does. The ready-made
+   * character starts with three boxes of 10mm JHP, the third item of the list.
+   */
+  test('Fallout: ATTACK reads ALL while the game asks how many, and ENTER drops the lot', async ({ page }) => {
+    const fallout = GAMES[0]!.dir;
+    test.skip(!fallout, 'set FO1_DIR to your Fallout folder to run this');
+    test.setTimeout(600_000);
+    const faults: string[] = [];
+    page.on('pageerror', (error) => faults.push(error.message));
+    await openConsole(page, 'fo1', { skipIntro: true });
+    await pickFolder(page, fallout!);
+    await expect(page.getByText('HOLODISK LOADED', { exact: true })).toBeVisible({ timeout: 300_000 });
+    await pause(page, 1500);
+    await page.keyboard.press('1');
+    await page.waitForURL(/play\.html/);
+    await expect(page.getByText(/TAP TO BEGIN|PRESS ANY KEY/)).toBeVisible({ timeout: 60_000 });
+    await page.keyboard.press('Enter');
+    await pause(page, 1500);
+    // The deck, with its explanation the first time.
+    await page.touchscreen.tap(640, 300);
+    await page.getByRole('button', { name: /Got it/ }).tap({ timeout: 30_000 });
+    await expect(page.locator('#terminal')).toBeHidden();
+    await expect.poll(async () => (await page.screenshot()).length, { timeout: 90_000, intervals: [500] }).toBeGreaterThan(100_000);
+    await pause(page, 4000);
+
+    // A new game with the ready-made character, the movie skipped.
+    await page.keyboard.press('n');
+    await pause(page, 4000);
+    await page.keyboard.press('t');
+    await pause(page, 8000);
+    await page.keyboard.press('Escape');
+    await pause(page, 3000);
+    await page.keyboard.press(' ');
+    await expect.poll(() => inProgress(page), { timeout: 120_000, intervals: [1000] }).toBe(true);
+    await pause(page, 6000);
+
+    await page.keyboard.press('i');
+    await pause(page, 2000);
+    const ammunition = () => patch(page, 151, 150, 60);
+    const inventory = await ammunition();
+    const attack = page.locator('#deck .deck-right button[data-key="KeyA"]');
+    await expect(attack).toHaveText('ATTACK');
+
+    // The right button switches to the hand that acts; held on the ammunition, it opens the action menu, one step
+    // down (more than ten pixels) is Drop.
+    await page.mouse.move(...(await at(page, 151, 150)));
+    await pause(page, 500);
+    await page.mouse.down({ button: 'right' });
+    await pause(page, 150);
+    await page.mouse.up({ button: 'right' });
+    await pause(page, 500);
+    await page.mouse.down();
+    await pause(page, 1200);
+    await page.mouse.move(...(await at(page, 151, 163)));
+    await pause(page, 400);
+    await page.mouse.up();
+
+    await expect(attack).toHaveText('ALL');
+    await expect(attack).toHaveClass(/offer/);
+    await expect(attack).toHaveAttribute('aria-label', /All of them/);
+    const counter = () => patch(page, 315, 137, 60);
+    const one = await counter();
+    await attack.tap({ timeout: 15_000 });
+    await pause(page, 800);
+    // The counter shows all three boxes now, not one.
+    expect((await counter()).equals(one)).toBe(false);
+    await page.locator('#deck button[data-act="enter"]').tap({ timeout: 15_000 });
+    await expect(attack).toHaveText('ATTACK');
+    await expect(attack).not.toHaveClass(/offer/);
+    await pause(page, 1500);
+    // The inventory without the ammunition: the stimpaks moved up into its place.
+    expect((await ammunition()).equals(inventory)).toBe(false);
+    expect(faults).toEqual([]);
+  });
+});
 
 // ---------------------------------------------------------------------
 // A long inventory, scrolled with fingers
