@@ -5,6 +5,7 @@
   import { BASE_GAMES, gameDef } from '../../lib/games';
   import { PROJECT_NAME } from '../../lib/project';
   import { formatBytes } from '../../lib/storage/manifest';
+  import { DEMO } from '../../lib/vanburen/demo';
   import Emblem from '../components/Emblem.svelte';
   import Glyph from '../components/Glyph.svelte';
   import Menu from '../components/Menu.svelte';
@@ -66,7 +67,7 @@
             label: `Continue: ${gameDef(resume.game).title}`,
             state: `SLOT ${String(resume.save.slot).padStart(2, '0')}, ${ago(resume.save.savedAt)}`,
             note: `Straight into your latest save: "${resume.save.description || 'no description'}", ${resume.save.character}${resume.save.level ? ` (level ${resume.save.level})` : ''}, ${whereabouts(sys.places[resume.game], resume.save)}, ${resume.save.gameDate}.`,
-            icon: 'play',
+            icon: 'resume',
             action: () => void launchGame(resume.game, resume.save.slot),
           } satisfies MenuItem,
         ]
@@ -92,6 +93,18 @@
         action: () => go(game),
       };
     }),
+    // The Fallout 3 that was never finished: a prototype beside the two decks, not one of them.
+    {
+      key: 'v',
+      label: `SIMULATION 03: ${DEMO.title} (${DEMO.year})`,
+      state: sys.loadingDemo ? 'LOADING...' : sys.demo === undefined ? 'CHECKING' : sys.demo ? 'READY' : 'NOT LOADED',
+      tone: sys.demo === null && !sys.loadingDemo ? 'amber' : undefined,
+      note: sys.demo
+        ? 'The tech demo of the Fallout 3 Black Isle never finished (2003), on an engine written anew for it.'
+        : 'The tech demo of the Fallout 3 Black Isle never finished (2003). The console fetches it from the Internet Archive.',
+      icon: 'holodisk-03',
+      action: () => go('vanburen'),
+    },
     {
       key: '3',
       label: 'Mod library',

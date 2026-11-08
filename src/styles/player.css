@@ -759,3 +759,15 @@ body.picking-key #terminal.centered .body > :first-child {
     transition: none;
   }
 }
+
+/* The Van Buren tech demo draws in 3D at the window's own size, and its own cursor. */
+body.webgl #stage {
+  display: block;
+}
+
+body.webgl #canvas {
+  width: 100%;
+  height: 100%;
+  image-rendering: auto;
+  cursor: none;
+}

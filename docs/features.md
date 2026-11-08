@@ -4,6 +4,7 @@ Everything the console does, in one place. For the short tour see the [README](.
 own **Operations manual** (entry 6 of the main directory) explains each of these from inside it.
 
 - [The games](#the-games)
+- [Van Buren](#van-buren)
 - [Mods](#mods)
 - [Playing](#playing)
 - [Touch screens](#touch-screens)
@@ -23,6 +24,15 @@ own **Operations manual** (entry 6 of the main directory) explains each of these
   console. A game folder can also be loaded as one zip of it, which is how a whole game, music included, gets onto
   a device that cannot pick folders; or from your own Dropbox or Google Drive (see [Dropbox link](dropbox.md) and
   [Google Drive link](google-drive.md)), where the console puts it for you from another device.
+
+## Van Buren
+
+- **The tech demo of the Fallout 3 Black Isle never finished** (2003), as Simulation 03, on
+  [Open Van Buren](https://github.com/sulkytroll/open-vanburen), compiled to WebAssembly and drawn with WebGL 2.
+- **Fetched from the Internet Archive with one key**, and unpacked in the browser: 242 MB downloaded, 560 MB kept.
+  Or loaded from your own copy of `F3_Demo.rar`, or the folder it was unpacked to.
+- **Kept apart from the games**: no deck, saves, mods or add-ons, a page of its own, and `F9` / `F11` around it.
+  See [Van Buren](van-buren.md).
 
 ## Mods
 

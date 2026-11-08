@@ -1,0 +1,60 @@
+Give the browser its turn once a frame, after the frame is drawn
+
+Calls the page's overseer_frame after each swap, which waits for the browser's
+next frame, instead of SDL's own unpaced turn in the swap. A turn in the middle
+of drawing could show half a frame. A missing demo folder is reported on stderr
+rather than in a message box.
+---
+diff --git a/tools/vanburen/main.cpp b/tools/vanburen/main.cpp
+index e19dbc0..32c246f 100644
+--- a/tools/vanburen/main.cpp
++++ b/tools/vanburen/main.cpp
+@@ -150,6 +150,11 @@ static double gProfT;
+ static void profMark(int slot) { if (!gProf) return; glFinish(); double t = profNow(); gProfAcc[slot] += t - gProfT; gProfCur[slot] += t - gProfT; gProfT = t; }
+ 
+ void registerEmbeddedFiles();
++#ifdef __EMSCRIPTEN__
++// The browser build: the page's glue hands the thread back to the browser until its next frame (and holds the game
++// there while the page has it paused). Called once a frame, after the frame is drawn, never in the middle of one.
++extern "C" void overseer_frame(void);
++#endif
+ int main(int argc, char** argv) {
+     std::string initial = "03_Tutorial_Junktown", assets, shot, gameDir, talkTo, useName;
+     const bool kRememberedFog = std::getenv("VB_FOG_REMEMBERED") != nullptr;   // the "remembered" fog of war (mode 2) is switched off for now (the tech demo has none); VB_FOG_REMEMBERED=1 brings it back
+@@ -190,9 +195,16 @@ int main(int argc, char** argv) {
+     }
+     bool menuMode = !nameGiven; if (menuMode) { initial = "Mainmenu"; hud = false; }       // no map named: the main menu (Maps/Mainmenu.map, a 3D scene with its own camera: Engine/sys.ini [Mainmenu])
+     registerEmbeddedFiles();
++#ifdef __EMSCRIPTEN__
++    SDL_SetHint(SDL_HINT_EMSCRIPTEN_ASYNCIFY, "0");          // SDL's swap would give the thread back at once, unpaced: overseer_frame does it
++#endif
+     if (assets.empty()) {       // the normal case: the tech demo's own folder, read from its packaged files (-game DIR, $VB_GAME_DIR, the folder of this executable, the current folder)
+         if (!findAndMountGame(gameDir, gameDir)) {       // (started from a menu or a file manager there is no terminal to read the message from)
++#ifdef __EMSCRIPTEN__
++            std::fprintf(stderr, "tech demo folder not found at %s\n", gameDir.c_str());
++#else
+             if (SDL_Init(SDL_INIT_VIDEO) == 0) { SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Open Van Buren", "The Fallout 3 Van Buren tech demo folder was not found.\n\nPut this program in the folder that holds F3.exe, resource.rht and data/, or start it with -game /path/to/that/folder (or set VB_GAME_DIR).", nullptr); SDL_Quit(); }
++#endif
+             return 1;
+         }
+         assets = gameDir;
+@@ -226,7 +238,9 @@ int main(int argc, char** argv) {
+     if (!ctx) { std::fprintf(stderr, "OpenGL context: %s\n", SDL_GetError()); return 1; }
+     SDL_ShowCursor(SDL_DISABLE);                               // the game draws its own cursor
+     glewExperimental = GL_TRUE; glewInit();
++#ifndef __EMSCRIPTEN__
+     SDL_GL_SetSwapInterval(shot.empty() ? 1 : 0);
++#endif
+ 
+     LevelRenderer R(assets);
+     DeathFx deathFx;
+@@ -1475,6 +1489,9 @@ int main(int argc, char** argv) {
+         }
+         profMark(9);
+         SDL_GL_SwapWindow(win); profMark(10);
++#ifdef __EMSCRIPTEN__
++        overseer_frame();
++#endif
+         static int pf = 0; if (gProf) { double tot = 0; for (int i = 0; i < 12; i++) tot += gProfCur[i]; if (tot - gProfCur[10] > 12.0) { std::fprintf(stderr, "SPIKE frame %d: %.1f ms excl swap:", pf, tot - gProfCur[10]); for (int i = 0; i < 12; i++) if (i != 10 && gProfCur[i] > 3.0) std::fprintf(stderr, " %s=%.1f", gProfName[i], gProfCur[i]); std::fprintf(stderr, "\n"); } for (int i = 0; i < 12; i++) gProfCur[i] = 0; }
+         if (gProf && ++pf % 120 == 0) { std::fprintf(stderr, "prof ms/frame:"); for (int i = 0; i < 12; i++) { std::fprintf(stderr, " %s=%.2f", gProfName[i], gProfAcc[i] / 120); gProfAcc[i] = 0; } std::fprintf(stderr, "\n"); }
+ 

@@ -481,7 +481,7 @@
         <Menu items={componentItems} label="Components" bind:selected={componentSelected} />
       {:else if view === 'eject' && install}
         <div class="signed ask gap">
-          <Glyph name="warning" tone="amber" />
+          <Glyph name="eject" tone="amber" />
           <div>
             <p class="amber">EJECT THE {def.title.toUpperCase()} HOLODISK?</p>
             <p>Its files are removed from this browser. Its saved games stay, and you can load the holodisk again later.</p>

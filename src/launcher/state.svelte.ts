@@ -26,6 +26,8 @@ import {
   type SourceFile,
 } from '../lib/storage/importer';
 import { planAddon } from '../lib/storage/addons';
+import { DEMO, DEMO_LOCK, isReleaseFile } from '../lib/vanburen/demo';
+import { DemoError, copyDemo, ejectDemo, fetchDemo, findDemo, loadDemo as demoInstall, unpackDemo, type DemoProgress } from '../lib/vanburen/store';
 import {
   loadInstall,
   openInstalled,
@@ -69,6 +71,22 @@ export interface ImportJob {
 }
 
 const IDLE: ImportJob = { phase: 'idle', doneBytes: 0, totalBytes: 0, path: '' };
+
+/** Loading the Van Buren tech demo: fetching it from the Internet Archive, unpacking its archive, or copying its folder. */
+export interface DemoJob {
+  /** stopped: the player called it off, and what was here before still is. */
+  phase: 'idle' | 'working' | 'done' | 'failed' | 'stopped';
+  /** What it is busy with: reading what was picked, fetching, unpacking, copying. */
+  step?: DemoProgress['step'] | 'read';
+  doneBytes: number;
+  totalBytes: number;
+  path: string;
+  error?: string;
+  /** Done: whether every file is the archive.org release's own. */
+  release?: boolean;
+}
+
+const DEMO_IDLE: DemoJob = { phase: 'idle', doneBytes: 0, totalBytes: 0, path: '' };
 
 /** An add-on's files, as far as the console says what they are. */
 export interface AddonInfo extends InstallInfo {
@@ -166,6 +184,12 @@ class ConsoleState {
   /** Whether this browser is linked to the player's Dropbox or Google Drive, and to whose. */
   cloud = $state<CloudStatus>(cloudStatus());
   job = $state<ImportJob>({ ...IDLE });
+  /**
+   * The Van Buren tech demo's files here, and whether they are the archive.org release's own. undefined: not
+   * looked at yet. null: not here.
+   */
+  demo = $state<(InstallInfo & { release: boolean }) | null | undefined>(undefined);
+  demoJob = $state<DemoJob>({ ...DEMO_IDLE });
   /** What Put in your cloud is sending, or last sent. */
   put = $state<PutJob | null>(null);
   /**
@@ -194,6 +218,8 @@ class ConsoleState {
   private stopper: AbortController | null = null;
   /** Stops what Put in your cloud is sending. */
   private putStopper: AbortController | null = null;
+  /** Stops loading the tech demo. */
+  private demoStopper: AbortController | null = null;
   private wake: WakeLock | null = null;
 
   /** False when the browser cannot keep game data (old browser, private window). */
@@ -218,9 +244,14 @@ class ConsoleState {
     return this.put?.phase === 'packing' || this.put?.phase === 'sending';
   }
 
+  /** The tech demo is on its way into storage. It goes on beside a copy of a game. */
+  get loadingDemo(): boolean {
+    return this.demoJob.phase === 'working';
+  }
+
   /** Something is under way that ends with the page: the screen is kept on, and the browser asks before it closes. */
   get working(): boolean {
-    return this.busy || this.sending;
+    return this.busy || this.sending || this.loadingDemo;
   }
 
   update(patch: Partial<Settings>): void {
@@ -313,6 +344,7 @@ class ConsoleState {
     if (!this.supported) {
       this.refreshCloud();
       this.installs = perGame(null);
+      this.demo = null;
       return;
     }
     // Mods come and go with their files and saves; one on its way in has neither yet.
@@ -366,7 +398,83 @@ class ConsoleState {
         }
       }),
     );
+    await this.refreshDemo();
     this.storage = await storageStatus().catch(() => null);
+  }
+
+  /** Looks at whether the tech demo's files are here. */
+  async refreshDemo(): Promise<void> {
+    const install = await demoInstall().catch(() => null);
+    const { manifest } = install ?? {};
+    this.demo = manifest
+      ? {
+          totalBytes: manifest.totalBytes,
+          importedAt: manifest.importedAt,
+          files: manifest.files.length,
+          release: manifest.files.filter((file) => !/^override\//i.test(file.path)).every((file) => isReleaseFile(file.path, file.size)),
+        }
+      : null;
+  }
+
+  /**
+   * Loads the tech demo: from the Internet Archive (`from` left out), or from
+   * what the player picked or dropped (its archive, its folder, a zip of it).
+   */
+  async loadDemo(from?: SourceFile[]): Promise<void> {
+    if (this.loadingDemo) return;
+    const stopper = new AbortController();
+    this.demoStopper = stopper;
+    this.demoJob = { ...DEMO_IDLE, phase: 'working', step: from ? 'read' : 'fetch', totalBytes: from ? 0 : DEMO.archive.size };
+    void this.stayAwake();
+    const progress = (p: DemoProgress) => {
+      if (this.demoJob.phase === 'working') this.demoJob = { ...this.demoJob, step: p.step, doneBytes: p.doneBytes, totalBytes: p.totalBytes, path: p.path };
+    };
+    try {
+      let loaded;
+      if (!from) {
+        loaded = await fetchDemo(progress, stopper.signal);
+      } else {
+        const found = await findDemo(from);
+        loaded = found.kind === 'archive' ? await unpackDemo(found.file, progress, stopper.signal) : await copyDemo(found.files, progress, stopper.signal);
+      }
+      void requestPersistence().then(() => this.refresh());
+      this.demoJob = { ...this.demoJob, phase: 'done', path: '', doneBytes: this.demoJob.totalBytes, release: loaded.release };
+      await this.refreshDemo();
+    } catch (err) {
+      if (wasStopped(err) || stopper.signal.aborted) {
+        this.demoJob = { ...DEMO_IDLE, phase: 'stopped' };
+      } else {
+        console.error('[vanburen] loading the tech demo failed', err);
+        const message = err instanceof DemoError || err instanceof ImportError ? err.message : `Loading failed: ${err instanceof Error ? err.message : String(err)}`;
+        this.demoJob = { ...this.demoJob, phase: 'failed', error: message };
+      }
+      await this.refreshDemo();
+    } finally {
+      if (this.demoStopper === stopper) this.demoStopper = null;
+      this.letSleep();
+    }
+  }
+
+  stopDemo(): void {
+    this.demoStopper?.abort();
+  }
+
+  /** Removes the tech demo's files from this browser. Not while it plays in another tab. */
+  async ejectDemo(): Promise<boolean> {
+    if (this.loadingDemo) return false;
+    const held = (await navigator.locks?.query().catch(() => null))?.held ?? [];
+    if (held.some((lock) => lock.name === DEMO_LOCK)) {
+      this.demoJob = { ...DEMO_IDLE, phase: 'failed', error: 'The tech demo is running in another tab or window. Close it there first.' };
+      return false;
+    }
+    await ejectDemo();
+    this.demoJob = { ...DEMO_IDLE };
+    await this.refresh();
+    return true;
+  }
+
+  clearDemoJob(): void {
+    if (!this.loadingDemo) this.demoJob = { ...DEMO_IDLE };
   }
 
   /** Looks again at which add-ons there are, and what each game and mod has laid over it. */

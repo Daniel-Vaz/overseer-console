@@ -8,7 +8,7 @@ test('plays the power-on sequence once, then shows the main directory', async ({
   await expect(page.getByText('POWER-ON SELF TEST')).toBeVisible();
   await expect(page.getByText('PRIVATE STORAGE')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Main directory' })).toBeVisible();
-  await expect(page.locator('.menu button')).toHaveCount(7);
+  await expect(page.locator('.menu button')).toHaveCount(8);
 
   // Not again in the same session.
   await page.reload();
@@ -81,6 +81,8 @@ test('is fully usable from the keyboard and remembers settings', async ({ page }
   await openConsole(page);
   await expect(page.getByRole('heading', { name: 'Main directory' })).toBeVisible();
 
+  // Past the two decks, the Van Buren prototype and the Mod library.
+  await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowDown');
@@ -545,7 +547,7 @@ test('continue goes from the main directory straight into the latest save', asyn
   await expect(page.locator('.menu li').first()).toContainText('Load this save');
   await expect(page.locator('.menu li').first().locator('button')).toBeDisabled();
   await page.goto('#/');
-  await expect(page.locator('.menu button')).toHaveCount(7);
+  await expect(page.locator('.menu button')).toHaveCount(8);
   await expect(page.getByText('Continue:')).toHaveCount(0);
 
   await page.goto('#/fo2');
@@ -728,12 +730,16 @@ test('credits name the engines, their licence and that the builds are modified',
   await expect(page.getByText('Sustainable Use License')).toBeVisible();
   await expect(page.getByText('THE ENGINE BUILDS SERVED HERE ARE MODIFIED COPIES.')).toBeVisible();
   await expect(page.getByText('not affiliated with')).toBeVisible();
-  // Filled in from the engine builds.
-  await expect(page.getByRole('link', { name: 'License' })).toHaveCount(2);
+  await expect(page.getByText('THE OPEN VAN BUREN BUILD SERVED HERE IS A MODIFIED COPY.')).toBeVisible();
+  // Filled in from the engine builds: the two games' and the Van Buren tech demo's.
+  await expect(page.getByRole('link', { name: 'License' })).toHaveCount(3);
 
   const licence = await page.request.get('engines/fo1/LICENSE.txt');
   expect(licence.ok()).toBe(true);
   expect(await licence.text()).toContain('Sustainable Use License');
+  const demoLicence = await page.request.get('engines/vb/LICENSE.txt');
+  expect(demoLicence.ok()).toBe(true);
+  expect(await demoLicence.text()).toContain('MIT License');
 });
 
 test('the manual is a list of chapters, each read on its own and leading to the next', async ({ page }) => {

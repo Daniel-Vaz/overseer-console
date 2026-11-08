@@ -19,6 +19,7 @@ into the browser's private storage on your device and plays from there.
 | Console | [`index.html`](../index.html), [`src/launcher/`](../src/launcher/) | The terminal: import, save archives, settings, manual, credits. Svelte. |
 | Vault | [`src/launcher/vault/`](../src/launcher/vault/) | The room around the console, where the window is larger than the console is. Painted in the browser, one coarse pixel at a time, from nothing but code: no artwork from the games. `life.ts` decides who walks through, when, and what they do about being poked; `effects.ts` has the things that answer to a click; `pest.ts` is the radroach that comes out onto the screen itself. |
 | Player | [`play.html`](../play.html), [`src/player/`](../src/player/) | Boots an engine against the stored data. A separate page, so that leaving a game frees its memory. `src/player/touch/` turns fingers into the mouse and keyboard events the engines already listen for. |
+| Van Buren | [`src/lib/vanburen/`](../src/lib/vanburen/), [`vanburen.html`](../vanburen.html), [`engines/vanburen/`](../engines/vanburen/) | The Fallout 3 tech demo on Open Van Buren, apart from the games: fetched from the Internet Archive and unpacked in a worker with UnRAR, kept under `demos/vb/`, played from a page of its own. See [Van Buren](van-buren.md). |
 
 A game starts in well under a second because nothing is copied into memory up front: archives are
 read in 1 MB blocks as the engine asks for them, with a bounded cache.

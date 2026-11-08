@@ -1,7 +1,7 @@
 /**
  * Overseer Console - engine glue.
  *
- * An Emscripten JS library linked into both engines (`--js-library`). The
+ * An Emscripten JS library linked into every engine (`--js-library`). The
  * engines are 1990s desktop programs: they block, spin on the clock, read
  * whole archives from disk and assume files they wrote are safe. A browser tab
  * offers none of that, so this file provides it underneath the C library:
@@ -840,6 +840,28 @@ addToLibrary({
       });
     }
     return (OVERSEER.now() - OVERSEER.ticksOrigin) | 0;
+  },
+
+  // An engine that draws with WebGL gives the browser its turn once a frame,
+  // right after the frame is drawn, and waits there for the browser's next
+  // one (while the host has it paused, for as long as that lasts). The browser
+  // shows a WebGL frame whenever the engine hands back the thread, so a turn
+  // in the middle of drawing one could show half of it: such an engine keeps
+  // SDL's own clock, which never suspends.
+  overseer_frame__deps: ['$OVERSEER'],
+  overseer_frame__async: true,
+  overseer_frame: () => {
+    if (OVERSEER.rewinding()) return OVERSEER.finishRewind();
+    if (!OVERSEER.canSuspend()) return;
+    return OVERSEER.suspend((wake) => {
+      OVERSEER.counters.yields++;
+      var at = performance.now();
+      runtimeKeepalivePush();
+      requestAnimationFrame(() => {
+        runtimeKeepalivePop();
+        OVERSEER.wake(() => wake(0), at, 0);
+      });
+    });
   },
 
   // Autosaves. The engines' main loop says when a game is in progress, and at

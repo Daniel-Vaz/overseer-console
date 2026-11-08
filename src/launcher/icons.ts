@@ -14,14 +14,19 @@ import cloud from '../assets/icons/cloud.png';
 import credits from '../assets/icons/credits.png';
 import download from '../assets/icons/download.png';
 import editor from '../assets/icons/editor.png';
+import eject from '../assets/icons/eject.png';
+import engine from '../assets/icons/engine.png';
 import exportSave from '../assets/icons/export-save.png';
 import external from '../assets/icons/external.png';
+import fast from '../assets/icons/fast.png';
 import fault from '../assets/icons/fault.png';
 import folder from '../assets/icons/folder.png';
 import fullscreen from '../assets/icons/fullscreen.png';
 import gamedata from '../assets/icons/gamedata.png';
+import history from '../assets/icons/history.png';
 import holodisk01 from '../assets/icons/holodisk-01.png';
 import holodisk02 from '../assets/icons/holodisk-02.png';
+import holodisk03 from '../assets/icons/holodisk-03.png';
 import importSave from '../assets/icons/import-save.png';
 import key from '../assets/icons/key.png';
 import keypad from '../assets/icons/keypad.png';
@@ -36,6 +41,7 @@ import play from '../assets/icons/play.png';
 import pointerFinger from '../assets/icons/pointer-finger.png';
 import pointerTrackpad from '../assets/icons/pointer-trackpad.png';
 import report from '../assets/icons/report.png';
+import resume from '../assets/icons/resume.png';
 import save from '../assets/icons/save.png';
 import scaling from '../assets/icons/scaling.png';
 import sealed from '../assets/icons/sealed.png';
@@ -47,6 +53,7 @@ import unlink from '../assets/icons/unlink.png';
 import unsealed from '../assets/icons/unsealed.png';
 import update from '../assets/icons/update.png';
 import uplink from '../assets/icons/uplink.png';
+import vault from '../assets/icons/vault.png';
 import warning from '../assets/icons/warning.png';
 
 export const ICONS = {
@@ -60,14 +67,19 @@ export const ICONS = {
   credits,
   download,
   editor,
+  eject,
+  engine,
   'export-save': exportSave,
   external,
+  fast,
   fault,
   folder,
   fullscreen,
   gamedata,
+  history,
   'holodisk-01': holodisk01,
   'holodisk-02': holodisk02,
+  'holodisk-03': holodisk03,
   'import-save': importSave,
   key,
   keypad,
@@ -82,6 +94,7 @@ export const ICONS = {
   'pointer-finger': pointerFinger,
   'pointer-trackpad': pointerTrackpad,
   report,
+  resume,
   save,
   scaling,
   sealed,
@@ -93,6 +106,7 @@ export const ICONS = {
   unsealed,
   update,
   uplink,
+  vault,
   warning,
 };
 

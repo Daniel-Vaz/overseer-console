@@ -8,7 +8,7 @@
  */
 import { loadAddons } from '../addons';
 import { COPIES, latin1, latin1Bytes, settingsCopies } from '../mods/settings';
-import { gameDef, type EngineId, type GameId } from '../games';
+import { gameDef, type GameId } from '../games';
 import { isSaveData, slotOf } from '../savefile';
 import { encodeSaveMeta, saveMetaPath, type SaveAddon } from '../savemeta';
 import { pictureOf, type Settings } from '../settings';
@@ -19,6 +19,7 @@ import { StorageUnavailableError, loadInstall, openBlob, openInstalled, type Ins
 export { StorageUnavailableError };
 import { commitWithHistory } from '../storage/history';
 import { listOverlay, type OverlayEntry } from '../storage/overlay';
+import { downloadEngine, engineBase, fetchEngineInfo, loadScript } from './download';
 import { HIGHLIGHT_KEY, HIGHLIGHTING_FILE, MODS_ORDER, TWEAKS_FILE, buildConfigFiles, chooseScreen, settingsFileOf, sfallLightsAtKey, wantsEngineData, withConsoleKeys, type ScreenSize } from './config';
 import type { EngineFactory, EngineInfo, EngineModule, PersistBatch, QuantityDialog, QuickKind, QuickOutcome, ScreenRect } from './types';
 
@@ -159,67 +160,11 @@ export interface FileReads {
   bytes: number;
 }
 
-function engineBase(engine: EngineId): string {
-  return `${import.meta.env.BASE_URL}engines/${engine}/`;
-}
-
-async function fetchEngineInfo(engine: EngineId): Promise<EngineInfo> {
-  const response = await fetch(`${engineBase(engine)}engine.json`, { cache: 'no-cache' });
-  if (!response.ok) throw new Error(`engine description not found (HTTP ${response.status})`);
-  return (await response.json()) as EngineInfo;
-}
-
-function loadScript(url: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const script = document.createElement('script');
-    script.src = url;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error(`could not load ${url}`));
-    document.head.appendChild(script);
-  });
-}
-
 /** Fetches the data file that goes with an engine build: small, and the same for every game the engine runs. */
 async function fetchEngineData(url: string, name: string): Promise<{ name: string; data: Uint8Array }> {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`engine data download failed (HTTP ${response.status})`);
   return { name, data: new Uint8Array(await response.arrayBuffer()) };
-}
-
-/**
- * Downloads the engine binary, reporting progress.
- *
- * The bytes are handed to the runtime as `wasmBinary`. Emscripten's
- * `instantiateWasm` hook would allow compiling while downloading, but in the
- * pinned Emscripten release that hook returns the uninstrumented exports and
- * silently breaks Asyncify.
- */
-async function downloadEngine(
-  url: string,
-  totalBytes: number,
-  onProgress: (done: number, total: number) => void,
-): Promise<Uint8Array> {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`engine download failed (HTTP ${response.status})`);
-  if (!response.body) return new Uint8Array(await response.arrayBuffer());
-
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let loaded = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    loaded += value.byteLength;
-    onProgress(Math.min(loaded, totalBytes), totalBytes);
-  }
-  const binary = new Uint8Array(loaded);
-  let offset = 0;
-  for (const chunk of chunks) {
-    binary.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return binary;
 }
 
 /** Puts stored files where the engine will look for them: each at the path it is mounted at. */

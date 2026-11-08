@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds the WebAssembly engines from pinned upstream commits.
 #
-#   engines/build.sh [fo1|fo2|all]
+#   engines/build.sh [fo1|fo2|vb|all]
 #
 # For each engine: check out the commit named in engines/<name>/source.env,
 # apply engines/<name>/patches/*.patch, compile inside the official Emscripten
@@ -23,7 +23,7 @@ CACHE_DIR="${ROOT}/.cache"
 OUT_DIR="${ROOT}/public/engines"
 JOBS="${JOBS:-$(nproc 2>/dev/null || echo 4)}"
 
-# Flags shared by both engines. See engines/lib/overseer.js for what they do.
+# Flags shared by the engines. See engines/lib/overseer.js for what they do.
 #  - every look at the clock goes through the glue's watchdog
 #  - the glue itself, a roomy unwind buffer for Asyncify (the watchdog can
 #    suspend the engine from deep call stacks), the runtime methods the host
@@ -34,6 +34,10 @@ JOBS="${JOBS:-$(nproc 2>/dev/null || echo 4)}"
 #    typing (a save's description, a character's name): the host page shows
 #    its on-screen keyboard for touch players exactly then
 COMPILE_FLAGS="-DSDL_GetTicks=overseer_ticks"
+# An engine that draws with WebGL keeps SDL's own clock, which never hands the
+# thread back in the middle of a frame; it calls overseer_frame once a frame
+# instead. Its source.env says so with ENGINE_CLOCK=sdl.
+COMPILE_FLAGS_SDL_CLOCK=""
 LINK_FLAGS="--js-library=/glue/overseer.js -sASYNCIFY_STACK_SIZE=1048576 -sEXPORTED_RUNTIME_METHODS=callMain,FS -sEXPORTED_FUNCTIONS=_main,_SDL_GetTicks,_SDL_IsTextInputActive,_SDL_StopTextInput -Wl,--undefined=SDL_GetTicks -Wl,--undefined=SDL_IsTextInputActive -Wl,--undefined=SDL_StopTextInput"
 
 log() { printf '\033[1;32m[engines]\033[0m %s\n' "$*"; }
@@ -79,7 +83,7 @@ prepare_em_cache() {
 inputs_hash() {
     local name="$1"
     {
-        echo "${EMSDK_VERSION} ${COMPILE_FLAGS} ${LINK_FLAGS} ${EXTRA_LINK_FLAGS:-}"
+        echo "${EMSDK_VERSION} ${COMPILE_FLAGS} ${COMPILE_FLAGS_SDL_CLOCK} ${LINK_FLAGS} ${EXTRA_LINK_FLAGS:-}"
         cat "${ROOT}/engines/build.sh" "${ROOT}/engines/${name}/source.env" "${ROOT}/engines/lib/"*.js "${ROOT}/engines/lib/"*.py
         cat "${ROOT}/engines/${name}/patches/"*.patch 2>/dev/null || true
     } | sha256sum | cut -c1-16
@@ -117,8 +121,11 @@ build() {
     local build_dir="${CACHE_DIR}/engines/${id}/build"
     local out="${OUT_DIR}/${id}"
 
+    unset ENGINE_CLOCK
     # shellcheck disable=SC1091
     source "${engine_dir}/source.env"
+    local compile_flags="${COMPILE_FLAGS}"
+    [[ "${ENGINE_CLOCK:-}" == sdl ]] && compile_flags="${COMPILE_FLAGS_SDL_CLOCK}"
 
     local inputs
     inputs="$(inputs_hash "${name}")"
@@ -136,8 +143,8 @@ build() {
     local cmake_args=(
         -S /src -B /build
         -DCMAKE_BUILD_TYPE=Release
-        "-DCMAKE_C_FLAGS=${COMPILE_FLAGS}"
-        "-DCMAKE_CXX_FLAGS=${COMPILE_FLAGS}"
+        "-DCMAKE_C_FLAGS=${compile_flags}"
+        "-DCMAKE_CXX_FLAGS=${compile_flags}"
         # Appended after every other link option, so these win.
         "-DCMAKE_CXX_STANDARD_LIBRARIES=${LINK_FLAGS}${EXTRA_LINK_FLAGS:+ ${EXTRA_LINK_FLAGS}}"
         "$@"
@@ -226,7 +233,8 @@ write_licenses() {
             echo "Changes: source unmodified; compiled and linked with the glue in engines/lib"
         fi
         echo
-        cat "${src}/LICENSE.md"
+        if [[ -f "${src}/LICENSE.md" ]]; then cat "${src}/LICENSE.md"; else cat "${src}/LICENSE"; fi
+        if [[ -f "${src}/THIRD_PARTY_NOTICES.md" ]]; then echo; cat "${src}/THIRD_PARTY_NOTICES.md"; fi
     } > "${out}/LICENSE.txt"
 
     {
@@ -258,7 +266,8 @@ engine_name() {
     case "$1" in
         fo1) echo fallout1 ;;
         fo2) echo fallout2 ;;
-        *) die "unknown engine '$1' (expected fo1, fo2 or all)" ;;
+        vb) echo vanburen ;;
+        *) die "unknown engine '$1' (expected fo1, fo2, vb or all)" ;;
     esac
 }
 
@@ -271,6 +280,9 @@ build_engine() {
             # Upstream ships its own toolchain file for the browser target.
             build fo2 fallout2 sdl2,sdl2_mixer,zlib,ogg,vorbis -DCMAKE_TOOLCHAIN_FILE=/src/cmake/toolchain/Emscripten.cmake
             ;;
+        vb)
+            build vb vanburen sdl2,freetype
+            ;;
         *)
             engine_name "$1" >/dev/null
             ;;
@@ -282,6 +294,7 @@ target="${1:-all}"
 if [[ "${target}" == "all" ]]; then
     build_engine fo1
     build_engine fo2
+    build_engine vb
 else
     build_engine "${target}"
 fi

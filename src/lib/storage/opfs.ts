@@ -146,8 +146,11 @@ export async function probeStorage(): Promise<boolean> {
   }
 }
 
-/** Where installs are kept: the games and mods, or the add-ons laid over them (see addons.ts). */
-export type Shelf = 'games' | 'addons';
+/**
+ * Where installs are kept: the games and mods, the add-ons laid over them (see addons.ts), or the Van Buren tech
+ * demo, which is neither and is kept apart from both (see vanburen/demo.ts).
+ */
+export type Shelf = 'games' | 'addons' | 'demos';
 
 async function gameDir(game: GameId, create = false, shelf: Shelf = 'games'): Promise<FileSystemDirectoryHandle> {
   const root = await storeRoot();

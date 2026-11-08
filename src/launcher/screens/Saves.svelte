@@ -527,7 +527,7 @@
     {
       key: 'l',
       label: 'Load this save',
-      icon: 'play',
+      icon: 'resume',
       disabled: !open?.valid || !game || !sys.playable(game) || running,
       note: running
         ? 'The simulation is already running in another tab or window.'
@@ -554,7 +554,7 @@
       key: 'v',
       label: 'Earlier versions',
       state: open?.versions ? `${open.versions} KEPT` : 'NONE YET',
-      icon: 'backup',
+      icon: 'history',
       disabled: !open?.versions,
       note: open?.versions
         ? 'What this slot held before it was saved over. Any of them can be put back.'

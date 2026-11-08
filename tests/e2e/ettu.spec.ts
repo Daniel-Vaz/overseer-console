@@ -50,7 +50,7 @@ async function stored(page: Page, game: string): Promise<{ files: string[]; dire
 
 test('the Mod library says what Fallout Et Tu is put together from', async ({ page }) => {
   await openConsole(page);
-  const entry = page.locator('.menu li').nth(2);
+  const entry = page.locator('.menu li').nth(3);
   await expect(entry).toContainText('Mod library');
   await expect(entry).toContainText('EMPTY');
   await page.keyboard.press('3');
@@ -119,7 +119,7 @@ test('puts Fallout Et Tu together from its zip and the two games, and starts its
   await expect(begin).toContainText('NEEDS DECK B');
   await expect(begin.locator('button')).toBeDisabled();
   await page.goto('#/');
-  await expect(page.locator('.menu li').nth(2)).toContainText('1 MOD');
+  await expect(page.locator('.menu li').nth(3)).toContainText('1 MOD');
   await page.goto('#/mods');
   await expect(page.locator('.menu li').filter({ hasText: 'Fallout Et Tu' })).toContainText('NEEDS DECK B');
 
@@ -237,7 +237,7 @@ test('one pick of that folder in the Mod library loads the game it is played on 
   await expect(page.locator('.readout').first()).toContainText('FALLOUT 2, DECK B: LOADED');
   await page.goto('#/');
   await expect(page.locator('.menu li').nth(1)).toContainText('READY');
-  await expect(page.locator('.menu li').nth(2)).toContainText('1 MOD');
+  await expect(page.locator('.menu li').nth(3)).toContainText('1 MOD');
 
   // Ejecting the game underneath is allowed, and said to leave the mod stranded.
   await page.keyboard.press('2');
@@ -309,7 +309,7 @@ test('a deck plays the mod put in it, and goes back to the game as it was sold',
 
 test('saves of Fallout Et Tu from the days of its own deck are found in the Mod library', async ({ page }) => {
   await openConsole(page);
-  await expect(page.locator('.menu li').nth(2)).toContainText('EMPTY');
+  await expect(page.locator('.menu li').nth(3)).toContainText('EMPTY');
   // As an earlier console kept them: in the overlay under its name, with nothing that says it is a mod.
   await page.evaluate(async (data) => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {

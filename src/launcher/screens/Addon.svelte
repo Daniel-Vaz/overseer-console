@@ -280,7 +280,7 @@
         <IniSettings owner={id} shelf="addons" title={record.title} back={() => (view = 'main')} bind:this={settingsView} />
       {:else if view === 'eject'}
         <div class="signed ask gap">
-          <Glyph name="warning" tone="amber" />
+          <Glyph name="eject" tone="amber" />
           <div>
             <p class="amber">EJECT THE {record.title.toUpperCase()} HOLODISK?</p>
             <p>

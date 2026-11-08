@@ -23,6 +23,7 @@
   import Picture from './screens/Picture.svelte';
   import Saves from './screens/Saves.svelte';
   import Settings from './screens/Settings.svelte';
+  import VanBuren from './screens/VanBuren.svelte';
   import { sfx } from './sfx';
   import { consoleState as sys } from './state.svelte';
   import { REMARKS } from './vault/remarks';
@@ -117,7 +118,9 @@
                               : 'MOD LIBRARY'
                   : deck
                     ? `HOLODISK DECK ${gameDef(deck).deck}`
-                    : 'UNKNOWN',
+                    : section === 'vanburen'
+                      ? 'PROTOTYPE // VAN BUREN'
+                      : 'UNKNOWN',
   );
 
   /** Goes to a screen. `replace`: in place of this one in the browser's history, for a screen that has become another. */
@@ -342,6 +345,8 @@
               {#key deck}
                 <Game {go} game={deck} />
               {/key}
+            {:else if section === 'vanburen'}
+              <VanBuren {go} />
             {:else}
               <h1>Unknown directory</h1>
               <p class="gap"><a href="#/">Return to the main directory</a></p>

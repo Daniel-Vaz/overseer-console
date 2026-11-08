@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Edits an engine's patch set as ordinary git commits.
 #
-#   engines/patches.sh <fo1|fo2> import   # patches -> .cache/engines/<id>-dev (one commit each)
-#   engines/patches.sh <fo1|fo2> export   # commits in that tree -> engines/<name>/patches/
+#   engines/patches.sh <fo1|fo2|vb> import   # patches -> .cache/engines/<id>-dev (one commit each)
+#   engines/patches.sh <fo1|fo2|vb> export   # commits in that tree -> engines/<name>/patches/
 #
 # Workflow: import, change the code in the dev tree, commit or amend there
 # (rebase onto a newer upstream commit the same way), then export. The commit
@@ -18,7 +18,8 @@ action="${2:-}"
 case "${id}" in
     fo1) name=fallout1 ;;
     fo2) name=fallout2 ;;
-    *) die "usage: engines/patches.sh <fo1|fo2> <import|export>" ;;
+    vb) name=vanburen ;;
+    *) die "usage: engines/patches.sh <fo1|fo2|vb> <import|export>" ;;
 esac
 
 # shellcheck disable=SC1090
@@ -65,6 +66,6 @@ case "${action}" in
         done
         ;;
     *)
-        die "usage: engines/patches.sh <fo1|fo2> <import|export>"
+        die "usage: engines/patches.sh <fo1|fo2|vb> <import|export>"
         ;;
 esac

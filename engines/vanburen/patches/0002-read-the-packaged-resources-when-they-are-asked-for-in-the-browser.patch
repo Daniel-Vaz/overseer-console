@@ -1,0 +1,110 @@
+Read the packaged resources when they are asked for in the browser
+
+The page hands the engine the demo's archives block by block as they are read
+and cannot map them. The browser build keeps each archive open with its header
+and table of contents read, and reads a resource with lseek and read when a
+loader asks for it.
+---
+diff --git a/src/assets/vfs.cpp b/src/assets/vfs.cpp
+index 14a512b..10edec8 100644
+--- a/src/assets/vfs.cpp
++++ b/src/assets/vfs.cpp
+@@ -47,6 +47,11 @@ const char* lumpExt(int32_t t) {
+ 
+ struct Map {                         // a memory-mapped .grp
+     const uint8_t* base = nullptr; size_t size = 0;
++#ifdef __EMSCRIPTEN__
++    // The browser build cannot map the archives (the page hands their blocks to the engine as they are read):
++    // it keeps each one open, with its header and table of contents read, and reads a resource when it is asked for.
++    int fd = -1; std::vector<uint8_t> head;
++#endif
+ };
+ struct Entry { int grp = 0; uint32_t off = 0, len = 0; std::string group, file; };
+ 
+@@ -73,7 +78,23 @@ bool readReal(const std::string& path, std::vector<uint8_t>& out) {
+     return (bool)f || f.eof();
+ }
+ 
+-struct View { const uint8_t* p = nullptr; size_t n = 0; std::string real; bool found = false; };
++struct View { const uint8_t* p = nullptr; size_t n = 0; std::string real; bool found = false;
++#ifdef __EMSCRIPTEN__
++    int grp = -1; uint32_t off = 0;                                 // a packaged resource, still in its archive
++#endif
++};
++
++#ifdef __EMSCRIPTEN__
++// lseek + read, not pread: the page serves the archives' blocks through read
++bool readAt(int fd, size_t off, uint8_t* out, size_t n) {
++    if (::lseek(fd, (off_t)off, SEEK_SET) != (off_t)off) return false;
++    while (n) { ssize_t got = ::read(fd, out, n); if (got <= 0) return false; out += got; n -= (size_t)got; }
++    return true;
++}
++bool readView(const View& v, std::vector<uint8_t>& out) {
++    out.resize(v.n); return v.n == 0 || readAt(M->grps[(size_t)v.grp].fd, v.off, out.data(), v.n);
++}
++#endif
+ 
+ // finds a path: an Override file, a packaged resource, or an ordinary file
+ View lookup(const std::string& path0) {
+@@ -86,7 +107,11 @@ View lookup(const std::string& path0) {
+         if (ov != M->overrides.end()) { v.real = ov->second; v.found = true; return v; }
+         auto it = M->index.find(lr);
+         if (it != M->index.end()) {
++#ifdef __EMSCRIPTEN__
++            const Entry& e = it->second; v.grp = e.grp; v.off = e.off; v.n = e.len; v.found = true; return v;
++#else
+             const Entry& e = it->second; v.p = M->grps[(size_t)e.grp].base + e.off; v.n = e.len; v.found = true; return v;
++#endif
+         }
+     }
+     std::error_code ec; if (fs::is_regular_file(path, ec)) { v.real = path; v.found = true; }
+@@ -115,13 +140,27 @@ bool mountGame(const std::string& gameDir, std::string& err) {
+             Map mp; fs::path gp = fs::path(gameDir) / "data" / (e.group + ".grp"); std::error_code ec;
+             if (fs::is_regular_file(gp, ec)) {
+                 int fd = ::open(gp.c_str(), O_RDONLY); struct stat st;
++#ifdef __EMSCRIPTEN__
++                if (fd >= 0 && fstat(fd, &st) == 0 && st.st_size >= 12) {
++                    uint8_t h[12]; int32_t n = -1;
++                    if (readAt(fd, 0, h, 12)) std::memcpy(&n, h + 8, 4);
++                    if (n >= 0 && 12 + (size_t)n * 8 <= (size_t)st.st_size) {
++                        mp.head.resize(12 + (size_t)n * 8);
++                        if (readAt(fd, 0, mp.head.data(), mp.head.size())) { mp.fd = fd; fd = -1; mp.base = mp.head.data(); mp.size = (size_t)st.st_size; }
++                    }
++                }
++#else
+                 if (fd >= 0 && fstat(fd, &st) == 0 && st.st_size >= 12) {
+                     void* p = mmap(nullptr, (size_t)st.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+                     if (p != MAP_FAILED) { mp.base = (const uint8_t*)p; mp.size = (size_t)st.st_size; }
+                 }
++#endif
+                 if (fd >= 0) ::close(fd);
+             }
+-            gi[e.group] = mp.base ? (int)m->grps.size() : -1; if (mp.base) m->grps.push_back(mp);
++            gi[e.group] = mp.base ? (int)m->grps.size() : -1; if (mp.base) m->grps.push_back(std::move(mp));
++#ifdef __EMSCRIPTEN__
++            for (Map& g2 : m->grps) g2.base = g2.head.data();
++#endif
+             g = gi.find(e.group);
+         }
+         if (g->second < 0) continue;                                // a group without an archive (the empty template groups)
+@@ -146,6 +185,10 @@ bool mountGame(const std::string& gameDir, std::string& err) {
+ // ---- Stream
+ Stream::Stream(const std::string& path) : std::istream(&buf_) {
+     View v = lookup(path);
++#ifdef __EMSCRIPTEN__
++    if (v.found && v.grp >= 0) { if (readView(v, own_)) { buf_.set(reinterpret_cast<const char*>(own_.data()), own_.size()); len_ = own_.size(); ok_ = true; } }
++    else
++#endif
+     if (v.found && v.real.empty()) { buf_.set(reinterpret_cast<const char*>(v.p), v.n); len_ = v.n; ok_ = true; }
+     else if (v.found && readReal(v.real, own_)) { buf_.set(reinterpret_cast<const char*>(own_.data()), own_.size()); len_ = own_.size(); ok_ = true; }
+     if (!ok_) setstate(std::ios::failbit | std::ios::badbit);
+@@ -160,6 +203,9 @@ Stream::Buf::pos_type Stream::Buf::seekoff(off_type off, std::ios_base::seekdir
+ bool exists(const std::string& path) { return lookup(path).found; }
+ bool readBytes(const std::string& path, std::vector<uint8_t>& out) {
+     View v = lookup(path); if (!v.found) return false;
++#ifdef __EMSCRIPTEN__
++    if (v.grp >= 0) return readView(v, out);
++#endif
+     if (v.real.empty()) { out.assign(v.p, v.p + v.n); return true; }
+     return readReal(v.real, out);
+ }

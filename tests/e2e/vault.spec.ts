@@ -294,10 +294,7 @@ test('an unsealed store is pointed out once it holds something, and the console 
   await expect(settings).toContainText('STORAGE NOT SEALED');
   await expect(seal).toHaveClass(/amber/);
   // The entry says what it is about and where to mend it.
-  await page.keyboard.press('ArrowDown');
-  await page.keyboard.press('ArrowDown');
-  await page.keyboard.press('ArrowDown');
-  await page.keyboard.press('ArrowDown');
+  for (let step = 0; step < 5; step++) await page.keyboard.press('ArrowDown');
   await expect(page.locator('.menu li.selected')).toContainText('Terminal settings');
   await expect(page.locator('.menu-note')).toContainText('a browser short of disk space may clear the games and saves kept here');
 
@@ -377,7 +374,7 @@ test('the power lamp is a button: off and on again, on a screen of any size', as
   await expect(page.locator('.nameplate')).toHaveText('OFF AND ON AGAIN');
   // The tube has warmed up again, and the console is where it was.
   await expect(housing).toHaveClass(/warm-up/);
-  await expect(page.locator('.menu button')).toHaveCount(7);
+  await expect(page.locator('.menu button')).toHaveCount(8);
   await page.keyboard.press('5');
   await expect(page.getByRole('heading', { name: 'Terminal settings' })).toBeVisible();
 });

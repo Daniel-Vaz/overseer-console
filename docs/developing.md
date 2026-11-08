@@ -87,6 +87,10 @@ taken into the party, see `tests/party.ts`). `tests/unit/modify.real.test.ts` ch
 games' own rules, items, pictures and world, and reads every map of each game to its last byte; it takes the same
 `FO1_DIR` and `FO2_DIR`, and `ETTU` as the unpacked `Fallout1in2` folder.
 
+`VB_RAR="/path/to/F3_Demo.rar"` has `tests/e2e/vanburen.spec.ts` load the Van Buren tech demo from its archive and
+play it to Junktown; `VB_DIR` (the unpacked folder) does the same from a folder. Without either it still checks the
+screen, and fetching from a stand-in for archive.org.
+
 ### Dropbox and Google Drive
 
 The tests run against stand-ins for the two clouds, `tests/fake-dropbox.ts` and `tests/fake-drive.ts`; the one for
@@ -129,6 +133,10 @@ engines/patches.sh fo1 import    # patches -> .cache/engines/fo1-dev, one commit
 engines/patches.sh fo1 export    # commits -> engines/fallout1/patches/
 engines/build.sh fo1
 ```
+
+Open Van Buren (`vb`, the Van Buren tech demo's engine) is changed the same way. It draws with WebGL, so its
+`source.env` keeps SDL's own clock (`ENGINE_CLOCK=sdl`): the glue would otherwise hand the browser its turn in the
+middle of a frame. It calls `overseer_frame` once a frame instead.
 
 `EXTRA_LINK_FLAGS=--profiling-funcs FORCE=1 engines/build.sh fo1` keeps function names in the
 binary, for profiling in the browser's developer tools. For a crash, add `-sASSERTIONS=1 -sSAFE_HEAP=2`: a stray

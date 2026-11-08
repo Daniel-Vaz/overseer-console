@@ -28,6 +28,7 @@
   <a href="#play-in-three-steps">Get started</a> ·
   <a href="#highlights">Highlights</a> ·
   <a href="docs/features.md">All features</a> ·
+  <a href="docs/van-buren.md">Van Buren</a> ·
   <a href="#documentation">Docs</a> ·
   <a href="#credits">Credits</a>
 </p>
@@ -56,6 +57,13 @@ the game it was made for, with saves of its own, from the console's Mod library.
 Nevada, Olympus 2207, Resurrection, Fallout Yesterday, the Restoration Project, the Megamod, Fallout Et Tu and Fallout
 Fixt), each installed from its makers' own link at the version the console's tests play; any other loads from its zip
 or its folder. Add-ons, such as FO2tweaks or new music, are laid over a game or a mod. See [Mods](docs/mods.md).
+
+### And the Fallout 3 that was never finished
+
+Black Isle's own Fallout 3, Van Buren, was cancelled in 2003; its tech demo is all of it that ever played. The
+console fetches it from the [Internet Archive](https://archive.org/details/f3demo) with one key and plays it on
+[Open Van Buren](https://github.com/sulkytroll/open-vanburen), an engine written anew for it: Junktown, the Vault,
+and a browser of its maps and models. See [Van Buren](docs/van-buren.md).
 
 ## Play in three steps
 

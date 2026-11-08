@@ -9,6 +9,9 @@ import type { DatFormat, GameId, ModRecord } from '../games';
  *   overseer-console/games/<game>/<id>/pack.bin      small files, back to back
  *   overseer-console/games/<game>/<id>/b0000.bin ... one per large file
  *
+ * Add-ons are kept the same way under overseer-console/addons/, and the Van
+ * Buren tech demo under overseer-console/demos/vb/.
+ *
  * An import writes a new <id> directory and only then points current.json at
  * it, so an interrupted import never leaves a half-installed game behind.
  */
@@ -35,7 +38,8 @@ export interface Manifest {
   install: string;
   importedAt: number;
   totalBytes: number;
-  datFormat: DatFormat;
+  /** The kind of game archives it has. The Van Buren tech demo has none (see vanburen/demo.ts). */
+  datFormat?: DatFormat;
   files: ManifestFile[];
   /** Every directory of the install, including empty ones. */
   dirs: string[];

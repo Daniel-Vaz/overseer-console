@@ -21,10 +21,11 @@ function serviceWorker(): Plugin {
     apply: 'build',
     generateBundle(_options, bundle) {
       const files = Object.keys(bundle)
-        .filter((file) => !file.endsWith('.map'))
+        // The RAR reader is for loading the Van Buren tech demo alone: fetched, and kept, when that is done.
+        .filter((file) => !file.endsWith('.map') && !/(^|\/)unrar-[^/]*\.wasm$/.test(file))
         .sort();
       // The pages themselves are emitted after this hook runs, so name them here.
-      const precache = ['', 'index.html', 'play.html', ...files.filter((file) => !file.endsWith('.html')), 'favicon.ico', 'favicon-96.png', 'manifest.webmanifest'];
+      const precache = ['', 'index.html', 'play.html', 'vanburen.html', ...files.filter((file) => !file.endsWith('.html')), 'favicon.ico', 'favicon-96.png', 'manifest.webmanifest'];
       const version = createHash('sha256').update(precache.join('\n')).digest('hex').slice(0, 12);
       const source = readFileSync(`${root}src/sw.js`, 'utf8')
         .replace('__VERSION__', version)
@@ -55,12 +56,13 @@ export default defineConfig({
   build: {
     target: 'es2022',
     rollupOptions: {
-      // Two pages: the console (launcher) and the player. Leaving the player
-      // is a real navigation, which is the one reliable way to give back the
-      // memory of a WebAssembly instance.
+      // The console (launcher) and the players: the Fallout games', and the
+      // Van Buren tech demo's. Leaving a player is a real navigation, which is
+      // the one reliable way to give back the memory of a WebAssembly instance.
       input: {
         index: `${root}index.html`,
         play: `${root}play.html`,
+        vanburen: `${root}vanburen.html`,
       },
     },
   },

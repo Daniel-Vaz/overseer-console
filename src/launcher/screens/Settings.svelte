@@ -156,7 +156,7 @@
       key: '6',
       group: GAMES_GROUP,
       label: 'Game improvements',
-      icon: 'holodisk-02',
+      icon: 'engine',
       state: s.improvements ? 'ON' : 'OFF',
       // Kept to two lines: the list is long, and the manual has the whole of it.
       note: s.improvements
@@ -168,7 +168,7 @@
       key: '7',
       group: GAMES_GROUP,
       label: 'Fast forward',
-      icon: 'play',
+      icon: 'fast',
       state: `${s.fastForward} TIMES`,
       note: 'F8, or FAST on a touch screen, runs a game this many times as fast until pressed again: for long walks and long turns.',
       ...choice('fastForward', FAST_FORWARD_SPEEDS),
@@ -222,6 +222,7 @@
       key: 'v',
       group: CONSOLE_GROUP,
       label: 'Vault around the console',
+      icon: 'vault',
       state: s.vault ? 'ON' : 'OFF',
       note: 'The vault a large window shows around this console, and what lives in it. Left alone, some of it comes out onto the glass.',
       ...toggle('vault'),

@@ -1,0 +1,223 @@
+Add an Emscripten build target
+
+Builds the game alone for the browser: SDL2 and FreeType from the Emscripten
+ports, OpenGL ES 3 (WebGL 2) for OpenGL 3.3, Emscripten's OpenAL over Web
+Audio, Asyncify for the main loop.
+
+platform/emscripten/GL/glew.h stands in for GLEW and answers for what ES
+lacks: wireframe stays filled, and the two textures with a black border colour
+(the fog of war's masks) clamp to their edge while the fog shader reads black
+outside them itself. The shader helper compiles the shaders as GLSL ES 3.00
+and sets the uniforms they declare with a value once they are linked, as
+desktop GL does; ES does not allow the declaration. The menu buttons' picture
+goes in as a C array, since WebAssembly's assembler has no .incbin.
+---
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index e7d3a45..d37f2a7 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -36,6 +36,43 @@ add_library(vb_game_core src/game/world.cpp)
+ target_link_libraries(vb_game_core PUBLIC vb_assets)
+ target_include_directories(vb_game_core PUBLIC src)
+ 
++# ---------------------------------------------------------------------------
++# Browser (WebAssembly) build: the game alone, for a page that boots it.
++# SDL2 and FreeType come from the Emscripten ports, OpenGL ES 3 is WebGL 2
++# (platform/emscripten/GL/glew.h stands in for GLEW), OpenAL is Emscripten's
++# own over Web Audio. Asyncify lets the main loop give the browser its turn.
++# ---------------------------------------------------------------------------
++if(EMSCRIPTEN)
++  # WebAssembly's assembler has no .incbin: the port's own picture goes in as a C array.
++  file(READ "${CMAKE_SOURCE_DIR}/data/menu_buttons.tga" vb_menu_hex HEX)
++  string(REGEX REPLACE "([0-9a-f][0-9a-f])" "0x\\1," vb_menu_hex "${vb_menu_hex}")
++  file(WRITE "${CMAKE_BINARY_DIR}/generated/menu_buttons.inc" "${vb_menu_hex}\n")
++  add_executable(vanburen tools/vanburen/main.cpp tools/vanburen/embedded.cpp)
++  target_compile_definitions(vanburen PRIVATE VB_EMBED_INC="${CMAKE_BINARY_DIR}/generated/menu_buttons.inc")
++  target_include_directories(vanburen PRIVATE tools platform/emscripten)
++  target_compile_options(vanburen PRIVATE "-sUSE_SDL=2" "-sUSE_FREETYPE=1")
++  target_compile_options(vb_assets PRIVATE "-sUSE_SDL=2")
++  target_link_libraries(vanburen vb_game_core vb_assets)
++  target_link_options(vanburen PRIVATE
++    "-sUSE_SDL=2"
++    "-sUSE_FREETYPE=1"
++    "-lopenal"
++    "-sMIN_WEBGL_VERSION=2"
++    "-sMAX_WEBGL_VERSION=2"
++    "-sASYNCIFY"
++    "-sENVIRONMENT=web"
++    "-sALLOW_MEMORY_GROWTH"
++    "-sINITIAL_MEMORY=256MB"
++    "-sMAXIMUM_MEMORY=4GB"
++    "-sSTACK_SIZE=4MB"
++    "-sCASE_INSENSITIVE_FS"
++    "-sMODULARIZE"
++    "-sEXPORT_NAME=vanburen"
++    "-sEXIT_RUNTIME"
++  )
++  return()
++endif()
++
+ # graphics deps
+ find_package(SDL2 REQUIRED)
+ find_package(GLEW REQUIRED)
+diff --git a/platform/emscripten/GL/glew.h b/platform/emscripten/GL/glew.h
+new file mode 100644
+index 0000000..d72989c
+--- /dev/null
++++ b/platform/emscripten/GL/glew.h
+@@ -0,0 +1,19 @@
++#pragma once
++// The browser build: OpenGL ES 3.0 (WebGL 2) instead of desktop OpenGL 3.3 through GLEW.
++// What the engine uses of desktop GL that ES lacks is answered here, the same way each time.
++#include <GLES3/gl3.h>
++
++#define glewExperimental vb_glewExperimental
++static unsigned char vb_glewExperimental = 0;
++static inline unsigned glewInit() { return 0; }
++
++// Wireframe (a debug view) does not exist in ES: the polygons stay filled.
++#define GL_LINE 0x1B01
++#define GL_FILL 0x1B02
++#define glPolygonMode(face, mode) ((void)0)
++
++// ES 3.0 has no border colour. Both textures that ask for one (the fog of war's
++// masks) want black outside; the fog shader reads 0 there itself (see gmodel.h).
++#define GL_CLAMP_TO_BORDER GL_CLAMP_TO_EDGE
++#define GL_TEXTURE_BORDER_COLOR 0x1004
++#define glTexParameterfv(target, pname, params) ((pname) == GL_TEXTURE_BORDER_COLOR ? (void)0 : glTexParameterfv(target, pname, params))
+diff --git a/tools/common/gmodel.h b/tools/common/gmodel.h
+index de3d7dc..00faad5 100644
+--- a/tools/common/gmodel.h
++++ b/tools/common/gmodel.h
+@@ -175,18 +175,24 @@ inline bool upload(GpuModel& M, const vb::Mesh& mesh, const std::string& stem, c
+ static const char* kFogGLSL = R"(
+ uniform int fogOn; uniform int fogMem; uniform int fogHide; uniform float fogFloor; uniform vec2 fogCenter; uniform vec2 fogRadii; uniform sampler2D fogMask; uniform vec2 fogOrigin; uniform vec2 fogExtent; uniform float fogDim;
+ uniform int fogLitOn; uniform sampler2D fogLit; uniform vec2 fogLitOrigin; uniform vec2 fogLitExtent; uniform float fogLightY;
++#ifdef GL_ES
++// (ES has no border colour: outside the masks reads black here, as their black border does on the desktop)
++float fogTexel(sampler2D s, vec2 u) { return any(lessThan(u, vec2(0.0))) || any(greaterThan(u, vec2(1.0))) ? 0.0 : texture(s, u).r; }
++#else
++float fogTexel(sampler2D s, vec2 u) { return texture(s, u).r; }
++#endif
+ // the player's light: a sphere (3D distance from the light point) that the surroundings cut into (the occlusion mask `fogLit`: lines of sight over the collision grid)
+ float fogLight(vec2 w, float h) {
+   float dy = h - fogLightY; float d = sqrt(dot(w - fogCenter, w - fogCenter) + dy * dy);
+   float v = 1.0 - smoothstep(fogRadii.x, fogRadii.y, d);
+-  if (fogLitOn != 0) v *= texture(fogLit, (w - fogLitOrigin) / fogLitExtent).r;
++  if (fogLitOn != 0) v *= fogTexel(fogLit, (w - fogLitOrigin) / fogLitExtent);
+   return v;
+ }
+ float fogDisc(vec2 w, float h) { return fogOn == 0 ? 1.0 : fogLight(w, h); }   // the lit field alone (actors: no floor, no memory)
+ float fogVisibility(vec2 w, float h) {
+   if (fogOn == 0) return 1.0;
+   float v = fogLight(w, h);
+-  if (fogMem != 0) v = max(v, texture(fogMask, (w - fogOrigin) / fogExtent).r * fogDim);
++  if (fogMem != 0) v = max(v, fogTexel(fogMask, (w - fogOrigin) / fogExtent) * fogDim);
+   return max(v, fogFloor);
+ }
+ )";
+diff --git a/tools/common/ui.h b/tools/common/ui.h
+index ce7b3d9..35c8ced 100644
+--- a/tools/common/ui.h
++++ b/tools/common/ui.h
+@@ -7,17 +7,53 @@
+ #include <string>
+ #include <vector>
+ 
++#ifdef __EMSCRIPTEN__
++// The browser build compiles the shaders as GLSL ES 3.00 (WebGL 2): its own version line and default precisions. ES does
++// not allow a uniform to be declared with an initial value; those are taken out and set once the program is linked,
++// which is when desktop GL sets them.
++struct EsUniformInit { std::string name; int size = 1; float v[4] = {0, 0, 0, 0}; };
++static std::vector<EsUniformInit>& esUniformInits() { static std::vector<EsUniformInit> v; return v; }
++static std::string toGlslEs(const char* src) {
++    std::string s(src); const std::string desktop = "#version 330 core";
++    if (s.compare(0, desktop.size(), desktop) == 0) s = "#version 300 es\nprecision highp float;\nprecision highp int;" + s.substr(desktop.size());
++    for (size_t at = s.find("uniform "); at != std::string::npos; at = s.find("uniform ", at + 1)) {
++        size_t semi = s.find(';', at), eq = s.find('=', at); if (semi == std::string::npos || eq == std::string::npos || eq > semi) continue;
++        std::string decl = s.substr(at + 8, eq - at - 8), type, name; size_t sp = decl.find(' ');
++        if (sp == std::string::npos) continue; type = decl.substr(0, sp); name = decl.substr(sp + 1); while (!name.empty() && name.back() == ' ') name.pop_back();
++        EsUniformInit u; u.name = name; u.size = type == "float" ? 1 : type.size() == 4 && type.compare(0, 3, "vec") == 0 ? type[3] - '0' : 0;
++        if (u.size < 1 || u.size > 4) continue;
++        std::string val = s.substr(eq + 1, semi - eq - 1); size_t open = val.find('('); const char* p = val.c_str() + (open == std::string::npos ? 0 : open + 1);
++        int n = 0; for (char* end; n < u.size; n++) { u.v[n] = std::strtof(p, &end); if (end == p) break; p = end; while (*p == ' ' || *p == ',') p++; }
++        for (int i = n == 1 ? 1 : u.size; i < u.size; i++) u.v[i] = u.v[0];          // vec4(0.0): one value for every component
++        esUniformInits().push_back(u);
++        s.erase(eq, semi - eq); while (eq > 0 && s[eq - 1] == ' ') s.erase(--eq, 1);
++    }
++    return s;
++}
++#endif
+ static GLuint compile(GLenum type, const char* src) {
+     GLuint s = glCreateShader(type);
++#ifdef __EMSCRIPTEN__
++    std::string es = toGlslEs(src); src = es.c_str();
++#endif
+     glShaderSource(s, 1, &src, nullptr); glCompileShader(s);
+     GLint ok; glGetShaderiv(s, GL_COMPILE_STATUS, &ok);
+-    if (!ok) { char b[1024]; glGetShaderInfoLog(s, 1024, nullptr, b); std::fprintf(stderr, "shader error: %s\n", b); std::exit(1); }
++    if (!ok) { char b[1024]; glGetShaderInfoLog(s, 1024, nullptr, b); std::fprintf(stderr, "shader error: %s\n%s\n", b, src); std::exit(1); }
+     return s;
+ }
+ static GLuint program(const char* vs, const char* fs) {
+     GLuint p = glCreateProgram();
+     glAttachShader(p, compile(GL_VERTEX_SHADER, vs)); glAttachShader(p, compile(GL_FRAGMENT_SHADER, fs));
+-    glLinkProgram(p); return p;
++    glLinkProgram(p);
++#ifdef __EMSCRIPTEN__
++    GLint was = 0; glGetIntegerv(GL_CURRENT_PROGRAM, &was); glUseProgram(p);
++    for (const EsUniformInit& u : esUniformInits()) {
++        GLint at = glGetUniformLocation(p, u.name.c_str()); if (at < 0) continue;
++        if (u.size == 1) glUniform1fv(at, 1, u.v); else if (u.size == 2) glUniform2fv(at, 1, u.v); else if (u.size == 3) glUniform3fv(at, 1, u.v); else glUniform4fv(at, 1, u.v);
++    }
++    esUniformInits().clear(); glUseProgram((GLuint)was);
++#endif
++    return p;
+ }
+ 
+ static const char* kTextVS = R"(#version 330 core
+diff --git a/tools/vanburen/embedded.cpp b/tools/vanburen/embedded.cpp
+index 6d5f9dd..98dbfc7 100644
+--- a/tools/vanburen/embedded.cpp
++++ b/tools/vanburen/embedded.cpp
+@@ -1,6 +1,12 @@
+ // Files compiled into the binary (the port's own art), registered with the VFS at start-up.
+ #include "assets/vfs.h"
+ 
++#ifdef VB_EMBED_INC          // the browser build: the bytes as a C array CMake wrote (WebAssembly's assembler has no .incbin)
++static const unsigned char kMenuButtons[] = {
++#include VB_EMBED_INC
++};
++void registerEmbeddedFiles() { vb::vfs::addEmbedded("embedded:/menu_buttons.tga", kMenuButtons, sizeof kMenuButtons); }
++#else
+ #ifndef VB_DATA_DIR
+ #error "VB_DATA_DIR must name the folder with the embedded files"
+ #endif
+@@ -14,3 +20,4 @@ extern "C" const unsigned char vb_embedded_menu_buttons[], vb_embedded_menu_butt
+ void registerEmbeddedFiles() {
+     vb::vfs::addEmbedded("embedded:/menu_buttons.tga", vb_embedded_menu_buttons, (size_t)(vb_embedded_menu_buttons_end - vb_embedded_menu_buttons));
+ }
++#endif
+diff --git a/tools/vanburen/main.cpp b/tools/vanburen/main.cpp
+index 26f733d..e19dbc0 100644
+--- a/tools/vanburen/main.cpp
++++ b/tools/vanburen/main.cpp
+@@ -212,12 +212,18 @@ int main(int argc, char** argv) {
+     int curMap = (int)(mi - maps.begin());
+ 
+     if (SDL_Init(SDL_INIT_VIDEO) != 0) { std::fprintf(stderr, "SDL: %s\n", SDL_GetError()); return 1; }
++#ifdef __EMSCRIPTEN__
++    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3); SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);       // OpenGL ES 3.0: WebGL 2
++    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
++#else
+     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3); SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
++#endif
+     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+     SDL_Window* win = SDL_CreateWindow("Van Buren", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, W, H, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
+     if (!win) { std::fprintf(stderr, "window: %s\n", SDL_GetError()); return 1; }
+     SDL_GLContext ctx = SDL_GL_CreateContext(win);
++    if (!ctx) { std::fprintf(stderr, "OpenGL context: %s\n", SDL_GetError()); return 1; }
+     SDL_ShowCursor(SDL_DISABLE);                               // the game draws its own cursor
+     glewExperimental = GL_TRUE; glewInit();
+     SDL_GL_SetSwapInterval(shot.empty() ? 1 : 0);

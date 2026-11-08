@@ -14,3 +14,9 @@ export async function launchGame(game: GameId, slot?: number, from?: string): Pr
   if (from !== undefined) query.set('from', from);
   location.href = `${import.meta.env.BASE_URL}play.html?${query.toString().replace(/%2F/g, '/')}`;
 }
+
+/** Leaves the console for the Van Buren tech demo's own player page. */
+export async function launchDemo(): Promise<void> {
+  await closeAudio();
+  location.href = `${import.meta.env.BASE_URL}vanburen.html`;
+}
