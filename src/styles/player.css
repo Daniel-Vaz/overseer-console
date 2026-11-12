@@ -6,8 +6,6 @@ body.player {
   --keys: 0px;
   /* And by the deck's row of shortcuts, where that is a row of its own. */
   --quick: 0px;
-  /* And by the column of the player's own buttons, beside the right strip. */
-  --mine: 0px;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -21,7 +19,7 @@ body.player {
 #stage {
   position: fixed;
   top: var(--safe-top);
-  right: calc(var(--deck) + var(--mine) + var(--safe-right));
+  right: calc(var(--deck) + var(--safe-right));
   bottom: var(--keys);
   left: calc(var(--deck) + var(--safe-left));
   display: grid;
@@ -363,52 +361,68 @@ body.touch #handle {
   color: var(--phosphor-hot);
 }
 
-/* The player's own buttons: a column of their own beside the right strip, at the bottom, where the thumb is. The picture makes room. */
-body.touch.own-buttons {
-  --mine: var(--deck);
-}
-
-.deck-mine {
-  right: calc(var(--safe-right) + var(--deck));
-  justify-content: flex-end;
-}
-
-.deck-mine[hidden] {
-  display: none;
-}
-
-.deck-side.deck-mine button {
-  font-size: clamp(11px, 2.5vmin, 17px);
-  letter-spacing: 0.03em;
-}
-
-/* Shortcuts: keys the games answer to, small enough to sit between the deck's own buttons. */
-.deck-quick {
+/* Shortcuts: keys the games answer to, small enough to sit between the deck's own buttons. The player's own buttons are more of them. */
+.deck-quick,
+.deck-side .deck-mine {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: clamp(4px, 1.4vmin, 12px);
 }
 
-.deck-side .deck-quick button {
+.deck-side .deck-quick button,
+.deck-side .deck-mine button,
+.deck-side.deck-mine button {
   height: calc((var(--deck) - 10px) * 0.56);
   font-size: clamp(11px, 2.5vmin, 17px);
   letter-spacing: 0.03em;
 }
 
-.deck-quick button[hidden] {
+.deck-quick button[hidden],
+.deck-mine[hidden] {
   display: none;
 }
 
-/* With the keyboard up, the strips beside the picture are too short for the shortcuts, which are keys anyway. */
 @media (orientation: landscape) {
+  /* The player's own buttons sit under the shortcuts, in room the strips have anyway: the picture keeps all of its own. */
+  .deck-side .deck-quick,
+  .deck-side .deck-mine {
+    display: contents;
+  }
+
+  .deck-side.deck-row {
+    display: none;
+  }
+
+  /* Where a strip is too short for all its buttons, MENU and KEYS give way first, down to a shortcut's height, and then the shortcuts a little. */
+  .deck-side .deck-quick button,
+  .deck-side .deck-mine button {
+    flex: 0 1 auto;
+    min-height: calc((var(--deck) - 10px) * 0.45);
+  }
+
+  .deck-side button[data-act='menu'],
+  .deck-side button[data-act='keys'] {
+    flex: 0 1000 auto;
+    min-height: calc((var(--deck) - 10px) * 0.56);
+    container: deck-button / size;
+  }
+
+  /* With the keyboard up, the strips beside the picture are too short for the shortcuts, which are keys anyway. */
   body.keys-open .deck-quick,
   body.keys-open .deck-mine {
     display: none;
   }
+}
 
-  body.touch.own-buttons.keys-open {
-    --mine: 0px;
+/* MENU and KEYS that gave way keep their symbols alone, as large as fits. */
+@container deck-button (max-height: 34px) {
+  .deck-side button small {
+    display: none;
+  }
+
+  .deck-side button svg {
+    height: 80%;
   }
 }
 
@@ -499,7 +513,7 @@ body.touch.own-buttons {
     --quick: calc(3 * var(--quick-row));
   }
 
-  .deck-side.deck-mine {
+  .deck-side.deck-row {
     right: var(--safe-right);
     bottom: calc(var(--keys) + var(--deck) + 2 * var(--quick-row) + var(--safe-bottom));
     left: var(--safe-left);
@@ -508,16 +522,15 @@ body.touch.own-buttons {
     height: var(--quick-row);
   }
 
-  body.keys-open .deck-side.deck-mine {
+  body.keys-open .deck-side.deck-row {
     bottom: calc(var(--keys) + var(--deck) + 2 * var(--quick-row));
   }
 
-  .deck-side.deck-mine button {
+  .deck-side.deck-row button {
     flex: 1 1 0;
     width: auto;
     min-width: 0;
     max-width: calc((var(--deck) - 10px) * 1.7);
-    height: calc((var(--deck) - 10px) * 0.56);
   }
 }
 

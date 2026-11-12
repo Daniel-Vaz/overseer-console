@@ -82,24 +82,40 @@ async function atTheGate(page: Page, settings: Record<string, unknown> = {}): Pr
 
 const boxesOf = (buttons: ReturnType<Page['locator']>) => buttons.evaluateAll((all) => all.map((button) => button.getBoundingClientRect().toJSON() as DOMRect));
 
-test("ENTER sits under ESC, and the player's own buttons are a column beside the right strip", async ({ page }) => {
-  await atTheGate(page, { touchButtons: { fo2: ['KeyB', '', 'Digit2', 'KeyQ'] } });
-  const own = page.locator('#deck .deck-mine button');
-  await expect(own).toHaveText(['HAND', 'LOCKPK', 'Q']);
-  const esc = (await page.locator('#deck button[data-act="esc"]').boundingBox())!;
-  const enter = (await page.locator('#deck button[data-act="enter"]').boundingBox())!;
-  expect(enter.y).toBeGreaterThan(esc.y + esc.height - 1);
-  expect(enter.y + enter.height).toBeLessThanOrEqual(390);
-  // Between the picture and the right strip, at the bottom, whole.
-  const stage = (await page.locator('#stage').boundingBox())!;
-  const strip = (await page.locator('#deck .deck-right').boundingBox())!;
-  for (const box of await boxesOf(own)) {
-    expect(box.left).toBeGreaterThanOrEqual(stage.x + stage.width - 1);
-    expect(box.right).toBeLessThanOrEqual(strip.x + 1);
-    expect(box.top).toBeGreaterThanOrEqual(0);
-    expect(box.bottom).toBeLessThanOrEqual(390);
-    expect(box.height).toBeGreaterThan(40);
-  }
+test.describe('on the shortest phone held sideways', () => {
+  test.use({ viewport: { width: 640, height: 360 } });
+
+  test("the player's own buttons sit under the shortcuts of both strips, and the picture keeps its room", async ({ page }) => {
+    await atTheGate(page, { touchButtons: { fo2: ['KeyB', 'KeyZ', 'Digit2', 'KeyQ'] } });
+    const strip = (side: string) => boxesOf(page.locator(`#deck .deck-${side} button:visible`));
+    const names = (side: string) => page.locator(`#deck .deck-${side} button:visible`).evaluateAll((all) => all.map((button) => button.textContent!.trim()));
+    // 1 and 2 under SKILL, 3 and 4 under QLOAD, ENTER under ESC.
+    expect(await names('left')).toEqual(['MENU', 'KEYS', 'INV', 'MAP', 'CHA', 'PIP', 'SKILL', 'HAND', 'REST', 'ESC', 'ENTER']);
+    expect(await names('right')).toEqual(['FAST', 'HILITE', 'ATTACK', 'MODE', 'TURN', 'QSAVE', 'QLOAD', 'LOCKPK', 'Q', 'CLICK', 'CURSOR']);
+    // Each strip on the screen, one button under another, none squashed: MENU and KEYS give way, down to a shortcut's height.
+    for (const side of ['left', 'right']) {
+      const boxes = await strip(side);
+      for (const [index, box] of boxes.entries()) {
+        expect(box.top).toBeGreaterThanOrEqual(0);
+        expect(box.bottom).toBeLessThanOrEqual(360);
+        expect(box.height).toBeGreaterThan(18);
+        if (index) expect(box.top).toBeGreaterThanOrEqual(boxes[index - 1]!.bottom);
+      }
+    }
+    const [menu, , inv] = await strip('left');
+    expect(menu!.height).toBeGreaterThanOrEqual(inv!.height - 1);
+    // No room is taken from the picture: it reaches the right strip.
+    const stage = (await page.locator('#stage').boundingBox())!;
+    const right = (await page.locator('#deck .deck-right').boundingBox())!;
+    expect(stage.x + stage.width).toBeGreaterThanOrEqual(right.x - 1);
+
+    // Turned upright, they become a row of their own, in slot order; and back.
+    await page.setViewportSize({ width: 360, height: 640 });
+    await expect(page.locator('#deck .deck-row button')).toHaveText(['HAND', 'REST', 'LOCKPK', 'Q']);
+    await expect(page.locator('#deck .deck-side:not(.deck-row) .deck-mine button')).toHaveCount(0);
+    await page.setViewportSize({ width: 640, height: 360 });
+    await expect(page.locator('#deck .deck-right .deck-mine button')).toHaveText(['LOCKPK', 'Q']);
+  });
 });
 
 test.describe('on a phone held upright', () => {

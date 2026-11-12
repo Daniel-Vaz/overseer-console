@@ -50,6 +50,8 @@
           <button type="button" data-key="KeyP" aria-label="Pip-Boy">PIP</button>
           <button type="button" data-key="KeyS" aria-label="Skilldex">SKILL</button>
         </div>
+        <!-- The player's own buttons 1 and 2, held sideways. -->
+        <div class="deck-mine" hidden></div>
         <span class="deck-gap"></span>
         <button type="button" data-act="esc" aria-label="Escape key">ESC</button>
         <button type="button" data-act="enter" aria-label="Enter key: yes, done">ENTER</button>
@@ -64,6 +66,8 @@
           <button type="button" data-key="F6" aria-label="Quick save, in slot 7">QSAVE</button>
           <button type="button" data-key="F7" data-confirm="Tap QLOAD again to load the quick save" aria-label="Quick load, from slot 7: tap twice">QLOAD</button>
         </div>
+        <!-- And 3 and 4. -->
+        <div class="deck-mine" hidden></div>
         <span class="deck-gap"></span>
         <button type="button" data-act="left" aria-label="Left mouse button: click where the pointer is">
           <svg viewBox="0 0 24 32" aria-hidden="true">
@@ -80,8 +84,8 @@
           <small>CURSOR</small>
         </button>
       </div>
-      <!-- The player's own buttons, keys they chose in the console menu: a column beside the right strip, or a row of their own. -->
-      <div class="deck-side deck-mine" hidden></div>
+      <!-- The player's own buttons, keys they chose in the console menu: under the shortcuts of either strip, or held upright a row of their own. -->
+      <div class="deck-side deck-mine deck-row" hidden></div>
     </div>
     <div id="keys" hidden aria-label="Keyboard"></div>
     <div id="toast" role="status" aria-live="polite"></div>

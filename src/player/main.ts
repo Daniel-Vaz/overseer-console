@@ -545,7 +545,7 @@ function openButtons(): void {
   list.classList.add('stacked');
   body.replaceChildren(
     el('p', 'big', 'Your buttons'),
-    el('p', 'gap', `Up to ${OWN_BUTTONS} keys of your own on the deck, for ${gameDef(game).title}.`),
+    el('p', 'gap', `Up to ${OWN_BUTTONS} keys of your own on the deck, for ${gameDef(game).title}. Held sideways, 1 and 2 go on the left, 3 and 4 on the right.`),
     list,
     actions([['[B] Back', () => openMenu()]]),
   );

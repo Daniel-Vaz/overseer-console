@@ -50,6 +50,9 @@ const INVENTORY_ROW = 48;
 /** How long a button that asks for a second tap waits for it. */
 const CONFIRM_MS = 3000;
 
+/** Held upright, the deck is rows under the picture; sideways, strips beside it. */
+const UPRIGHT = matchMedia('(orientation: portrait)');
+
 /** The deck's buttons for keys that are not shortcuts of the game: they work in its dialogs as much as on the map. */
 const KEY_ACTS: Record<string, Pick<KeyboardEvent, 'code' | 'key' | 'keyCode'>> = { esc: ESCAPE_KEY, enter: ENTER_KEY };
 
@@ -71,6 +74,8 @@ export class TouchControls {
   private keyboardIsAutomatic = false;
   private wantedText = false;
   private dialog: QuantityDialog = null;
+  /** The player's own buttons, by slot: null for a slot with no key. */
+  private own: (HTMLButtonElement | null)[] = [];
   private readonly deckHeld = new Map<number, () => void>();
   /** CSS pixels per pixel of the game. */
   private scale = 1;
@@ -129,6 +134,12 @@ export class TouchControls {
     deck.addEventListener('pointerup', (event) => this.onDeckUp(event));
     deck.addEventListener('pointercancel', (event) => this.onDeckUp(event));
     deck.addEventListener('contextmenu', (event) => event.preventDefault());
+    UPRIGHT.addEventListener('change', () => {
+      // A button held while it moves would lose the finger that holds it.
+      for (const release of this.deckHeld.values()) release();
+      this.deckHeld.clear();
+      this.placeOwnButtons();
+    });
 
     // iOS: no pinch-zooming of the game.
     document.addEventListener('gesturestart', (event) => event.preventDefault());
@@ -208,9 +219,8 @@ export class TouchControls {
    * slot, '' for none. Only those with a key are shown, in slot order.
    */
   setOwnButtons(codes: readonly string[]): void {
-    const strip = this.host.deck.querySelector<HTMLElement>('.deck-mine');
-    if (!strip) return;
-    const buttons = codes.filter((code) => keyByCode(code)).map((code) => {
+    this.own = codes.map((code) => {
+      if (!keyByCode(code)) return null;
       const button = document.createElement('button');
       button.type = 'button';
       button.dataset.key = code;
@@ -218,10 +228,28 @@ export class TouchControls {
       button.setAttribute('aria-label', `Your button: ${buttonLabel(code)}, the ${keyName(code)} key`);
       return button;
     });
-    strip.replaceChildren(...buttons);
-    strip.hidden = !buttons.length;
-    document.body.classList.toggle('own-buttons', buttons.length > 0);
+    this.placeOwnButtons();
+    document.body.classList.toggle('own-buttons', this.own.some(Boolean));
     if (this.shown) this.host.layoutChanged();
+  }
+
+  /**
+   * Held sideways, buttons 1 and 2 go under the left strip's shortcuts and 3
+   * and 4 under the right's, in room the strips have anyway. Held upright,
+   * they are a row of their own.
+   */
+  private placeOwnButtons(): void {
+    const deck = this.host.deck;
+    const put = (selector: string, buttons: (HTMLButtonElement | null)[]) => {
+      const box = deck.querySelector<HTMLElement>(selector);
+      if (!box) return;
+      box.replaceChildren(...buttons.filter((button) => button !== null));
+      box.hidden = !box.childElementCount;
+    };
+    const upright = UPRIGHT.matches;
+    put('.deck-left .deck-mine', upright ? [] : this.own.slice(0, 2));
+    put('.deck-right .deck-mine', upright ? [] : this.own.slice(2));
+    put('.deck-row', upright ? this.own : []);
   }
 
   /** Lets go of everything: the game is being paused or left. */
